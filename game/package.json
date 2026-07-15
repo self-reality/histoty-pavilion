@@ -1,0 +1,14 @@
+{
+  "name": "de-dust2-fps",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 5173"
+  },
+  "devDependencies": {
+    "obj2gltf": "^3.2.0",
+    "playcanvas": "^2.19.7",
+    "playwright": "^1.61.0"
+  }
+}
