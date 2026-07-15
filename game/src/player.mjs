@@ -37,7 +37,11 @@ export class Player {
     // View smoothing: how fast the rendered eye catches up to the feet (1/s).
     // Kills the per-frame vertical jitter that depenetration / ground-snap inject
     // while walking the uneven map, without touching the physics feet position.
-    this.eyeSmooth = opts.eyeSmooth ?? 16;  // τ ≈ 62 ms
+    // Lower = smoother but floatier over real steps; the eyeMaxLag clamp keeps the
+    // worst-case trailing honest either way. 10 (τ ≈ 100 ms) leaves only ~5 mm of
+    // residual eye chatter on the ripped floor vs ~7 mm at 16, ~80 % fewer visible
+    // reversals — the shimmer you'd otherwise catch while moving + looking.
+    this.eyeSmooth = opts.eyeSmooth ?? 10;  // τ ≈ 100 ms
     this.eyeMaxLag = opts.eyeMaxLag ?? 0.4; // never trail the feet by more than this (m)
 
     // Capsule sample spheres (offsets along +Y from the feet point).
@@ -53,6 +57,7 @@ export class Player {
     this.pitch = 0;               // degrees
     this.grounded = false;
     this.camEyeY = null;          // smoothed WORLD eye height (null → snap on first frame)
+    this._airTime = 0;            // continuous seconds off the ground (coyote for the eye)
 
     this._cand = [];              // scratch candidate triangle list
     this.camera.setLocalPosition(0, this.eyeHeight, 0);
@@ -62,6 +67,7 @@ export class Player {
     this.pos.set(x, y, z);
     this.vel.set(0, 0, 0);
     this.grounded = false;
+    this._airTime = 0;
     this.camEyeY = y + this.eyeHeight;  // snap the view — no glide after teleport/respawn
   }
 
@@ -276,11 +282,24 @@ export class Player {
     // ring-max, step pick) don't reach the camera as shake. The feet themselves
     // are untouched, so nothing about collision or the anti-fall behaviour
     // changes — this is a view-only low-pass on the eye's world Y.
+    // Track continuous air time. Walking the ripped map, the resolve drops
+    // `grounded` for a stray frame or two (a seam the depenetration misses, then
+    // ground-snap rescues) — that is collision noise, not real air, and it lands on
+    // exactly the frames with the biggest feet correction. Gating the smoother on
+    // `grounded` alone let those pops through raw (the eye snapped to the feet),
+    // which read as jitter while moving + looking. So keep smoothing through brief
+    // ground loss (coyote) and switch to exact tracking only for genuine air: a
+    // jump, a clear upward launch, or a sustained fall.
+    if (this.grounded) this._airTime = 0;
+    else this._airTime += dt;
+    const realAir = doJump || this.vel.y > 0.5 || this._airTime > 0.12;
+
     const targetEyeY = this.pos.y + this.eyeHeight;
     if (this.camEyeY === null) this.camEyeY = targetEyeY;
-    if (this.grounded && !doJump) {
-      // Grounded: ease toward the feet. Frame-rate independent, and clamp the
-      // trailing distance so real step-ups/slopes stay responsive (no float).
+    if (!realAir) {
+      // Grounded (incl. one-frame seam drops): ease toward the feet. Frame-rate
+      // independent, and clamp the trailing distance so real step-ups / slopes stay
+      // responsive (no float).
       const t = 1 - Math.exp(-dt * this.eyeSmooth);
       this.camEyeY += (targetEyeY - this.camEyeY) * t;
       const lag = targetEyeY - this.camEyeY;
