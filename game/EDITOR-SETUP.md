@@ -24,8 +24,8 @@ Editor project. `standalone/`, `index.html`, `lib/`, `assets/`, `tests/` never s
    It becomes a **container** asset.
 3. **Enable ES Modules scripts:** Settings → Scripts → set the scripts format to
    **ESM** (so `src/*.mjs` parse as modules).
-4. **Sync the code up** (pick one tool — see [Syncing](#syncing-code) below). After the
-   first push, open each new script once in the Editor so it gets parsed.
+4. **Sync the code up** — see [Syncing](#syncing-code-terminal--claude-code) below. After
+   the first push, open each new script once in the Editor so it gets parsed.
 5. **Build the scene:**
    - Add an entity named `Player` at the origin.
    - Add a child entity `Camera` with a **Camera** component.
@@ -55,28 +55,36 @@ Editor project. `standalone/`, `index.html`, `lib/`, `assets/`, `tests/` never s
 
 ---
 
-## Syncing code
+## Syncing code (terminal / Claude Code)
 
-### Option A — VS Code extension (simplest)
-Install **PlayCanvas** from the VS Code marketplace → sign in → Command Palette →
-**"PlayCanvas: Open Project"** → pick this project/branch. Edits to `src/*.mjs` in VS
-Code sync to the Editor in real time. No config files needed.
+No VS Code required. `playcanvas-sync` (`pcsync`) is **already installed** (devDependency)
+and `pcconfig.json` is **already created** (gitignored). Two steps to go live:
 
-### Option B — playcanvas-sync CLI (editor-agnostic)
-```bash
-cd game
-npm install                      # pulls in playcanvas-sync (devDependency)
-cp pcconfig.example.json pcconfig.json   # then fill in your values
-npm run sync:watch               # watches game/src → pushes to the Editor
-```
-Get your IDs from the Editor browser console:
-```js
-copy({ PLAYCANVAS_BRANCH_ID: config.self.branch.id, PLAYCANVAS_PROJECT_ID: config.project.id })
-```
-API key: `playcanvas.com/<username>/account`. `pcconfig.json` is **gitignored** (holds
-your key). `PLAYCANVAS_TARGET_SUBDIR: "src"` limits the sync to `game/src`, so nothing
-else — including `pcconfig.json` itself — is pushed. Other commands: `npm run sync:push`,
-`sync:pull`, `sync:diff`.
+1. **Fill in `pcconfig.json`** — your API key + project/branch IDs. Do this yourself so the
+   key never lands in chat or git:
+   ```bash
+   $EDITOR game/pcconfig.json       # or run the interactive wizard: npx pcsync init
+   ```
+   - **API key** → `playcanvas.com/<username>/account`
+   - **Project + branch IDs** → run in the Editor's browser console:
+     ```js
+     copy({ PLAYCANVAS_BRANCH_ID: config.self.branch.id, PLAYCANVAS_PROJECT_ID: config.project.id })
+     ```
+2. **Start the watcher:**
+   ```bash
+   cd game && npm run sync:watch    # watches game/src → pushes to the Editor on save
+   ```
+
+**Daily loop:** edit `src/*.mjs` here → `pcsync` pushes on save → relaunch in the Editor.
+On-demand instead of `watch`: `npm run sync:push` / `sync:pull` / `sync:diff`. The watcher
+is a long-running process — fine to run it as a background task while you keep editing.
+
+`PLAYCANVAS_TARGET_SUBDIR: "src"` limits the sync to `game/src`, so nothing else — including
+`pcconfig.json` itself — is ever pushed.
+
+### If you ever use VS Code
+The official **PlayCanvas** extension does the same sync with no config files (sign in →
+"PlayCanvas: Open Project"). Optional — the CLI above is the complete workflow.
 
 ---
 
