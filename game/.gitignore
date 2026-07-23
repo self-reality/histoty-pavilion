@@ -1,2 +1,6 @@
 node_modules/
 *.log
+
+# PlayCanvas sync — real config holds your API key; keep it out of git.
+pcconfig.json
+.pcconfig

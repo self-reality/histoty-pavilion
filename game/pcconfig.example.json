@@ -1,0 +1,11 @@
+{
+  "_comment": "Copy this to pcconfig.json (gitignored) and fill in your values. Run pcsync from the game/ folder. TARGET_SUBDIR 'src' means only game/src/*.mjs sync to the Editor. Get PROJECT_ID/BRANCH_ID from the Editor console: copy({PLAYCANVAS_BRANCH_ID: config.self.branch.id, PLAYCANVAS_PROJECT_ID: config.project.id}). Get the API key from playcanvas.com/<user>/account.",
+  "PLAYCANVAS_API_KEY": "PUT-YOUR-API-KEY-HERE",
+  "PLAYCANVAS_PROJECT_ID": 0,
+  "PLAYCANVAS_BRANCH_ID": "PUT-YOUR-BRANCH-ID-HERE",
+  "PLAYCANVAS_USE_CWD_AS_TARGET": 1,
+  "PLAYCANVAS_TARGET_SUBDIR": "src",
+  "PLAYCANVAS_BAD_FILE_REG": "^\\.|~$",
+  "PLAYCANVAS_BAD_FOLDER_REG": "\\.",
+  "PLAYCANVAS_CONVERT_TO_POW2": 0
+}
