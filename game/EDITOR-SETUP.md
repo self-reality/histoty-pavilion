@@ -85,6 +85,12 @@ is a long-running process — fine to run it as a background task while you keep
 `PLAYCANVAS_TARGET_SUBDIR: "src"` limits the sync to `game/src`, so nothing else — including
 `pcconfig.json` itself — is ever pushed.
 
+> **Why the npm scripts set `PLAYCANVAS_USE_CWD_AS_TARGET=1`.** pcsync resolves the target
+> folder *before* it reads `pcconfig.json`, so putting that flag in `pcconfig.json` is too
+> late — you'd get `Error: could not find target directory: .`. Passing it as an env var
+> (baked into the `sync:*` scripts) lands it in time. Consequence: always sync via
+> `npm run sync:*` **from the `game/` folder**, not a bare `pcsync` call.
+
 ### If you ever use VS Code
 The official **PlayCanvas** extension does the same sync with no config files (sign in →
 "PlayCanvas: Open Project"). Optional — the CLI above is the complete workflow.

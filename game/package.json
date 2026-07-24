@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 5173",
-    "sync:watch": "pcsync watch",
-    "sync:push": "pcsync push",
-    "sync:pull": "pcsync pull",
-    "sync:diff": "pcsync diff"
+    "sync:watch": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync watch",
+    "sync:push": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync push",
+    "sync:pull": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync pull",
+    "sync:diff": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync diff"
   },
   "devDependencies": {
     "obj2gltf": "^3.2.0",
