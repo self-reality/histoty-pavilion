@@ -137,6 +137,13 @@ export class Game extends Script {
       this._created.push(cam);
     }
     this.camera = cam;
+
+    // Refractive / glass materials (e.g. an imported prop's "Glass") sample a scene
+    // color grab-pass via uSceneColorMap. It's off by default, so those shaders render
+    // with no source and the engine warns ("uSceneColorMap ... not available"). Enable
+    // it on the main camera — cheap when nothing refractive is in view, and it covers
+    // any future glass prop without per-material fiddling in the Editor.
+    if (cam.camera?.requestSceneColorMap) cam.camera.requestSceneColorMap(true);
   }
 
   // ---- Lights: respect any Editor-authored directional light; else add sun+fill.
