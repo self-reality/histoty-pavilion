@@ -61,6 +61,32 @@ Editor project. `standalone/`, `index.html`, `lib/`, `assets/`, `tests/` never s
 
 ---
 
+## Editing the world visually (seeing the map in the Editor)
+
+By default the map is fetched from a URL at *launch* and never exists at edit time,
+so the viewport looks empty. To author the world visually — see the map and drop
+props onto it — put the map into the scene yourself:
+
+1. **Drag `de_dust2.glb` into the scene** (from the Assets panel into the viewport,
+   or right-click the container → *Add To Scene*). It appears as an entity.
+2. **Set its transform** so it matches the runtime map: **Scale `0.025, 0.025, 0.025`**
+   and **Rotation `-90, 0, 0`**. It's now human-scale and you can navigate it.
+3. **Assign it to the script:** select `Player` → the `game` script → drag this map
+   entity into the **Map (authored in scene)** attribute.
+4. **Choose how it renders at launch:**
+   - *Keep* **Map URL** filled (default) → the textured URL map renders at runtime and
+     this in-scene copy is auto-hidden at launch (they share a transform, so no
+     double map). Your placed props stay. Best if the in-scene map looks untextured.
+   - *Clear* **Map URL** → the in-scene map itself becomes the runtime map (renders
+     with its Editor materials, collision extracted from it). Simplest scene; use it
+     if the in-scene map already looks textured.
+5. **Drop your asset in:** drag your GLB into the scene, position it against the
+   visible map, and launch. Props authored beside the map are just scene entities —
+   they render at runtime with no code needed.
+
+> Prefer code placement instead? Position entities in `game.mjs` `_wireWorld()` using
+> world coordinates — read a spot's coords from the in-game debug panel (`` ` ``).
+
 ## Syncing code (terminal / Claude Code)
 
 No VS Code required. `playcanvas-sync` (`pcsync`) is **already installed** (devDependency)
@@ -119,8 +145,10 @@ The official **PlayCanvas** extension does the same sync with no config files (s
   different origin) can fetch it. **Consequence:** the Pages deploy must stay live and
   the repo public for the Editor build to be textured; if you change the map, push so
   Pages redeploys (or point `mapUrl` at any host that serves the raw `.glb` with CORS).
-  The map still isn't a placed entity in the viewport — collision extraction runs on the
-  instantiated render entity in `_onMapReady`.
+  By default the map isn't a placed entity in the viewport — collision extraction runs on
+  the instantiated render entity in `_onMapReady`. To edit the world visually, place the
+  map in the scene and assign it to **Map (authored in scene)** — see
+  [Editing the world visually](#editing-the-world-visually-seeing-the-map-in-the-editor).
 - **HUD is injected DOM** (`src/ui.mjs`) so it stays in your synced code rather than the
   Editor's launch page. Alternative: rebuild it with PlayCanvas UI (Screen/Element)
   components — that would move HUD layout into the *scene* instead.

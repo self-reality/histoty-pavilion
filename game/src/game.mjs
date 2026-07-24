@@ -45,6 +45,22 @@ export class Game extends Script {
   mapUrl = 'https://self-reality.github.io/histoty-pavilion/assets/de_dust2.glb';
 
   /**
+   * Map authored directly in the Editor scene — drag the GLB container into the
+   * viewport and set its scale to 0.025 and X-rotation to -90. Assign it here so
+   * you can SEE the world and place props against it at edit time.
+   *
+   * • If **Map URL is empty**, this authored entity IS the runtime map: its Editor
+   *   materials/textures render as-is and collision is extracted from it.
+   * • If **Map URL is set**, the textured URL map stays authoritative for rendering
+   *   and collision; this entity's meshes are hidden at launch so they don't double
+   *   up with it (they share the same transform). Props you author beside it survive.
+   * @attribute
+   * @title Map (authored in scene)
+   * @type {Entity}
+   */
+  mapEntity;
+
+  /**
    * FPS camera. Leave empty to use a child camera of this entity, or to have one
    * created automatically.
    * @attribute
@@ -177,6 +193,20 @@ export class Game extends Script {
 
   // ---- Load map, build collision, spawn systems ----
   _boot() {
+    // Visual-authoring path: a map you dropped into the Editor scene so you can see
+    // the world and place props against it. With no Map URL set, this authored
+    // entity IS the runtime map (its Editor materials render as-is, collision comes
+    // from it). With a Map URL set, the textured URL map below is authoritative, so
+    // hide this reference's meshes at launch to avoid a doubled, z-fighting map —
+    // it shares the URL map's transform, and props authored beside it survive.
+    if (this.mapEntity && !this.mapUrl) {
+      this._onAuthoredMap(this.mapEntity);
+      return;
+    }
+    if (this.mapEntity && this.mapUrl) {
+      for (const rc of this.mapEntity.findComponents('render')) rc.enabled = false;
+    }
+
     // The Editor's GLB import splits the map's materials/textures into separate
     // assets and strips them from the stored container file, so both instantiating
     // the imported container and re-parsing its file URL render untextured
@@ -221,6 +251,23 @@ export class Game extends Script {
     app.root.addChild(map);
     map.syncHierarchy();
     this._created.push(map);
+
+    this._wireWorld(renderRoot);
+  }
+
+  // Use a map that already lives in the Editor scene (authored in the viewport).
+  // Its transform is whatever you set in the Editor — set scale 0.025 and
+  // X-rotation -90 there so it matches human proportions and the standalone build.
+  _onAuthoredMap(mapEntity) {
+    this.ui.loading.textContent = 'Building collision…';
+    mapEntity.syncHierarchy();
+    this._wireWorld(mapEntity);
+  }
+
+  // Shared world wiring given the map's render hierarchy (instantiated or authored):
+  // material fixups, collision, spawn, and every gameplay system.
+  _wireWorld(renderRoot) {
+    const app = this.app;
 
     // Ripped single-sided walls: render both sides + matte.
     const seen = new Set();
