@@ -68,6 +68,7 @@ export class Game extends Script {
     this.collider = null;
     this.debug = null;
     this._created = [];              // entities/layers we made → removed in cleanup
+    this._mapContainer = null;       // runtime-loaded map container → unloaded in cleanup
     this._winHandlers = [];          // [target, event, fn] for window/document
     this.input = { forward: 0, strafe: 0, jump: false, sprint: false };
     this._prevJump = false;
@@ -164,15 +165,33 @@ export class Game extends Script {
 
   // ---- Load map, build collision, spawn systems ----
   _boot() {
-    const asset = this.mapAsset;
-    if (!asset) {
+    const src = this.mapAsset;
+    if (!src) {
       this.ui.loading.textContent = 'No map asset assigned (set the Map attribute).';
       console.warn('[game] mapAsset attribute is empty — assign the de_dust2 container asset.');
       return;
     }
-    const onReady = () => this._onMapReady(asset);
-    if (asset.resource) onReady();
-    else { asset.ready(onReady); this.app.assets.load(asset); }
+    // Parse the map from the original embedded GLB rather than instantiating the
+    // Editor's imported container. The Editor's GLB import splits materials and
+    // textures into separate assets and can drop the texture links, leaving the
+    // map untextured. Loading the raw .glb through the engine's own container
+    // parser keeps its 34 embedded PNGs — the same path the standalone build uses.
+    const url = typeof src.getFileUrl === 'function' ? src.getFileUrl() : null;
+    if (!url) {                        // no file URL (unexpected) → use the asset as-is
+      const onReady = () => this._onMapReady(src);
+      if (src.resource) onReady();
+      else { src.ready(onReady); this.app.assets.load(src); }
+      return;
+    }
+    const asset = new Asset('de_dust2-embedded', 'container', { url });
+    this._mapContainer = asset;        // unloaded in _cleanup (watch hot-reloads)
+    asset.on('error', (err) => {
+      this.ui.loading.textContent = 'Failed to load map: ' + err;
+      console.error('[game] map container load error:', err);
+    });
+    this.app.assets.add(asset);
+    asset.ready(() => this._onMapReady(asset));
+    this.app.assets.load(asset);
   }
 
   _onMapReady(asset) {
@@ -352,6 +371,10 @@ export class Game extends Script {
 
     for (const e of this._created) { try { e.destroy(); } catch (err) { /* ignore */ } }
     this._created = [];
+    if (this._mapContainer) {
+      try { app.assets.remove(this._mapContainer); this._mapContainer.unload(); } catch (err) { /* ignore */ }
+      this._mapContainer = null;
+    }
     if (this._createdLayer) {
       const layers = app.scene.layers;
       const i = layers.layerList.indexOf(this._createdLayer);
