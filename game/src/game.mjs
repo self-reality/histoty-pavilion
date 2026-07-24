@@ -33,6 +33,18 @@ export class Game extends Script {
   mapAsset;
 
   /**
+   * URL of the original GLB (embedded textures). Loaded through the engine's own
+   * container parser so the map keeps its textures — the Editor's imported Map
+   * asset above has its materials/textures stripped out of the stored file and
+   * renders untextured. Defaults to this repo's GitHub Pages deploy, which serves
+   * the unprocessed .glb with CORS enabled. Clear it to fall back to the Map asset.
+   * @attribute
+   * @title Map URL (embedded GLB)
+   * @type {string}
+   */
+  mapUrl = 'https://self-reality.github.io/histoty-pavilion/assets/de_dust2.glb';
+
+  /**
    * FPS camera. Leave empty to use a child camera of this entity, or to have one
    * created automatically.
    * @attribute
@@ -165,33 +177,36 @@ export class Game extends Script {
 
   // ---- Load map, build collision, spawn systems ----
   _boot() {
+    // The Editor's GLB import splits the map's materials/textures into separate
+    // assets and strips them from the stored container file, so both instantiating
+    // the imported container and re-parsing its file URL render untextured
+    // (defaultGlbMaterial). Instead load the ORIGINAL embedded-texture GLB from a
+    // URL through the engine's own container parser — that keeps all 34 baseColor
+    // textures (verified: 79/79 mesh instances get a diffuseMap), the same result
+    // the standalone build gets. mapUrl defaults to this repo's GitHub Pages deploy,
+    // which serves the unprocessed .glb with CORS enabled.
+    if (this.mapUrl) {
+      const asset = new Asset('de_dust2-embedded', 'container', { url: this.mapUrl });
+      this._mapContainer = asset;      // unloaded in _cleanup (watch hot-reloads)
+      asset.on('error', (err) => {
+        this.ui.loading.textContent = 'Failed to load map: ' + err;
+        console.error('[game] map container load error:', err);
+      });
+      this.app.assets.add(asset);
+      asset.ready(() => this._onMapReady(asset));
+      this.app.assets.load(asset);
+      return;
+    }
+    // Fallback: no URL set — instantiate the assigned Editor container (untextured).
     const src = this.mapAsset;
     if (!src) {
-      this.ui.loading.textContent = 'No map asset assigned (set the Map attribute).';
-      console.warn('[game] mapAsset attribute is empty — assign the de_dust2 container asset.');
+      this.ui.loading.textContent = 'No map source (set Map URL, or assign the Map asset).';
+      console.warn('[game] no mapUrl and no mapAsset set.');
       return;
     }
-    // Parse the map from the original embedded GLB rather than instantiating the
-    // Editor's imported container. The Editor's GLB import splits materials and
-    // textures into separate assets and can drop the texture links, leaving the
-    // map untextured. Loading the raw .glb through the engine's own container
-    // parser keeps its 34 embedded PNGs — the same path the standalone build uses.
-    const url = typeof src.getFileUrl === 'function' ? src.getFileUrl() : null;
-    if (!url) {                        // no file URL (unexpected) → use the asset as-is
-      const onReady = () => this._onMapReady(src);
-      if (src.resource) onReady();
-      else { src.ready(onReady); this.app.assets.load(src); }
-      return;
-    }
-    const asset = new Asset('de_dust2-embedded', 'container', { url });
-    this._mapContainer = asset;        // unloaded in _cleanup (watch hot-reloads)
-    asset.on('error', (err) => {
-      this.ui.loading.textContent = 'Failed to load map: ' + err;
-      console.error('[game] map container load error:', err);
-    });
-    this.app.assets.add(asset);
-    asset.ready(() => this._onMapReady(asset));
-    this.app.assets.load(asset);
+    const onReady = () => this._onMapReady(src);
+    if (src.resource) onReady();
+    else { src.ready(onReady); this.app.assets.load(src); }
   }
 
   _onMapReady(asset) {

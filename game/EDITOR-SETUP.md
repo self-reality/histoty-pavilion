@@ -36,7 +36,10 @@ Editor project. `standalone/`, `index.html`, `lib/`, `assets/`, `tests/` never s
      its own sun + fill on launch.
 6. **Attach the game script:** select `Player`, add a **Script** component, add the
    `game` script. In its attributes:
-   - **Map (GLB container)** → the `de_dust2` asset from step 2.
+   - **Map URL (embedded GLB)** → pre-filled with this repo's GitHub Pages URL. This
+     is where the textured map comes from (see the note below on why). Leave it as-is.
+   - **Map (GLB container)** → optional now; only used as an (untextured) fallback if
+     you clear the URL. You can leave it empty.
    - **Camera** → the `Camera` child (or leave empty; it'll find/create one).
    - `mapScale` (0.025) and `mapRotationX` (-90) are pre-filled defaults.
 7. **Launch** (▶). You should get the start overlay → click **Play** to lock the mouse.
@@ -103,10 +106,21 @@ The official **PlayCanvas** extension does the same sync with no config files (s
   layer + second camera + gun light. You wouldn't hand-place these, and it keeps Editor
   setup to just Player + Camera. (The layer is also registerable in Settings → Layers if
   you'd rather own it there.)
-- **The map is instantiated from the asset in code** (so collision extraction runs on
-  the transformed render entity). It won't appear as a placed entity in the viewport
-  yet. To make it visually placeable later, drop the GLB into the scene as an entity and
-  point the collision extraction at it instead of instantiating in `_onMapReady`.
+- **The map loads from a URL, not the Editor's imported asset.** When you drag a GLB
+  into the Editor it splits the materials/textures into separate assets *and strips them
+  out of the stored container file* — so instantiating that asset (or re-parsing its
+  file URL) renders the map untextured (`defaultGlbMaterial`, no `diffuseMap`). Verified
+  the hard way: the original `.glb` parses to 79/79 textured mesh instances, the Editor's
+  stored copy to 0. So `game.mjs` loads the **original embedded-texture GLB** from a URL
+  (the `mapUrl` attribute) through the engine's own container parser, which keeps all 34
+  textures. `mapUrl` defaults to this repo's **GitHub Pages** deploy
+  (`self-reality.github.io/histoty-pavilion/assets/de_dust2.glb`), which serves the
+  unprocessed file with `Access-Control-Allow-Origin: *` so the Editor launch (a
+  different origin) can fetch it. **Consequence:** the Pages deploy must stay live and
+  the repo public for the Editor build to be textured; if you change the map, push so
+  Pages redeploys (or point `mapUrl` at any host that serves the raw `.glb` with CORS).
+  The map still isn't a placed entity in the viewport — collision extraction runs on the
+  instantiated render entity in `_onMapReady`.
 - **HUD is injected DOM** (`src/ui.mjs`) so it stays in your synced code rather than the
   Editor's launch page. Alternative: rebuild it with PlayCanvas UI (Screen/Element)
   components — that would move HUD layout into the *scene* instead.
