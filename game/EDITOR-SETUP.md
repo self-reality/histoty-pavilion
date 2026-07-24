@@ -22,8 +22,11 @@ Editor project. `standalone/`, `index.html`, `lib/`, `assets/`, `tests/` never s
 1. **Create a project** at [playcanvas.com](https://playcanvas.com) (blank).
 2. **Upload the map:** drag `game/assets/de_dust2.glb` into the Editor's Assets panel.
    It becomes a **container** asset.
-3. **Enable ES Modules scripts:** Settings → Scripts → set the scripts format to
-   **ESM** (so `src/*.mjs` parse as modules).
+3. **ES Modules are automatic — nothing to toggle.** The Editor treats any `.mjs`
+   asset as an ESM script (registered on load); every file in `src/` is already `.mjs`,
+   so they parse as modules on upload. The only requirement is a **module build of the
+   engine**, i.e. Engine v2 — check Settings → Engine shows v2.x (the default for new
+   projects). There is no "Scripts format" setting.
 4. **Sync the code up** — see [Syncing](#syncing-code-terminal--claude-code) below. After
    the first push, open each new script once in the Editor so it gets parsed.
 5. **Build the scene:**
