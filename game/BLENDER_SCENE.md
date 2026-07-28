@@ -68,6 +68,14 @@ never exported. It is there so you can see where the ground is.
    `./assets/your_file.glb` (path relative to `game/`).
 6. *Now* move the Empty where you want it. Save, `npm run scene:export`.
 
+**Shortcut for steps 2-6:** import the GLB, put it where you want it, then run
+`tools/adopt_prop.py` (Scripting workspace ▸ Open ▸ Run Script). It finds every
+top-level import that no anchor owns, works out which file in `assets/` it came
+from by matching node names, builds the anchor around it, then saves and
+exports — so the prop is in game when the script finishes. It reuses the name a
+GLB already had in `scene.placements.json`, so re-importing a prop you deleted
+keeps its identity and the diff stays to the numbers that changed.
+
 Step 4's order matters. The game applies the exported transform to a fresh copy
 of the GLB, so the Empty has to sit at identity when the payload is attached —
 parent it while the Empty is already out in the level and Blender bakes the
@@ -110,6 +118,12 @@ exports: extra collections, lights, viewport layout, notes. Export first.
   the mesh instead of the Empty, or forgot `npm run scene:export`.
 - **Duplicate names**: Blender silently renames to `crate_01.001`, which exports
   as a *different* prop. Rename properly.
+- **Never edit the `.blend` from a second Blender while it is open here.** A
+  headless `-b scene/pavilion.blend -P fix.py` writes the file, then your next
+  Cmd-S writes this session's scene straight back over it and the change is
+  gone. Run the script in the open session instead (Alt-P), or close Blender
+  first. Symptom: `scene:export` reporting `no "SCENE" collection` right after
+  something claimed to have created one.
 - **`props: []` in `scene.manifest.mjs`** is the hand-placement escape hatch and
   is normally empty. Entries there are shadowed by same-named ones from Blender.
 
