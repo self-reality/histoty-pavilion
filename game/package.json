@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "python3 -m http.server 5173",
+    "scene:build": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b -P tools/build_blend.py --",
+    "scene:export": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b scene/pavilion.blend -P tools/export_scene.py --",
+    "scene:edit": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" scene/pavilion.blend",
     "sync:watch": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync watch",
     "sync:push": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync push",
     "sync:pull": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync pull",

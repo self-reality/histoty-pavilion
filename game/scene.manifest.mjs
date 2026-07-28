@@ -32,19 +32,22 @@ export const manifest = {
   // ---- Red dummy targets scattered on floor samples ----
   targets: { max: 10 },
 
-  // ---- Authored props: imported GLBs placed in the world ----
-  // Transform reproduces the node's transform from the PlayCanvas scene.
-  // tent_01 grabbed from the running Editor scene (see EXPORT_TENT.md):
-  //   node "tent_military" @ pos (0,0,0) rot (-90,0,0) scale (1,1,1).
-  props: [
-    {
-      name: 'tent_01',
-      glb: './assets/tent_military.glb',
-      pos: [0, 0, 0],
-      euler: [-90, 0, 0],
-      scale: [1, 1, 1],
-    },
-  ],
+  // ---- Blender-authored layout ----
+  // Written by tools/export_scene.py from scene/pavilion.blend; see
+  // BLENDER_SCENE.md. Entries here override same-named ones in `props` below,
+  // so moving a prop into Blender needs no edit on this side. Missing file is
+  // fine — the game just falls back to `props`.
+  placements: './scene.placements.json',
+
+  // ---- Hand-placed props: imported GLBs placed in the world ----
+  // Escape hatch for props not authored in Blender. Same shape as a placements
+  // entry: { name, glb, pos, euler|rot, scale } in PlayCanvas space.
+  //
+  // tent_01 used to live here (grabbed from the Editor scene, see
+  // EXPORT_TENT.md); it now lives in scene/pavilion.blend and comes back
+  // through scene.placements.json. Anything listed here is a *second*
+  // definition that Blender will shadow — prefer the .blend.
+  props: [],
 
   // ---- Wall paintings (name -> image), filled later ----
   paintings: [],

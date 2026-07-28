@@ -4,3 +4,12 @@ node_modules/
 # PlayCanvas sync — real config holds your API key; keep it out of git.
 pcconfig.json
 .pcconfig
+
+# Blender working files. The .blend embeds the imported GLB payload (~10 MB) and
+# is fully rebuildable with `npm run scene:build` from scene.manifest.mjs +
+# scene.placements.json — those two are the tracked truth. See BLENDER_SCENE.md.
+scene/*.blend
+scene/*.blend[0-9]
+
+# Blender runs the tools with its bundled Python.
+tools/__pycache__/

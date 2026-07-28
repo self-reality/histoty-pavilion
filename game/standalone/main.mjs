@@ -15,7 +15,7 @@ import { Weapon } from '../src/weapon.mjs';
 import { DebugTools } from '../src/debug.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn } from '../src/world.mjs';
 
-const { Color, Entity, Asset } = pc;
+const { Color, Entity, Asset, Quat } = pc;
 
 // ---- Scene constants come from the git-tracked manifest (see ../scene.manifest.mjs) ----
 const MAP = manifest.map;                 // { glb, scale, euler } — Source Z-up -> metres, Y-up
@@ -195,27 +195,68 @@ function boot() {
 
     // Authored props (tent, etc.) are cosmetic, so load them after the map is
     // playable rather than gating "Ready" on a 10 MB GLB.
-    for (const prop of manifest.props) loadProp(prop);
+    collectProps().then((props) => props.forEach(loadProp));
   });
 }
 
-// Load one authored prop GLB and place it per its manifest transform. Kept in
-// world space (child of root) so its coordinates match what was grabbed from the
-// Editor scene (see EXPORT_TENT.md).
+// Where props come from, in increasing priority:
+//   1. manifest.props        — hand-written entries
+//   2. scene.placements.json — generated from scene/pavilion.blend by
+//                              tools/export_scene.py (see BLENDER_SCENE.md)
+// Same-named entries from Blender win, so migrating a prop into the .blend
+// needs no manifest edit. A missing/invalid placements file is not fatal: the
+// build still runs on the hand-written props alone.
+async function collectProps() {
+  const byName = new Map(manifest.props.map((p) => [p.name, p]));
+  if (manifest.placements) {
+    try {
+      const res = await fetch(manifest.placements);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      for (const prop of data.props ?? []) byName.set(prop.name, prop);
+    } catch (err) {
+      console.warn(`[scene] no Blender placements (${manifest.placements}):`, err.message);
+    }
+  }
+  return [...byName.values()];
+}
+
+// One container asset per URL — a scattered prop placed 50 times downloads and
+// parses its GLB once, then instantiates 50 render entities off it.
+const containers = new Map();
+function loadContainer(url) {
+  let asset = containers.get(url);
+  if (!asset) {
+    asset = new Asset(url, 'container', { url });
+    asset.on('error', (err) => console.error(`[prop] ${url} failed to load:`, err));
+    app.assets.add(asset);
+    app.assets.load(asset);
+    containers.set(url, asset);
+  }
+  return asset;
+}
+
+// Place one authored prop. Kept in world space (child of root) so its numbers
+// match what the exporter wrote / what was grabbed from the Editor scene.
 function loadProp(prop) {
-  const asset = new Asset(prop.name, 'container', { url: prop.glb });
-  asset.on('error', (err) => console.error(`[prop ${prop.name}] load failed:`, err));
-  app.assets.add(asset);
-  app.assets.load(asset);
+  const asset = loadContainer(prop.glb);
   asset.ready(() => {
     const root = new Entity(prop.name);
     root.addChild(asset.resource.instantiateRenderEntity());
-    root.setLocalPosition(prop.pos[0], prop.pos[1], prop.pos[2]);
-    root.setEulerAngles(prop.euler[0], prop.euler[1], prop.euler[2]);
-    root.setLocalScale(prop.scale[0], prop.scale[1], prop.scale[2]);
+    const [px, py, pz] = prop.pos ?? [0, 0, 0];
+    root.setLocalPosition(px, py, pz);
+    // Blender-authored props carry an exact quaternion; hand-written ones use
+    // euler degrees. Quaternion wins — it has no axis-order ambiguity.
+    if (prop.rot) {
+      root.setLocalRotation(new Quat(prop.rot[0], prop.rot[1], prop.rot[2], prop.rot[3]));
+    } else if (prop.euler) {
+      root.setLocalEulerAngles(prop.euler[0], prop.euler[1], prop.euler[2]);
+    }
+    const [sx, sy, sz] = prop.scale ?? [1, 1, 1];
+    root.setLocalScale(sx, sy, sz);
     app.root.addChild(root);
     root.syncHierarchy();
-    console.log(`[prop ${prop.name}] placed @ ${prop.pos.join(',')}`);
+    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}`);
   });
   return asset;
 }

@@ -1,0 +1,16 @@
+{
+  "_generated": "tools/export_scene.py — do not hand-edit; edit the .blend",
+  "version": 1,
+  "source": "scene/pavilion.blend",
+  "props": [
+    {
+      "name": "tent_01",
+      "pos": [0.0, 0.0, 0.0],
+      "rot": [-0.70711, 0.0, 0.0, 0.70711],
+      "euler": [-90.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "glb": "./assets/tent_military.glb"
+    }
+  ],
+  "markers": []
+}
