@@ -34,7 +34,7 @@ export function raySphere(o, d, c, r) {
 // stays UI-agnostic: the standalone build wires it to the DOM scoreboard, the
 // Editor build to its own HUD.
 export class TargetManager {
-  constructor(app, collider, spots, onScore = () => {}) {
+  constructor(app, collider, spots, onScore = () => {}, opts = {}) {
     this.app = app;
     this.collider = collider;
     this.spots = spots;
@@ -42,7 +42,7 @@ export class TargetManager {
     this.list = [];
     this.bodyMat = standard(0.85, 0.12, 0.1, [0.45, 0.04, 0.03]);
     this.headMat = standard(0.95, 0.8, 0.2, [0.5, 0.4, 0.05]);
-    this.count = Math.min(10, spots.length);
+    this.count = Math.min(opts.max ?? 10, spots.length);
     for (let i = 0; i < this.count; i++) this._spawn(i, this.spots[(i * 7) % this.spots.length]);
   }
 

@@ -8,17 +8,18 @@
 // Shared world logic (targets, triangle extraction, floor/spawn finding) lives
 // in ../src/world.mjs and is reused by the Editor build (../src/game.mjs).
 import * as pc from 'playcanvas';
+import { manifest } from '../scene.manifest.mjs';
 import { TriangleCollider } from '../src/collision.mjs';
 import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { DebugTools } from '../src/debug.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn } from '../src/world.mjs';
 
-const { Vec3, Color, Entity, Asset } = pc;
+const { Color, Entity, Asset } = pc;
 
-// ---- Map transform: Source units, Z-up -> PlayCanvas metres, Y-up ----
-const MAP_SCALE = 0.025;          // ~112 m across, human scale
-const MAP_EULER = new Vec3(-90, 0, 0);
+// ---- Scene constants come from the git-tracked manifest (see ../scene.manifest.mjs) ----
+const MAP = manifest.map;                 // { glb, scale, euler } — Source Z-up -> metres, Y-up
+const SKY = new Color(...manifest.sky);   // camera clear / sky colour
 
 // ---- UI handles ----
 const ui = {
@@ -57,7 +58,6 @@ app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
 app.setCanvasResolution(pc.RESOLUTION_AUTO);
 window.addEventListener('resize', () => app.resizeCanvas());
 
-const SKY = new Color(0.61, 0.71, 0.83);
 app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
 if ('exposure' in app.scene) app.scene.exposure = 1.0;
 
@@ -95,6 +95,11 @@ cameraEntity.addComponent('camera', {
   nearClip: 0.05,
   farClip: 600,
 });
+// Refractive props (e.g. the tent's glass) sample a scene-colour grab-pass via
+// uSceneColorMap; enable it on the main camera so those shaders have a source.
+if (manifest.glass.length && cameraEntity.camera?.requestSceneColorMap) {
+  cameraEntity.camera.requestSceneColorMap(true);
+}
 playerRoot.addChild(cameraEntity);
 app.root.addChild(playerRoot);
 
@@ -129,7 +134,7 @@ let started = false;
 
 // ---- Boot ----
 function boot() {
-  const asset = new Asset('de_dust2', 'container', { url: './assets/de_dust2.glb' });
+  const asset = new Asset('de_dust2', 'container', { url: MAP.glb });
   asset.on('error', (err) => { ui.loading.textContent = 'Failed to load map: ' + err; });
   app.assets.add(asset);
   app.assets.load(asset);
@@ -140,8 +145,8 @@ function boot() {
     const renderRoot = asset.resource.instantiateRenderEntity();
     const map = new Entity('map');
     map.addChild(renderRoot);
-    map.setLocalScale(MAP_SCALE, MAP_SCALE, MAP_SCALE);
-    map.setEulerAngles(MAP_EULER.x, MAP_EULER.y, MAP_EULER.z);
+    map.setLocalScale(MAP.scale, MAP.scale, MAP.scale);
+    map.setEulerAngles(MAP.euler[0], MAP.euler[1], MAP.euler[2]);
     app.root.addChild(map);
     map.syncHierarchy();
 
@@ -170,7 +175,7 @@ function boot() {
     player.spawn = spawn;
     player.floors = floors;
 
-    targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore);
+    targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
 
     weapon = new Weapon(app, cameraEntity, player, collider, {
       hud,
@@ -187,7 +192,32 @@ function boot() {
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
     ui.playBtn.textContent = 'Click to Play';
+
+    // Authored props (tent, etc.) are cosmetic, so load them after the map is
+    // playable rather than gating "Ready" on a 10 MB GLB.
+    for (const prop of manifest.props) loadProp(prop);
   });
+}
+
+// Load one authored prop GLB and place it per its manifest transform. Kept in
+// world space (child of root) so its coordinates match what was grabbed from the
+// Editor scene (see EXPORT_TENT.md).
+function loadProp(prop) {
+  const asset = new Asset(prop.name, 'container', { url: prop.glb });
+  asset.on('error', (err) => console.error(`[prop ${prop.name}] load failed:`, err));
+  app.assets.add(asset);
+  app.assets.load(asset);
+  asset.ready(() => {
+    const root = new Entity(prop.name);
+    root.addChild(asset.resource.instantiateRenderEntity());
+    root.setLocalPosition(prop.pos[0], prop.pos[1], prop.pos[2]);
+    root.setEulerAngles(prop.euler[0], prop.euler[1], prop.euler[2]);
+    root.setLocalScale(prop.scale[0], prop.scale[1], prop.scale[2]);
+    app.root.addChild(root);
+    root.syncHierarchy();
+    console.log(`[prop ${prop.name}] placed @ ${prop.pos.join(',')}`);
+  });
+  return asset;
 }
 
 // ---- Input ----
