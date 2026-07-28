@@ -2,6 +2,9 @@
 
     npm run scene:export
 
+Also runnable without leaving Blender: Scripting workspace > Open this file >
+Run Script. Same output, plus a popup with the summary.
+
 Walks the SCENE collection and writes one entry per top-level anchor, converted
 into PlayCanvas space. Geometry is NOT exported: the .blend holds imported
 copies of the prop GLBs purely so placement is WYSIWYG, and each anchor's `glb`
@@ -22,10 +25,32 @@ import sys
 
 import bpy
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def resolve_tools_dir():
+    """Where this script lives — which is not always what __file__ says.
+
+    `blender -P tools/export_scene.py` sets __file__ to the real path. Running
+    the same file from Blender's *Scripting* workspace sets it to the text
+    datablock's name instead, so the sibling import below would resolve against
+    the cwd and fail. Fall back to the open .blend, which sits at
+    game/scene/*.blend by construction.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    if os.path.isfile(os.path.join(here, 'pc_axes.py')):
+        return here
+    if bpy.data.filepath:
+        guess = os.path.join(os.path.dirname(os.path.dirname(bpy.data.filepath)), 'tools')
+        if os.path.isfile(os.path.join(guess, 'pc_axes.py')):
+            return guess
+    raise SystemExit('cannot find tools/pc_axes.py next to this script or beside the '
+                     'open .blend — run `npm run scene:export` instead')
+
+
+TOOLS_DIR = resolve_tools_dir()
+sys.path.insert(0, TOOLS_DIR)
 from pc_axes import decompose_pc  # noqa: E402
 
-GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+GAME_DIR = os.path.dirname(TOOLS_DIR)
 DEFAULT_OUT = os.path.join(GAME_DIR, 'scene.placements.json')
 
 SCENE_COLLECTION = 'SCENE'
@@ -114,8 +139,33 @@ def main():
         print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}')
     for m in markers:
         print(f'[export] marker {m["name"]:<20} pos {m["pos"]}')
-    print(f'[export] wrote {os.path.relpath(out_path, GAME_DIR)} '
-          f'({len(props)} props, {len(markers)} markers)')
+
+    summary = (f'{len(props)} props, {len(markers)} markers -> '
+               f'{os.path.relpath(out_path, GAME_DIR)}')
+    print(f'[export] wrote {summary}')
+    notify(summary, warnings)
+
+
+def notify(summary, warnings):
+    """Say something visible when run from the Scripting workspace.
+
+    print() goes to the system console, which on macOS is invisible unless
+    Blender was launched from a terminal — so the GUI path needs a popup or the
+    export looks like it did nothing.
+    """
+    if bpy.app.background:
+        return
+    lines = [summary] + [f'WARNING: {w}' for w in warnings]
+
+    def draw(self, _ctx):
+        for line in lines:
+            self.layout.label(text=line)
+
+    try:
+        bpy.context.window_manager.popup_menu(
+            draw, title='Scene exported', icon='ERROR' if warnings else 'CHECKMARK')
+    except Exception:
+        pass  # never let cosmetics break an otherwise-successful export
 
 
 main()

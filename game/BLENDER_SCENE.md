@@ -27,8 +27,17 @@ npm start                # http://localhost:5173 — see it in game
 is the publish step. Review the `scene.placements.json` diff before committing —
 one moved prop is one changed line.
 
-Blender lives at `/Applications/Blender.app` by default; override with
-`BLENDER=/path/to/blender npm run scene:edit`.
+**You do not have to open Blender through npm.** `scene:edit` just runs
+`blender scene/pavilion.blend`; double-clicking the file, `File > Open`, or your
+Recent Files list are all equivalent. Blender lives at `/Applications/Blender.app`
+by default; override with `BLENDER=/path/to/blender npm run scene:edit`.
+
+**You can also export without leaving Blender:** Scripting workspace ▸ Open ▸
+`tools/export_scene.py` ▸ Run Script (`Alt-P`). Identical output to the command
+line, plus a popup with the summary and any warnings — worth knowing on macOS,
+where a script's `print()` output goes to a console you cannot see. Once the
+file is open in the Text Editor it stays in the `.blend`, so subsequent exports
+are one `Alt-P`.
 
 ## What's in the .blend
 
