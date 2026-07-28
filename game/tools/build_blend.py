@@ -148,6 +148,13 @@ def attach(children, anchor, selectable=False):
     if not selectable:
         for child in children:
             child.hide_select = True
+            # Descendants too. `children` is only the GLB's import roots, and a
+            # prop whose root is unselectable but whose meshes are not is worse
+            # than no guard at all: clicking the tent in the viewport grabs the
+            # mesh, moving it looks like it worked, and the export — which reads
+            # anchors only — silently writes the same numbers as before.
+            for sub in child.children_recursive:
+                sub.hide_select = True
 
 
 def build(manifest, placements, out_path):
