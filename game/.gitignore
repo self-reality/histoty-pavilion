@@ -13,3 +13,9 @@ scene/*.blend[0-9]
 
 # Blender runs the tools with its bundled Python.
 tools/__pycache__/
+
+# Raw source assets (marketplace downloads, scans). Processed into assets/*.glb
+# by `npm run assets:build`; the processed output is what ships and is tracked.
+# Keep the originals on a drive or in cloud storage — scans bloat a repo fast.
+assets/source/
+assets/.assets.cache.json

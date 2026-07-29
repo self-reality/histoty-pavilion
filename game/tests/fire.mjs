@@ -10,13 +10,22 @@ await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForFunction(() => window.game && window.game.weapon, { timeout: 25000 });
 await page.evaluate(() => { document.getElementById('overlay').style.display = 'none'; });
 
-// 1) Geometry hit + ammo + recoil: face around and full-auto for ~0.4s.
+// 1) Geometry hit + ammo + recoil: face around and full-auto for a fixed number
+// of engine ticks. Counting ticks rather than milliseconds is what makes this
+// deterministic — under software WebGL the page renders at ~5 fps, so a
+// wall-clock window can elapse without the update loop running at all, and the
+// burst would silently fire zero shots.
 const before = await page.evaluate(() => ({ mag: window.game.weapon.mag, reserve: window.game.weapon.reserve }));
 await page.evaluate(() => { window.game.player.yaw = 0; window.game.player.pitch = -6; });
-await page.evaluate(() => window.game.weapon.startFire());
-await page.waitForTimeout(420);
-await page.evaluate(() => window.game.weapon.stopFire());
-await page.waitForTimeout(80);
+await page.evaluate(() => new Promise((resolve, reject) => {
+  const g = window.game;
+  let ticks = 0;
+  const done = (err) => { g.app.off('update', onUpdate); clearTimeout(bail); g.weapon.stopFire(); err ? reject(err) : resolve(); };
+  const onUpdate = () => { if (++ticks >= 8) done(); };
+  const bail = setTimeout(() => done(new Error(`update loop stalled after ${ticks} ticks`)), 20000);
+  g.app.on('update', onUpdate);
+  g.weapon.startFire();
+}));
 const after = await page.evaluate(() => ({
   mag: window.game.weapon.mag,
   holes: window.game.weapon.holes.length,
@@ -65,4 +74,5 @@ await page.screenshot({ path: '/tmp/dust2_fire.png' });
 await browser.close();
 
 const pass = before.mag === 30 && after.mag < 30 && after.punch > 0 && errors.length === 0;
-console.log(pass ? '\nFIRE: PASS' : '\nFIRE: CHECK');
+console.log(pass ? '\nFIRE: PASS' : '\nFIRE: FAIL');
+process.exit(pass ? 0 : 1);

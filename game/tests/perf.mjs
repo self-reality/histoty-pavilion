@@ -177,6 +177,11 @@ const downloadMB = net.reduce((a, r) => a + r.kb, 0) / 1024;
 console.log(`\n  DOWNLOAD`);
 for (const r of net) console.log(`    ${pad(r.file, 22)} ${r.kb} KB`);
 console.log(`    ${pad('total', 22)} ${downloadMB.toFixed(1)} MB`);
+// `npm start` is python's http.server, which does not compress. A real host
+// with gzip/brotli sends roughly half this — the engine alone goes 3.4 -> 0.5 MB.
+// The budget is deliberately measured against these uncompressed bytes so it
+// stays a property of the assets rather than of whoever is serving them.
+console.log(`    ${pad('', 22)} (uncompressed — a host with brotli sends ~half)`);
 if (errs.length) console.log('\n  PAGE ERRORS:', errs);
 
 // ---- Budget ---------------------------------------------------------------

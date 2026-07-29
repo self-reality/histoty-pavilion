@@ -1,0 +1,9 @@
+{
+  "_doc": "Per-asset overrides for npm run assets:build. Keys are file names in assets/source/. \"triangles\": 0 disables decimation.",
+  "defaults": {
+    "maxTexture": 1024,
+    "triangles": 20000,
+    "quality": 85
+  },
+  "assets": {}
+}

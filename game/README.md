@@ -87,6 +87,57 @@ At load it's rotated -90° about X (Z-up → Y-up) and scaled by `MAP_SCALE` (0.
 human proportions (~112 m across). Collision triangles are extracted from the loaded mesh in
 world space and indexed into a 2 m grid.
 
+### Assets
+
+Raw downloads and scans are not what ships. `assets/source/` holds the originals
+exactly as they arrived; `npm run assets:build` turns them into the files the
+game loads:
+
+```bash
+cp ~/Downloads/statue.glb assets/source/
+npm run assets:build            # only processes what changed
+npm run assets:build -- --dry   # report, write nothing
+npm run assets:build -- --force # reprocess everything
+```
+
+```
+assets/source/statue.glb   ← raw, never modified, NOT in git
+        ↓  tools/build_assets.py (headless Blender)
+assets/statue.glb          ← textures resized + WebP, decimated to budget; tracked, ships
+```
+
+Budgets live in `assets/assets.config.json` — 1024 px textures, 20k triangles,
+WebP quality 85 by default, overridable per asset. The step is content-addressed,
+so it is a no-op unless a source file or its settings changed. **Moving props
+around never triggers it**: placement lives in `scene.placements.json` and is
+written by `npm run scene:export`, which touches no geometry.
+
+`tent_military.glb` went 9.8 MB → 1.1 MB and 38,544 → 19,998 triangles through
+this, with no visible difference at play distance.
+
+Textures come out as WebP rather than KTX2 deliberately. KTX2/Basis is the
+better answer for texture *memory*, because it stays compressed on the GPU — but
+it needs a WASM transcoder vendored into `lib/` and an encoder binary on the
+build machine, neither of which is here. WebP is decoded by the browser, the
+engine already reads `EXT_texture_webp`, and Blender exports it directly. Revisit
+KTX2 when GPU memory rather than download is the binding constraint.
+
+Two things decimation cannot fix, worth knowing before you lean on it:
+
+- Collapsing a mesh discards detail a normal map would have carried. Invisible on
+  marketplace props at these ratios; **not** invisible on photogrammetry, where a
+  20:1 collapse without baking a normal map from the original reads as soft. Bake
+  first, or raise that asset's budget.
+- Sources stay out of git on purpose (`assets/source/` is ignored) — scans bloat
+  a repo permanently and irreversibly. Keep them on a drive or in cloud storage.
+
+### Serving it
+
+Enable gzip or brotli on whatever hosts this. It is the single largest win
+available and costs one server setting: the engine alone goes 3.4 MB → 0.5 MB
+brotli'd. Minifying the engine on top of that saves a further ~150 KB and costs
+readable stack traces, which is why `lib/playcanvas.mjs` is the unminified build.
+
 ## Tests
 
 Headless Playwright smoke tests (require `npx playwright install chromium`, software WebGL):
