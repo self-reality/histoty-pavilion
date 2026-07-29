@@ -64,7 +64,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `index.html` | Canvas, HUD, crosshair, start overlay, import map |
 | `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, spawn-finding, targets, input, game loop |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
-| `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, ray/triangle |
+| `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live controller sliders |
@@ -95,7 +95,8 @@ Headless Playwright smoke tests (require `npx playwright install chromium`, soft
 node tests/smoke.mjs   # boots the page, asserts no errors, reports tri/floor counts
 node tests/look.mjs    # screenshots a yaw sweep -> /tmp/dust2_yaw_*.png
 node tests/fire.mjs    # drives the shooting loop, asserts ammo/recoil/target-hit
-node tests/perf.mjs    # per-frame draw calls / triangles, load cost, download weight
+node tests/raycast.mjs # grid broadphase vs. a full triangle sweep, must agree exactly
+node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 
 `perf.mjs` runs against a real GPU (ANGLE Metal) and counts the actual WebGL
@@ -104,6 +105,13 @@ by A/B-ing `castShadows`. It reports work submitted rather than frame times on
 purpose — headless Chrome's present path dominates wall-clock timings and makes
 them useless, whereas draw-call and triangle counts are exact and are what a
 weak GPU actually chokes on.
+
+It also **fails when the scene goes over budget**, which is the point of having
+it: cost creeps in one prop at a time and nobody notices until the level is
+finished and slow. The ceilings live in the `BUDGET` block at the top of the
+file — draw calls, triangles per frame, triangles per prop, and total download.
+They are aimed at a mid-range laptop on an integrated GPU reached over a public
+link. Raise one only as a deliberate decision, not to make a red build green.
 
 ## Tuning
 

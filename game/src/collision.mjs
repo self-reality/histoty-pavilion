@@ -64,8 +64,12 @@ const EPS = 1e-7;
 /**
  * Möller–Trumbore ray/triangle. Returns t (distance) along `dir` (unit) or -1.
  * Double-sided so we hit interior walls regardless of winding.
+ *
+ * Exported for tests/raycast.mjs, which checks the grid broadphase against a
+ * sweep of every triangle using this same primitive — so a mismatch can only
+ * mean the broadphase dropped a candidate.
  */
-function rayTriangle(orig, dir, a, b, c) {
+export function rayTriangle(orig, dir, a, b, c) {
   _e1.sub2(b, a);
   _e2.sub2(c, a);
   _h.cross(dir, _e2);
@@ -167,16 +171,67 @@ export class TriangleCollider {
   }
 
   /**
-   * Raycast against all triangles (used for shooting & spawn probes — infrequent).
-   * Returns { point: Vec3, normal: Vec3, dist } or null.
+   * Raycast (shooting, spawn probes, floor sampling).
+   *
+   * Walks the same XZ grid the capsule resolve uses — Amanatides & Woo's DDA —
+   * instead of sweeping every triangle. Cells are visited in order of increasing
+   * distance, so the walk can stop as soon as the next cell begins beyond the
+   * best hit so far: a triangle not yet tested has its whole XZ footprint in
+   * cells further along the ray (bucketing is by AABB overlap, so a triangle
+   * reaching back into an earlier cell would already have been tested there),
+   * and therefore cannot be closer.
+   *
+   * Returns { point: Vec3, normal: Vec3, dist, tri } or null.
    */
   raycast(origin, dir, maxDist = 1e6) {
+    const b = this.bounds, cs = this.cell;
+    const stamp = ++this._stamp;
     let best = maxDist, hit = null;
-    for (let i = 0; i < this.tris.length; i++) {
-      const t = this.tris[i];
-      const d = rayTriangle(origin, dir, t.a, t.b, t.c);
-      if (d > 0 && d < best) { best = d; hit = t; }
+
+    const sweep = (bucket) => {
+      if (!bucket) return;
+      for (let i = 0; i < bucket.length; i++) {
+        const t = bucket[i];
+        if (t._stamp === stamp) continue;   // spans several cells — test it once
+        t._stamp = stamp;
+        const d = rayTriangle(origin, dir, t.a, t.b, t.c);
+        if (d > 0 && d < best) { best = d; hit = t; }
+      }
+    };
+
+    if (origin.x < b.minx || origin.x > b.maxx || origin.z < b.minz || origin.z > b.maxz) {
+      // Origin sits off the grid's XZ footprint, so there is no cell to start
+      // the walk from. Nothing in game does this (the camera and every probe
+      // start inside the level), so take the honestly slow path rather than a
+      // subtly wrong fast one.
+      sweep(this.tris);
+    } else {
+      let ix = this._cx(origin.x), iz = this._cz(origin.z);
+      const dx = dir.x, dz = dir.z;
+      if (Math.abs(dx) < 1e-12 && Math.abs(dz) < 1e-12) {
+        sweep(this.grid[iz * this.cols + ix]);   // straight up/down — one column
+      } else {
+        const stepX = dx >= 0 ? 1 : -1, stepZ = dz >= 0 ? 1 : -1;
+        // Distance along the ray to the next cell boundary on each axis, then
+        // the constant distance between successive boundaries.
+        const bx = b.minx + (ix + (dx >= 0 ? 1 : 0)) * cs;
+        const bz = b.minz + (iz + (dz >= 0 ? 1 : 0)) * cs;
+        let tMaxX = dx !== 0 ? (bx - origin.x) / dx : Infinity;
+        let tMaxZ = dz !== 0 ? (bz - origin.z) / dz : Infinity;
+        const tDeltaX = dx !== 0 ? Math.abs(cs / dx) : Infinity;
+        const tDeltaZ = dz !== 0 ? Math.abs(cs / dz) : Infinity;
+        for (;;) {
+          sweep(this.grid[iz * this.cols + ix]);
+          const tNext = tMaxX < tMaxZ ? tMaxX : tMaxZ;
+          if (tNext >= best) break;          // `best` starts at maxDist, so this
+                                             // ends the walk at range too
+          if (tMaxX < tMaxZ) { ix += stepX; tMaxX += tDeltaX; }
+          else { iz += stepZ; tMaxZ += tDeltaZ; }
+          if (ix < 0 || ix >= this.cols || iz < 0 || iz >= this.rows) break;
+        }
+      }
     }
+
     if (!hit) return null;
     const point = new Vec3().copy(dir).mulScalar(best).add(origin);
     const normal = new Vec3().copy(hit.n);

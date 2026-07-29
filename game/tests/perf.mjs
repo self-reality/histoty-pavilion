@@ -1,4 +1,4 @@
-// Perf report: what the browser is actually asked to do each frame.
+// Perf report + budget check: what the browser is actually asked to do each frame.
 //
 //   node tests/perf.mjs          # needs `npm start` running on :5173
 //
@@ -8,10 +8,35 @@
 // hardware-independent, which is the point: absolute frame times measured in
 // headless Chrome are dominated by its present path and are not trustworthy,
 // but "how much work do we submit" is exact and is what a weak GPU chokes on.
+//
+// It then fails the build if the scene has grown past its budget. That is the
+// whole reason this exists: cost creeps in one innocuous prop at a time, and
+// nobody notices until the level is finished and slow.
 import { chromium } from 'playwright';
 
 const URL = process.env.URL || 'http://localhost:5173/';
 const [W, H] = (process.env.RES || '1920x1080').split('x').map(Number);
+
+// The budget. Every number is a deliberate ceiling, not a measurement — raise
+// one only when you have decided the cost is worth it.
+const BUDGET = {
+  // Target is a mid-range laptop on an integrated GPU, where draw-call
+  // submission binds long before triangle throughput does.
+  drawCalls: 250,
+  // Generous next to today's ~82k: this catches a photogrammetry asset dropped
+  // in raw, not ordinary growth.
+  trianglesPerFrame: 400_000,
+  // Per prop, so one heavy import can't quietly eat the whole frame budget.
+  // tent_military.glb is 38.5k and sits just under this — it is the example of
+  // an asset that should have been decimated, not the standard to aim for.
+  propTriangles: 40_000,
+  // Deliberately tight: this ships over a public link, and ~14MB of it today is
+  // one tent. Hitting this ceiling is the signal to do texture compression.
+  downloadMB: 20,
+};
+
+// Groups that are level or engine furniture rather than authored props.
+const NOT_A_PROP = new Set(['map', 'player', 'sun', 'fill', 'vmLight', 'collisionOverlay']);
 
 const browser = await chromium.launch({
   headless: true,
@@ -148,9 +173,38 @@ console.log(`\n  SCENE`);
 for (const r of scene) {
   console.log(`    ${pad(r.group, 22)} ${pad(r.meshInstances + ' meshes', 14)} ${pad(r.shadowCasters + ' casters', 13)} ${pad(r.tris.toLocaleString() + ' tris', 14)}${r.enabled ? '' : ' (disabled)'}`);
 }
+const downloadMB = net.reduce((a, r) => a + r.kb, 0) / 1024;
 console.log(`\n  DOWNLOAD`);
 for (const r of net) console.log(`    ${pad(r.file, 22)} ${r.kb} KB`);
+console.log(`    ${pad('total', 22)} ${downloadMB.toFixed(1)} MB`);
 if (errs.length) console.log('\n  PAGE ERRORS:', errs);
-console.log('');
+
+// ---- Budget ---------------------------------------------------------------
+const checks = [
+  ['draw calls / frame', frame.total.calls, BUDGET.drawCalls],
+  ['triangles / frame', frame.total.tris, BUDGET.trianglesPerFrame],
+  ['download', +downloadMB.toFixed(1), BUDGET.downloadMB, 'MB'],
+];
+for (const r of scene) {
+  if (!NOT_A_PROP.has(r.group) && !/^target\d+$/.test(r.group)) {
+    checks.push([`prop "${r.group}" triangles`, r.tris, BUDGET.propTriangles]);
+  }
+}
+
+console.log(`\n  BUDGET`);
+const over = [];
+for (const [name, actual, cap, unit = ''] of checks) {
+  const bad = actual > cap;
+  if (bad) over.push(name);
+  const bar = `${actual.toLocaleString()}${unit} / ${cap.toLocaleString()}${unit}`;
+  console.log(`    ${bad ? 'OVER' : ' ok '}  ${pad(name, 28)} ${bar}  (${Math.round((actual / cap) * 100)}%)`);
+}
+
+if (over.length || errs.length) {
+  console.log(`\nPERF: FAIL — over budget: ${over.join(', ') || 'none'}${errs.length ? `; ${errs.length} page error(s)` : ''}\n`);
+} else {
+  console.log('\nPERF: PASS\n');
+}
 
 await browser.close();
+process.exit(over.length || errs.length ? 1 : 0);
