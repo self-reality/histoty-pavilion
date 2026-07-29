@@ -23,8 +23,8 @@ export function fogTypeName(type) {
 // import the manifest — the same reason it already hardcodes its own SKY. The
 // manifest stays the tracked truth (the standalone build reads it directly);
 // these two must be kept in step with it by hand.
-export const EDITOR_FOG = { type: 'linear', color: [0.68, 0.72, 0.78], start: 15, end: 120, density: 0.008 };
-export const EDITOR_SURFACE = { roughness: 0.9, specular: 0.35, metalness: 0 };
+export const EDITOR_FOG = { type: 'linear', color: [0.741, 0.749, 1], start: 6, end: 66, density: 0.012 };
+export const EDITOR_SURFACE = { roughness: 0.44, specular: 0, metalness: 0.15 };
 
 /**
  * Write a manifest `fog` block onto a scene and hand back the live FogParams.
@@ -74,12 +74,9 @@ export function disableFogOn(cameraComponent) {
  */
 export class SurfaceLook {
   constructor(surface = {}) {
-    this.params = {
-      roughness: 0.9,
-      specular: 0.35,
-      metalness: 0,
-      ...surface,
-    };
+    // Fall back to the in-src copy rather than a third set of literals, so
+    // there is only ever one place in this file that can drift from the manifest.
+    this.params = { ...EDITOR_SURFACE, ...surface };
     this.materials = new Set();
   }
 

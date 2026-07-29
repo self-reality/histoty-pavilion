@@ -73,7 +73,7 @@ const sun = new Entity('sun');
 sun.addComponent('light', {
   type: 'directional',
   color: new Color(1.0, 0.96, 0.86),
-  intensity: 2.4,
+  intensity: 2.15,
   castShadows: true,
   shadowBias: 0.2,
   normalOffsetBias: 0.06,
@@ -85,7 +85,7 @@ sun.setEulerAngles(52, 28, 0);
 app.root.addChild(sun);
 
 const fill = new Entity('fill');
-fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.5, castShadows: false });
+fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.6, castShadows: false });
 fill.setEulerAngles(120, -140, 0);
 app.root.addChild(fill);
 

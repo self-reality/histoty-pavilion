@@ -112,7 +112,7 @@ export class Game extends Script {
     this.addScore = (n) => { this.score += n; this.ui.scoreVal.textContent = this.score; };
 
     // ---- Global scene look (Editor scene settings can override these) ----
-    this.SKY = new Color(0.61, 0.71, 0.83);
+    this.SKY = new Color(0.957, 0.839, 1);   // mirrors scene.manifest.mjs `sky`
     app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
     if ('exposure' in app.scene) app.scene.exposure = 1.0;
 
@@ -168,7 +168,7 @@ export class Game extends Script {
 
     const sun = new Entity('sun');
     sun.addComponent('light', {
-      type: 'directional', color: new Color(1.0, 0.96, 0.86), intensity: 2.4,
+      type: 'directional', color: new Color(1.0, 0.96, 0.86), intensity: 2.15,
       castShadows: true, shadowBias: 0.2, normalOffsetBias: 0.06,
       shadowDistance: 90, shadowResolution: 2048, shadowType: pc.SHADOW_PCF3 ?? undefined,
     });
@@ -178,7 +178,7 @@ export class Game extends Script {
     this.sun = sun;
 
     const fill = new Entity('fill');
-    fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.5, castShadows: false });
+    fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.6, castShadows: false });
     fill.setEulerAngles(120, -140, 0);
     app.root.addChild(fill);
     this._created.push(fill);
