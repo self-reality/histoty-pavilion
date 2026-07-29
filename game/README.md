@@ -95,7 +95,15 @@ Headless Playwright smoke tests (require `npx playwright install chromium`, soft
 node tests/smoke.mjs   # boots the page, asserts no errors, reports tri/floor counts
 node tests/look.mjs    # screenshots a yaw sweep -> /tmp/dust2_yaw_*.png
 node tests/fire.mjs    # drives the shooting loop, asserts ammo/recoil/target-hit
+node tests/perf.mjs    # per-frame draw calls / triangles, load cost, download weight
 ```
+
+`perf.mjs` runs against a real GPU (ANGLE Metal) and counts the actual WebGL
+command stream, splitting the frame into camera passes vs. the sun's shadow pass
+by A/B-ing `castShadows`. It reports work submitted rather than frame times on
+purpose — headless Chrome's present path dominates wall-clock timings and makes
+them useless, whereas draw-call and triangle counts are exact and are what a
+weak GPU actually chokes on.
 
 ## Tuning
 
