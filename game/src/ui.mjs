@@ -96,6 +96,9 @@ const CSS = `
 #${ROOT_ID} .dbg-slabel { display: flex; justify-content: space-between; margin-bottom: 2px; color: #b9c0c9; }
 #${ROOT_ID} .dbg-sval { color: var(--accent); }
 #${ROOT_ID} .dbg-slider input[type=range] { width: 100%; accent-color: var(--accent); }
+#${ROOT_ID} .dbg-color { display: flex; align-items: center; justify-content: space-between; margin: 7px 0; color: #b9c0c9; }
+#${ROOT_ID} .dbg-color input[type=color] { width: 56px; height: 20px; padding: 0; cursor: pointer;
+  background: none; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; }
 #${ROOT_ID} .dbg-row { display: flex; gap: 6px; margin: 6px 0; }
 #${ROOT_ID} .dbg-btn { flex: 1; padding: 7px 6px; font: inherit; font-size: 11px; cursor: pointer;
   color: #eaeef3; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; }

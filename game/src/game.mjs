@@ -18,6 +18,7 @@ import { Player } from './player.mjs';
 import { Weapon } from './weapon.mjs';
 import { DebugTools } from './debug.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn } from './world.mjs';
+import { applyFog, disableFogOn, SurfaceLook, EDITOR_FOG, EDITOR_SURFACE } from './atmosphere.mjs';
 import { injectUI } from './ui.mjs';
 
 export class Game extends Script {
@@ -115,6 +116,11 @@ export class Game extends Script {
     app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
     if ('exposure' in app.scene) app.scene.exposure = 1.0;
 
+    // Distance haze + the map's PBR response. Both are live sliders in the
+    // debug panel (`); see atmosphere.mjs for the numbers' authoring home.
+    applyFog(app.scene, EDITOR_FOG);
+    this.surface = new SurfaceLook(EDITOR_SURFACE);
+
     this._setupCameraRig();
     this._setupLights();
     this._setupViewmodel();
@@ -147,10 +153,18 @@ export class Game extends Script {
   }
 
   // ---- Lights: respect any Editor-authored directional light; else add sun+fill.
+  // Either way this.sun/this.fill end up pointing at whatever is lighting the
+  // scene, so the debug panel's Lighting sliders drive the real lights.
   _setupLights() {
     const app = this.app;
-    const hasDir = app.root.findComponents('light').some((l) => l.type === 'directional');
-    if (hasDir) return;
+    const dirs = app.root.findComponents('light').filter((l) => l.type === 'directional');
+    if (dirs.length) {
+      // Brightest authored directional is the key light; next one is the fill.
+      const sorted = [...dirs].sort((a, b) => b.intensity - a.intensity);
+      this.sun = sorted[0].entity;
+      this.fill = sorted[1]?.entity ?? null;
+      return;
+    }
 
     const sun = new Entity('sun');
     sun.addComponent('light', {
@@ -161,12 +175,14 @@ export class Game extends Script {
     sun.setEulerAngles(52, 28, 0);
     app.root.addChild(sun);
     this._created.push(sun);
+    this.sun = sun;
 
     const fill = new Entity('fill');
     fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.5, castShadows: false });
     fill.setEulerAngles(120, -140, 0);
     app.root.addChild(fill);
     this._created.push(fill);
+    this.fill = fill;
   }
 
   // ---- Viewmodel layer + top-most camera + dedicated light (always code-made).
@@ -185,6 +201,8 @@ export class Game extends Script {
       clearColorBuffer: false, clearDepthBuffer: true, fov: 65,
       nearClip: 0.01, farClip: 50, layers: [vmLayer.id], priority: 1,
     });
+    // The gun sits ~0.5 m from the lens; keep it out of the fog at any density.
+    disableFogOn(vmCamera.camera);
     this.camera.addChild(vmCamera);
     this._created.push(vmCamera);
 
@@ -276,19 +294,8 @@ export class Game extends Script {
   _wireWorld(renderRoot) {
     const app = this.app;
 
-    // Ripped single-sided walls: render both sides + matte.
-    const seen = new Set();
-    for (const rc of renderRoot.findComponents('render')) {
-      for (const mi of rc.meshInstances) {
-        const m = mi.material;
-        if (!m || seen.has(m)) continue;
-        seen.add(m);
-        m.cull = pc.CULLFACE_NONE;
-        if ('useMetalness' in m) { m.useMetalness = true; m.metalness = 0; }
-        if ('gloss' in m) m.gloss = 0.12;
-        m.update();
-      }
-    }
+    // Both-sided ripped walls + dry-stone PBR response (see atmosphere.mjs).
+    this.surface.adopt(renderRoot);
 
     const tris = extractTriangles(renderRoot);
     this.collider = new TriangleCollider(tris, 2.0);
@@ -309,12 +316,16 @@ export class Game extends Script {
       queryTargets: (o, d, maxDist) => this.targets.query(o, d, maxDist),
     });
 
-    this.debug = new DebugTools({ app, player: this.player, collider: this.collider, mapRender: renderRoot, spawn });
+    this.debug = new DebugTools({
+      app, player: this.player, collider: this.collider, mapRender: renderRoot, spawn,
+      surface: this.surface, sun: this.sun, fill: this.fill, camera: this.camera,
+    });
 
     // Debug handle (parity with the standalone build; used by automated checks).
     window.game = {
       app, player: this.player, weapon: this.weapon, targets: this.targets,
-      collider: this.collider, debug: this.debug, camera: this.camera, root: this.playerRoot,
+      collider: this.collider, debug: this.debug, surface: this.surface,
+      camera: this.camera, root: this.playerRoot,
     };
 
     this.ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;

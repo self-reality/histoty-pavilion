@@ -14,6 +14,7 @@ import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { DebugTools } from '../src/debug.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn } from '../src/world.mjs';
+import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
@@ -60,6 +61,12 @@ window.addEventListener('resize', () => app.resizeCanvas());
 
 app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
 if ('exposure' in app.scene) app.scene.exposure = 1.0;
+
+// Distance haze, straight from the manifest. Live sliders in the debug panel (`).
+applyFog(app.scene, manifest.fog);
+
+// The map's PBR response. Materials are adopted once the GLB lands (see boot()).
+const surface = new SurfaceLook(manifest.surface);
 
 // ---- Lights ----
 const sun = new Entity('sun');
@@ -114,6 +121,8 @@ vmCamera.addComponent('camera', {
   layers: [vmLayer.id],
   priority: 1,
 });
+// The gun sits ~0.5 m from the lens; keep it out of the fog at any density.
+disableFogOn(vmCamera.camera);
 cameraEntity.addChild(vmCamera);
 
 // A light bound to the viewmodel layer so the gun is shaded (not just ambient).
@@ -150,19 +159,8 @@ function boot() {
     app.root.addChild(map);
     map.syncHierarchy();
 
-    // Make ripped single-sided walls render from both sides + matte.
-    const seen = new Set();
-    for (const rc of renderRoot.findComponents('render')) {
-      for (const mi of rc.meshInstances) {
-        const m = mi.material;
-        if (!m || seen.has(m)) continue;
-        seen.add(m);
-        m.cull = pc.CULLFACE_NONE;
-        if ('useMetalness' in m) { m.useMetalness = true; m.metalness = 0; }
-        if ('gloss' in m) m.gloss = 0.12;
-        m.update();
-      }
-    }
+    // Both-sided ripped walls + dry-stone PBR response (see atmosphere.mjs).
+    surface.adopt(renderRoot);
 
     const tris = extractTriangles(renderRoot);
     collider = new TriangleCollider(tris, 2.0);
@@ -184,10 +182,13 @@ function boot() {
     });
 
     // Debug tweak panel.
-    debug = new DebugTools({ app, player, collider, mapRender: renderRoot, spawn });
+    debug = new DebugTools({
+      app, player, collider, mapRender: renderRoot, spawn,
+      surface, sun, fill, camera: cameraEntity,
+    });
 
     // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, weapon, targets, collider, debug, camera: cameraEntity, root: playerRoot };
+    window.game = { app, player, weapon, targets, collider, debug, surface, camera: cameraEntity, root: playerRoot };
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;

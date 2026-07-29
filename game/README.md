@@ -42,7 +42,18 @@ Press `` ` `` for a right-side panel with live diagnostics:
 - **Controller sliders** — gravity, jump, walk/run speed, capsule radius, step
   height, tweakable live while you play (purely diagnostic; nothing changes unless
   you drag a slider).
+- **Atmosphere (fog)** — type (`off` / `linear` / `exp` / `exp2`), colour, and the
+  distances that drive it: `start`/`end` for linear, `density` for the exponential
+  modes. All four stay live, so you can switch type without re-dialling numbers.
+  The viewmodel camera is exempt, so the gun never hazes over.
+- **Map surface** — `roughness` (0 = mirror, 1 = chalk), `specular` (scales the
+  dielectric reflectance; 0 removes the sun glint entirely) and `metalness`,
+  applied to all 34 of the map's materials at once.
+- **Lighting** — sun intensity/pitch/yaw, fill intensity, ambient level, sky colour.
 - **Teleport spawn** — drop back at the spawn point.
+
+Dial a look you like, then copy the numbers into the `fog` / `surface` blocks of
+`scene.manifest.mjs` to make them the new defaults.
 
 Red dummies are scattered around the map — shoot them for points. They respawn elsewhere.
 
@@ -51,7 +62,8 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | File | Responsibility |
 |------|----------------|
 | `index.html` | Canvas, HUD, crosshair, start overlay, import map |
-| `src/main.mjs` | Engine bootstrap, GLB load, lighting, spawn-finding, targets, input, game loop |
+| `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, spawn-finding, targets, input, game loop |
+| `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, ray/triangle |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
@@ -93,4 +105,9 @@ Most feel knobs live at the top of their modules:
   `jumpSpeed`, `stepHeight`).
 - Map scale / orientation: `MAP_SCALE`, `MAP_EULER` in `src/main.mjs`.
 - Weapon: stats block in `src/weapon.mjs` (`fireInterval`, `magSize`, `range`, `reloadTime`).
-- Lighting: `sun` / `fill` / ambient in `src/main.mjs`.
+- Lighting: `sun` / `fill` / ambient in `standalone/main.mjs`.
+- Fog + map surface: the `fog` / `surface` blocks in `scene.manifest.mjs`, applied by
+  `src/atmosphere.mjs`. Note that `surface.roughness` is authored as **roughness**, not
+  as PlayCanvas's `gloss` — glTF-imported materials carry `glossInvert = true`, so
+  writing `gloss` directly means the opposite of what it reads like. That inversion is
+  what used to make the map's sandstone reflect the sun like polished plastic.

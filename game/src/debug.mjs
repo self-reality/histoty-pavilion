@@ -1,4 +1,5 @@
 import * as pc from 'playcanvas';
+import { FOG_TYPES, FOG_TYPE_NAMES, fogTypeName } from './atmosphere.mjs';
 
 const { Color, Entity } = pc;
 
@@ -36,14 +37,23 @@ function flatMat(color) {
  *   • view modes: textured / wireframe / collision-normals overlay
  *   • live readouts for position / grounded / vertical speed
  *   • live sliders for the movement/controller params
+ *   • live atmosphere / surface / lighting sliders (see atmosphere.mjs)
+ *
+ * The look sections are optional: pass `surface` (a SurfaceLook), `sun` and
+ * `fill` (directional light entities) to get them. Without them the panel is
+ * exactly what it was before, so nothing here needs a fully-wired scene.
  */
 export class DebugTools {
-  constructor({ app, player, collider, mapRender, spawn }) {
+  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera }) {
     this.app = app;
     this.player = player;
     this.collider = collider;
     this.mapRender = mapRender;   // entity holding the textured map render
     this.spawn = spawn;
+    this.surface = surface;       // SurfaceLook over the map materials (optional)
+    this.sun = sun;               // key directional light (optional)
+    this.fill = fill;             // bounce/sky fill light (optional)
+    this.camera = camera;         // main camera entity — owns the sky clear colour
 
     this.mode = 0;                // 0 textured, 1 wireframe, 2 normals
     this._frame = 0;
@@ -148,10 +158,74 @@ export class DebugTools {
     // stairs the player can't get up; ~0.5 = knee-high, 1.5 = waist-high.
     slider(bodyWrap, 'climb height', 0.1, 1.5, 0.05, this.player.stepHeight, (v) => this.player.stepHeight = v);
 
+    this._buildAtmosphere(bodyWrap);
+    this._buildSurface(bodyWrap);
+    this._buildLighting(bodyWrap);
+
     // Actions.
     section(bodyWrap, 'Actions');
     const row = el('div', 'dbg-row', bodyWrap);
     button(row, 'Teleport spawn', () => this.player.teleport(this.spawn.x, this.spawn.y, this.spawn.z));
+  }
+
+  // ---- Fog. scene.fog is read by the renderer every frame, so writing its
+  // fields here IS the apply — there is nothing to flush.
+  _buildAtmosphere(parent) {
+    const fog = this.app.scene.fog;
+
+    section(parent, 'Atmosphere (fog)');
+    segmented(parent, FOG_TYPE_NAMES, FOG_TYPE_NAMES.indexOf(fogTypeName(fog.type)),
+      (name) => { fog.type = FOG_TYPES[name]; });
+    colorPicker(parent, 'color', fog.color, (c) => fog.color.copy(c));
+    // start/end drive linear fog, density drives exp/exp2. Both stay live so you
+    // can switch type and keep the numbers you already dialled in.
+    slider(parent, 'start (m)', 0, 120, 1, fog.start, (v) => fog.start = v);
+    slider(parent, 'end (m)', 5, 400, 1, fog.end, (v) => fog.end = v);
+    slider(parent, 'density', 0, 0.06, 0.001, fog.density, (v) => fog.density = v, 3);
+  }
+
+  // ---- Map PBR response. See atmosphere.mjs for why `roughness` is the knob
+  // and not PlayCanvas's `gloss`.
+  _buildSurface(parent) {
+    if (!this.surface) return;
+    const p = this.surface.params;
+
+    section(parent, 'Map surface');
+    slider(parent, 'roughness', 0, 1, 0.01, p.roughness, (v) => this.surface.set('roughness', v));
+    slider(parent, 'specular', 0, 1, 0.01, p.specular, (v) => this.surface.set('specular', v));
+    slider(parent, 'metalness', 0, 1, 0.01, p.metalness, (v) => this.surface.set('metalness', v));
+  }
+
+  // ---- The lights the surface is reacting to, plus the sky it sits against.
+  _buildLighting(parent) {
+    if (!this.sun) return;
+    const scene = this.app.scene;
+    const sunLight = this.sun.light;
+
+    section(parent, 'Lighting');
+    slider(parent, 'sun', 0, 6, 0.05, sunLight.intensity, (v) => sunLight.intensity = v);
+    // Euler X/Y of a directional light is just its direction: pitch = elevation
+    // (90 = straight down / noon), yaw = compass bearing. The range spans the
+    // full -90..90 so an Editor-authored light is never shown clamped to a
+    // number it isn't actually at.
+    const angles = this.sun.getEulerAngles();
+    let pitch = angles.x, yaw = angles.y;
+    slider(parent, 'sun pitch', -90, 90, 1, pitch, (v) => { pitch = v; this.sun.setEulerAngles(pitch, yaw, 0); });
+    slider(parent, 'sun yaw', -180, 180, 1, yaw, (v) => { yaw = v; this.sun.setEulerAngles(pitch, yaw, 0); });
+    if (this.fill) {
+      slider(parent, 'fill', 0, 3, 0.05, this.fill.light.intensity, (v) => this.fill.light.intensity = v);
+    }
+    // ambientLight is a colour, but the useful knob is its brightness — keep the
+    // authored hue and scale it.
+    const ambientHue = scene.ambientLight.clone();
+    const peak = Math.max(ambientHue.r, ambientHue.g, ambientHue.b) || 1;
+    ambientHue.set(ambientHue.r / peak, ambientHue.g / peak, ambientHue.b / peak);
+    slider(parent, 'ambient', 0, 1.5, 0.01, peak, (v) => {
+      scene.ambientLight = new Color(ambientHue.r * v, ambientHue.g * v, ambientHue.b * v);
+    });
+    if (this.camera?.camera) {
+      colorPicker(parent, 'sky', this.camera.camera.clearColor, (c) => this.camera.camera.clearColor = c);
+    }
   }
 
   // Called from the game loop; light DOM writes, throttled.
@@ -179,15 +253,48 @@ function stat(parent, label) {
   el('span', 'dbg-k', row).textContent = label;
   return el('span', 'dbg-v', row);
 }
-function slider(parent, label, min, max, step, val, onInput) {
+function slider(parent, label, min, max, step, val, onInput, digits = 2) {
   const row = el('div', 'dbg-slider', parent);
   const head = el('div', 'dbg-slabel', row);
   el('span', '', head).textContent = label;
-  const out = el('span', 'dbg-sval', head); out.textContent = (+val).toFixed(2);
+  const out = el('span', 'dbg-sval', head); out.textContent = (+val).toFixed(digits);
   const input = el('input', '', row);
   input.type = 'range'; input.min = min; input.max = max; input.step = step; input.value = val;
-  input.oninput = () => { const v = +input.value; out.textContent = v.toFixed(2); onInput(v); };
+  input.oninput = () => { const v = +input.value; out.textContent = v.toFixed(digits); onInput(v); };
   return input;
+}
+// Generic segmented control. Calls back with the picked label, not its index,
+// so the caller reads as prose ('linear', 'exp2') rather than magic numbers.
+function segmented(parent, labels, current, onPick) {
+  const seg = el('div', 'dbg-seg', parent);
+  const btns = labels.map((label, i) => {
+    const b = el('button', 'dbg-segbtn', seg);
+    b.textContent = label;
+    b.classList.toggle('on', i === current);
+    b.onclick = () => {
+      btns.forEach((other, j) => other.classList.toggle('on', j === i));
+      onPick(label, i);
+    };
+    return b;
+  });
+  return btns;
+}
+// Colour swatch bound to a pc.Color. Hands the callback a fresh Color so the
+// caller decides whether to copy in place or assign.
+function colorPicker(parent, label, color, onInput) {
+  const row = el('div', 'dbg-color', parent);
+  el('span', '', row).textContent = label;
+  const input = el('input', '', row);
+  input.type = 'color';
+  input.value = rgb2hex(color);
+  input.oninput = () => onInput(hex2rgb(input.value));
+  return input;
+}
+const hex2 = (v) => Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16).padStart(2, '0');
+function rgb2hex(c) { return `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`; }
+function hex2rgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return new Color(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
 }
 function button(parent, label, onClick) {
   const b = el('button', 'dbg-btn', parent);

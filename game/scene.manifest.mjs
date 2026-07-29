@@ -23,6 +23,31 @@ export const manifest = {
   // ---- Global look ----
   sky: [0.61, 0.71, 0.83], // camera clear colour / sky
 
+  // ---- Distance fog ----
+  // Read by src/atmosphere.mjs into scene.fog; every field is a live slider in
+  // the debug panel (`) so these numbers are just the starting pose. Keeping the
+  // colour near `sky` is what makes far geometry dissolve into the horizon
+  // instead of greying out against it. type: off | linear | exp | exp2.
+  fog: {
+    type: 'linear',
+    color: [0.68, 0.72, 0.78], // a touch warmer/paler than `sky` — dust haze
+    start: 15,                 // metres where the haze begins (linear only)
+    end: 120,                  // metres where it's fully opaque (linear only)
+    density: 0.008,            // exp/exp2 only; ignored by linear
+  },
+
+  // ---- Map surface response (PBR) ----
+  // de_dust2 is sandstone and dust: rough, near-specular-free. Applied to the
+  // map's 34 materials by src/atmosphere.mjs, live-tweakable in the debug panel.
+  //
+  // `roughness` is authored as roughness (0 = mirror, 1 = chalk) — NOT as
+  // PlayCanvas's `gloss`. See atmosphere.mjs for why that distinction matters.
+  surface: {
+    roughness: 0.9,   // dry stone, no polish
+    specular: 0.35,   // scales dielectric F0; 0 = no sun glint at all
+    metalness: 0,     // stone is a dielectric
+  },
+
   // ---- Refractive props ----
   // Meshes whose names match these sample the camera's scene-colour grab-pass
   // (requestSceneColorMap). The grab-pass is enabled globally on the camera, so
