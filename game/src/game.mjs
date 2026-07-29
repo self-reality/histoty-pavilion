@@ -414,7 +414,7 @@ export class Game extends Script {
 
     this.player.update(d, this.input);
 
-    if (this.debug) { this.debug.track(); this.debug.updateReadout(); }
+    if (this.debug) this.debug.updateReadout();
 
     if (this.player.pos.y < this.collider.bounds.miny - 20 && this.player.spawn) {
       this.player.teleport(this.player.spawn.x, this.player.spawn.y, this.player.spawn.z);

@@ -183,7 +183,7 @@ function boot() {
       queryTargets: (o, d, maxDist) => targets.query(o, d, maxDist),
     });
 
-    // Debug tweak panel + fall diagnostics.
+    // Debug tweak panel.
     debug = new DebugTools({ app, player, collider, mapRender: renderRoot, spawn });
 
     // Lightweight debug handle (handy for tweaking / automated checks).
@@ -348,7 +348,7 @@ app.on('update', (dt) => {
 
   player.update(d, input);
 
-  if (debug) { debug.track(); debug.updateReadout(); }
+  if (debug) debug.updateReadout();
 
   // Respawn if the player falls out of the world.
   if (player.pos.y < collider.bounds.miny - 20 && player.spawn) {

@@ -92,8 +92,6 @@ const CSS = `
 #${ROOT_ID} .dbg-segbtn { flex: 1; padding: 5px 0; font: inherit; font-size: 11px; cursor: pointer;
   color: #cdd3da; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; }
 #${ROOT_ID} .dbg-segbtn.on { background: var(--accent); color: #1a140a; border-color: var(--accent); font-weight: 700; }
-#${ROOT_ID} .dbg-check { display: flex; align-items: center; gap: 7px; margin: 5px 0; cursor: pointer; }
-#${ROOT_ID} .dbg-check input { accent-color: var(--accent); }
 #${ROOT_ID} .dbg-slider { margin: 7px 0; }
 #${ROOT_ID} .dbg-slabel { display: flex; justify-content: space-between; margin-bottom: 2px; color: #b9c0c9; }
 #${ROOT_ID} .dbg-sval { color: var(--accent); }
@@ -102,13 +100,6 @@ const CSS = `
 #${ROOT_ID} .dbg-btn { flex: 1; padding: 7px 6px; font: inherit; font-size: 11px; cursor: pointer;
   color: #eaeef3; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; }
 #${ROOT_ID} .dbg-btn:hover { background: rgba(255,255,255,0.16); }
-#${ROOT_ID} .dbg-count { margin: 8px 0 4px; color: #8b93a0; }
-#${ROOT_ID} .dbg-count.dbg-flash { color: var(--accent); }
-#${ROOT_ID} .dbg-list { display: flex; flex-direction: column; gap: 2px; max-height: 168px; overflow-y: auto; }
-#${ROOT_ID} .dbg-fall { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; cursor: pointer;
-  background: rgba(255,255,255,0.04); border-radius: 5px; }
-#${ROOT_ID} .dbg-fall:hover { background: rgba(255,207,90,0.16); }
-#${ROOT_ID} .dbg-tag { color: #ff9a9a; font-size: 10px; }
 `;
 
 const HTML = `

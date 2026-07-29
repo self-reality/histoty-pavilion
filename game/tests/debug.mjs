@@ -35,38 +35,22 @@ const overlayTris = await page.evaluate(() => {
 console.log('normals overlay:', JSON.stringify(overlayTris));
 await page.evaluate(() => window.game.debug.setMode(0));
 
-// Run the automated hole-sweep.
-const sweep = await page.evaluate(() => {
-  const r = window.game.debug.sweep();
-  return { tested: r.tested, holes: r.holes.length, sample: r.holes.slice(0, 8) };
-});
-console.log('sweep:', JSON.stringify(sweep));
-
-// Fall tracking: drop the player into the void and confirm it gets logged.
-const fell = await page.evaluate(async () => {
+// Readouts tick and the sliders write through to the controller.
+const controls = await page.evaluate(() => {
   const g = window.game;
-  g.debug.clearFalls();
-  const b = g.collider.bounds;
-  // Stand on ground first so lastGround is set, then yank into the void.
-  g.player.teleport(g.player.spawn.x, g.player.spawn.y, g.player.spawn.z);
-  g.player.grounded = true;
-  g.debug.track();
-  g.player.teleport(g.player.spawn.x, b.miny - 10, g.player.spawn.z);
-  g.player.grounded = false;
-  g.player.vel.y = -20;
-  g.debug.track();
-  return { falls: g.debug.falls.length, log: g.debug.logText() };
+  g.debug.updateReadout();
+  return { pos: g.debug._rPos.textContent, view: g.debug._rMode.textContent, sliders: document.querySelectorAll('#debugPanel input[type=range]').length };
 });
-console.log('fall-track:', JSON.stringify(fell));
+console.log('controls:', JSON.stringify(controls));
 
 console.log('errors:', errors.length);
 for (const e of errors.slice(0, 8)) console.log('  ', e);
-const fallLogs = logs.filter(l => /\[\[(FALL|SWEEP|FALLLOG)/.test(l));
-console.log('debug console lines:', fallLogs.length);
-for (const l of fallLogs.slice(0, 6)) console.log('  ', l);
+const warnings = logs.filter(l => l.startsWith('[error]') || l.startsWith('[warning]'));
+console.log('console warnings/errors:', warnings.length);
+for (const l of warnings.slice(0, 6)) console.log('  ', l);
 
 await browser.close();
 
-const pass = panel.present && overlayTris.tris > 0 && sweep.tested > 0 && fell.falls > 0 && errors.length === 0;
+const pass = panel.present && overlayTris.tris > 0 && controls.sliders > 0 && !!controls.pos && errors.length === 0;
 console.log(pass ? '\nDEBUG: PASS' : '\nDEBUG: CHECK');
 process.exit(pass ? 0 : 1);

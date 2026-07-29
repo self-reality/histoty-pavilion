@@ -21,7 +21,7 @@ const rest = await page.evaluate(async () => {
 console.log('rest jitter spread (mm):', rest.spreadMm);
 
 // 2/3/4) Deterministic functional checks — step the controller synchronously
-// (no rAF interleave), exactly like the hole-sweep does.
+// (no rAF interleave).
 const fn = await page.evaluate(() => {
   const p = window.game.player;
   const dt = 1 / 60;
@@ -59,13 +59,11 @@ const fn = await page.evaluate(() => {
   for (let i = 0; i < 45; i++) { p.update(dt, ZERO); if (p.grounded) airGroundedFrames++; }
   const freefall = ff0 - p.pos.y;
 
-  const holes = window.game.debug.sweep().holes.length;
   p.teleport(p.spawn.x, p.spawn.y, p.spawn.z);
-  return { walk: +walk.toFixed(2), walkJitterMm: +(walkJitter * 1000).toFixed(1), jump: +jump.toFixed(2), freefall: +freefall.toFixed(2), airGroundedFrames, holes };
+  return { walk: +walk.toFixed(2), walkJitterMm: +(walkJitter * 1000).toFixed(1), jump: +jump.toFixed(2), freefall: +freefall.toFixed(2), airGroundedFrames };
 });
 console.log('walk dist (m):', fn.walk, ' walk vertical jitter (mm):', fn.walkJitterMm, ' jump height (m):', fn.jump);
 console.log('free-fall drop (m):', fn.freefall, ' spurious mid-air grounds:', fn.airGroundedFrames);
-console.log('sweep holes (should be 0 on grid centers):', fn.holes);
 console.log('errors:', errors.length, errors.slice(0, 5));
 
 await browser.close();

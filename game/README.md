@@ -34,21 +34,15 @@ Click **Play** to lock the mouse and start. Press **Esc** to release the mouse (
 
 ### Debug panel
 
-Press `` ` `` for a right-side panel to diagnose fall-through-the-floor spots:
+Press `` ` `` for a right-side panel with live diagnostics:
 
+- **Readouts** — position, grounded state, vertical speed, current view mode.
 - **View / `V`** — switch the map to a collision-normals overlay (green = walkable
-  floor, amber = slope, red = wall). A hole in the floor shows as a green gap.
-- **Falls** — every un-commanded fall is logged with the spot you fell from and
-  marked in-world with a red beacon. **Copy log** copies the coordinates; they
-  also persist in `localStorage` and print to the console as `[[FALL]]` lines.
-- **Sweep for holes** — drops the capsule straight down onto every floor sample
-  and lists any that punch through the floor plane (`settle` = a gap right under
-  the sample, `tunnel` = a fast fall from height passes through). It's a vertical
-  drop test, so it finds genuine gaps / thin floors but **not** falls caused by
-  running off an edge or into a seam — for those, just play and read the fall log.
+  floor, amber = slope, red = wall).
 - **Controller sliders** — gravity, jump, walk/run speed, capsule radius, step
   height, tweakable live while you play (purely diagnostic; nothing changes unless
   you drag a slider).
+- **Teleport spawn** — drop back at the spawn point.
 
 Red dummies are scattered around the map — shoot them for points. They respawn elsewhere.
 
@@ -61,7 +55,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, ray/triangle |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
-| `src/debug.mjs` | Debug tweak panel: view modes, fall tracking + beacons, hole-sweep, live sliders |
+| `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live controller sliders |
 
 **No physics engine / WASM** — collision is a custom sphere-discretised capsule vs. the
 map's triangle mesh, so the whole thing is plain JS + one engine file + one `.glb`. It runs
