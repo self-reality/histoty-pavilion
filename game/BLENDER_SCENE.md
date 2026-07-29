@@ -90,6 +90,35 @@ parses each URL once, then instantiates per placement.
 Anything else you add as a custom property rides along into `extras` in the
 JSON, so you can invent conventions without touching the exporter.
 
+## Collision
+
+A placed prop is **solid by default** — its geometry joins the collider when it
+loads, so you walk into it and shoot it like the map.
+
+Two ways to opt out, at different scales:
+
+| Want | Do |
+|------|----|
+| The whole prop walk-through (decor, a distant silhouette) | Custom property `solid` = `0` on the anchor Empty |
+| One mesh inside a solid prop walk-through | End that object's name with **`_nocol`** |
+
+`_nocol` is the one you will reach for most. A tent's guy-ropes and pegs are
+thin geometry that you snag on and get stuck against, while the fabric body is
+something you genuinely should not walk through — so name the ropes
+`tent_ropes_nocol` and leave the body alone. `_nocol` meshes still render and
+still cast shadows; they are invisible only to collision.
+
+The suffix survives export: the glTF importer appends a primitive index
+(`pole_nocol` arrives in game as `pole_nocol_0`) and Blender appends `.001` to
+duplicates, so both of those still match.
+
+One thing to watch: collision currently uses the prop's **full visual mesh**. The
+tent contributes ~20,000 collision triangles on its own, which doubled the
+controller's per-frame cost for one prop. It is still under a millisecond and
+fine at this scale, but it is the reason low-poly collision proxies are the next
+piece of pipeline work — a tent should cost a few hundred collision triangles,
+not twenty thousand.
+
 ## Coordinates
 
 Blender is Z-up, PlayCanvas is Y-up. The tools convert; you never do the maths.

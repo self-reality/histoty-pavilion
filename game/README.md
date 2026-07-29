@@ -131,6 +131,26 @@ Two things decimation cannot fix, worth knowing before you lean on it:
 - Sources stay out of git on purpose (`assets/source/` is ignored) — scans bloat
   a repo permanently and irreversibly. Keep them on a drive or in cloud storage.
 
+### Props and collision
+
+Placed props are **solid by default** — their geometry joins the collider as they
+load, so you walk into them and shoot them like the map. Two opt-outs:
+
+- **Whole prop** — `solid: false` on its placement entry, or a `solid` = `0`
+  custom property on the Blender anchor.
+- **One mesh inside a prop** — end the object's name with **`_nocol`**. It still
+  renders and still casts a shadow; collision just never sees it. This is for
+  thin geometry you would otherwise snag on: a tent's guy-ropes and pegs should
+  be `_nocol` while the fabric body stays solid.
+
+See BLENDER_SCENE.md for the authoring side. Collision triangles carry a `prop`
+tag, so `collider.raycast(...).tri.prop` answers "what did I just hit?".
+
+Props stream in after the map — the level is playable before a heavy GLB has
+landed — so their triangles join a collider that already exists rather than
+forcing a rebuild. The grid's bounds are fixed at construction for that reason;
+see `TriangleCollider.add`.
+
 ### Serving it
 
 Enable gzip or brotli on whatever hosts this. It is the single largest win
@@ -147,6 +167,7 @@ node tests/smoke.mjs   # boots the page, asserts no errors, reports tri/floor co
 node tests/look.mjs    # screenshots a yaw sweep -> /tmp/dust2_yaw_*.png
 node tests/fire.mjs    # drives the shooting loop, asserts ammo/recoil/target-hit
 node tests/raycast.mjs # grid broadphase vs. a full triangle sweep, must agree exactly
+node tests/props.mjs   # props are solid, `_nocol` meshes are not
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

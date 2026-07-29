@@ -13,7 +13,7 @@ import { TriangleCollider } from '../src/collision.mjs';
 import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { DebugTools } from '../src/debug.mjs';
-import { TargetManager, extractTriangles, findFloors, pickSpawn } from '../src/world.mjs';
+import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -256,10 +256,45 @@ function loadProp(prop) {
     const [sx, sy, sz] = prop.scale ?? [1, 1, 1];
     root.setLocalScale(sx, sy, sz);
     app.root.addChild(root);
-    root.syncHierarchy();
-    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}`);
+    root.syncHierarchy();          // world transforms must be final before we
+                                   // bake collision triangles out of them
+    const solid = addPropCollision(prop, root);
+    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}${solid}`);
   });
   return asset;
+}
+
+/**
+ * Is this prop something you can walk into?
+ *
+ * Solid by default — that is what a placed object usually means. Opt a whole
+ * prop out with `solid: false` on its placement entry, or with a `solid`
+ * custom property in Blender (the exporter forwards unknown custom properties
+ * into `extras`). Opt out one mesh inside an otherwise-solid prop with a
+ * `_nocol` name suffix; see isNonColliding in ../src/world.mjs.
+ */
+function propIsSolid(prop) {
+  const flag = prop.solid ?? prop.extras?.solid;
+  if (flag === undefined || flag === null) return true;
+  return !(flag === false || flag === 0 || flag === 'false');
+}
+
+// Fold a placed prop's geometry into the collider. Props land after the map, so
+// this joins a collider that is already live and already being queried.
+function addPropCollision(prop, root) {
+  if (!collider) return ' (no collider yet)';
+  if (!propIsSolid(prop)) return ' — walk-through (solid: false)';
+  const tris = extractTriangles(root, { skip: isNonColliding });
+  if (!tris.length) return ' — no collidable meshes';
+  // Provenance: raycast() hands back the triangle it hit, so tagging makes
+  // "what did I just shoot / bump into?" answerable in the console and lets
+  // tests assert they were stopped by the prop rather than by the map.
+  for (const t of tris) t.prop = prop.name;
+  collider.add(tris);
+  // The debug view's normals overlay is built from the collider's triangles, so
+  // it has to be rebuilt or pressing V would show the map without the prop.
+  if (debug) debug.rebuildOverlay();
+  return ` — solid, +${tris.length.toLocaleString()} collision tris`;
 }
 
 // ---- Input ----

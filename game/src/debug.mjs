@@ -101,6 +101,21 @@ export class DebugTools {
     this.app.root.addChild(this._overlay);
   }
 
+  /**
+   * Rebuild the normals overlay from the collider's current triangles.
+   *
+   * The overlay is baked geometry, so it goes stale the moment the collider
+   * gains anything — which it now does every time a solid prop finishes
+   * loading. Without this, pressing V after a prop lands would show the map's
+   * collision and quietly omit the prop's.
+   */
+  rebuildOverlay() {
+    const wasEnabled = this._overlay?.enabled ?? false;
+    this._overlay?.destroy();
+    this._buildOverlay();
+    this._overlay.enabled = wasEnabled;
+  }
+
   setMode(mode) {
     this.mode = mode;
     const wire = mode === 1 ? pc.RENDERSTYLE_WIREFRAME : pc.RENDERSTYLE_SOLID;

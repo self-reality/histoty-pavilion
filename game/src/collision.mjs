@@ -92,12 +92,43 @@ export function rayTriangle(orig, dir, a, b, c) {
  */
 export class TriangleCollider {
   constructor(triangles, cellSize = 2.0) {
-    this.tris = triangles; // [{ a,b,c: Vec3, n: Vec3, minx,miny,minz,maxx,maxy,maxz }]
+    this.tris = [];        // [{ a,b,c: Vec3, n: Vec3, minx,miny,minz,maxx,maxy,maxz }]
     this.cell = cellSize;
     this._stamp = 0;
 
+    // Bounds (and therefore the grid's origin and dimensions) are fixed here by
+    // the geometry the collider is seeded with — see add().
     let minx = Infinity, minz = Infinity, maxx = -Infinity, maxz = -Infinity;
     let miny = Infinity, maxy = -Infinity;
+    for (const t of triangles) {
+      minx = Math.min(minx, t.a.x, t.b.x, t.c.x); maxx = Math.max(maxx, t.a.x, t.b.x, t.c.x);
+      miny = Math.min(miny, t.a.y, t.b.y, t.c.y); maxy = Math.max(maxy, t.a.y, t.b.y, t.c.y);
+      minz = Math.min(minz, t.a.z, t.b.z, t.c.z); maxz = Math.max(maxz, t.a.z, t.b.z, t.c.z);
+    }
+    this.bounds = { minx, minz, maxx, maxz, miny, maxy };
+    this.cols = Math.max(1, Math.ceil((maxx - minx) / this.cell) + 1);
+    this.rows = Math.max(1, Math.ceil((maxz - minz) / this.cell) + 1);
+    this.grid = new Array(this.cols * this.rows);
+
+    this.add(triangles);
+  }
+
+  /**
+   * Index more triangles into an already-built collider.
+   *
+   * Props stream in after the map — the level is playable before a 10 MB GLB has
+   * landed — so their collision has to join a collider that already exists and
+   * is already referenced by the player, the weapon and the debug tools.
+   * Appending keeps that identity; rebuilding would leave every holder pointing
+   * at a stale object.
+   *
+   * `bounds` deliberately does NOT grow. Cell indices are derived from the
+   * bounds origin, so widening them would silently relocate every triangle
+   * already filed in the grid. Geometry outside the map's XZ footprint clamps
+   * into an edge cell instead — still correct, because a query from out there
+   * clamps to that same cell, just not accelerated. Props sit inside the level.
+   */
+  add(triangles) {
     for (const t of triangles) {
       t.minx = Math.min(t.a.x, t.b.x, t.c.x);
       t.maxx = Math.max(t.a.x, t.b.x, t.c.x);
@@ -106,16 +137,8 @@ export class TriangleCollider {
       t.minz = Math.min(t.a.z, t.b.z, t.c.z);
       t.maxz = Math.max(t.a.z, t.b.z, t.c.z);
       t._stamp = 0;
-      minx = Math.min(minx, t.minx); maxx = Math.max(maxx, t.maxx);
-      minz = Math.min(minz, t.minz); maxz = Math.max(maxz, t.maxz);
-      miny = Math.min(miny, t.miny); maxy = Math.max(maxy, t.maxy);
-    }
-    this.bounds = { minx, minz, maxx, maxz, miny, maxy };
-    this.cols = Math.max(1, Math.ceil((maxx - minx) / this.cell) + 1);
-    this.rows = Math.max(1, Math.ceil((maxz - minz) / this.cell) + 1);
-    this.grid = new Array(this.cols * this.rows);
+      this.tris.push(t);
 
-    for (const t of triangles) {
       const ix0 = this._cx(t.minx), ix1 = this._cx(t.maxx);
       const iz0 = this._cz(t.minz), iz1 = this._cz(t.maxz);
       for (let iz = iz0; iz <= iz1; iz++) {
@@ -125,6 +148,7 @@ export class TriangleCollider {
         }
       }
     }
+    return this;
   }
 
   _cx(x) { return Math.min(this.cols - 1, Math.max(0, Math.floor((x - this.bounds.minx) / this.cell))); }

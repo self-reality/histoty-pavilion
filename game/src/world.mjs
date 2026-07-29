@@ -113,14 +113,32 @@ export class TargetManager {
   }
 }
 
+// ---- Collision opt-out convention ------------------------------------------
+/**
+ * Meshes carrying the `_nocol` marker are visual-only: they render and cast
+ * shadows, but never enter the collider. That is how a tent's guy-ropes and
+ * poles stay visible without being thin geometry you snag on.
+ *
+ * Authored in Blender as an object-name suffix (`pole_nocol`). The glTF importer
+ * appends a primitive index on the way in — `Military_tent_01` arrives as
+ * `Military_tent_01_0` — and Blender itself appends `.001` to duplicates, so the
+ * match tolerates trailing numeric suffixes rather than demanding a bare ending.
+ */
+export const NO_COLLIDE = /_nocol(?:[._]\d+)*$/i;
+export const isNonColliding = (name) => NO_COLLIDE.test(name || '');
+
 // ---- Triangle extraction (world space) ------------------------------------
 // Pulls a triangle soup out of a loaded/instantiated render hierarchy, already
 // baked into world space, ready to feed TriangleCollider.
-export function extractTriangles(rootEntity) {
+//
+// `opts.skip(name)` drops individual meshes by node name — see isNonColliding.
+export function extractTriangles(rootEntity, opts = {}) {
+  const skip = opts.skip;
   const tris = [];
   const renders = rootEntity.findComponents('render');
   for (const rc of renders) {
     for (const mi of rc.meshInstances) {
+      if (skip && skip(mi.node.name)) continue;
       const mesh = mi.mesh;
       const wt = mi.node.getWorldTransform();
       const positions = [];
