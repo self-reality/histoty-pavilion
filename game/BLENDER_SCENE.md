@@ -95,12 +95,13 @@ JSON, so you can invent conventions without touching the exporter.
 A placed prop is **solid by default** — its geometry joins the collider when it
 loads, so you walk into it and shoot it like the map.
 
-Two ways to opt out, at different scales:
+Three ways to opt out, at different scales:
 
 | Want | Do |
 |------|----|
 | The whole prop walk-through (decor, a distant silhouette) | Custom property `solid` = `0` on the anchor Empty |
 | One mesh inside a solid prop walk-through | End that object's name with **`_nocol`** |
+| A bought prop's ropes and pegs walk-through, without hand-editing it | `nocolMaxSpan` in `assets/assets.config.json` |
 
 `_nocol` is the one you will reach for most. A tent's guy-ropes and pegs are
 thin geometry that you snag on and get stuck against, while the fabric body is
@@ -112,12 +113,41 @@ The suffix survives export: the glTF importer appends a primitive index
 (`pole_nocol` arrives in game as `pole_nocol_0`) and Blender appends `.001` to
 duplicates, so both of those still match.
 
-One thing to watch: collision currently uses the prop's **full visual mesh**. The
-tent contributes ~20,000 collision triangles on its own, which doubled the
-controller's per-frame cost for one prop. It is still under a millisecond and
-fine at this scale, but it is the reason low-poly collision proxies are the next
-piece of pipeline work — a tent should cost a few hundred collision triangles,
-not twenty thousand.
+### When the prop has no ropes to name
+
+Marketplace props usually arrive welded: `tent_military.glb` is one node holding
+140 separate shells — fabric panels, but also 90 pegs, hinges and cross-bars.
+There is no rope object to rename, so the whole thing has to be solid.
+
+`nocolMaxSpan` in `assets/assets.config.json` does the naming for you at build
+time. It splits every mesh by loose parts, measures each shell across its
+**second-widest axis**, and joins everything under the threshold into a sibling
+called `<name>_nocol`:
+
+```json
+"assets": { "tent_military.glb": { "nocolMaxSpan": 0.4 } }
+```
+
+The second axis, not the smallest — a tent wall is 0.11 m thin too, but it is
+6 m long and 4 m tall. Only pegs and ropes are narrow in *two* directions.
+
+It works here because the two populations do not overlap: the tent's widest
+thin part is 0.35 m across and its narrowest solid one (a window pane) is
+0.68 m, so 0.4 lands in open space between them. Check that gap before trusting
+a threshold on a new prop — `npm run assets:build -- --force --dry` reports what
+it would catch without writing anything. Set it to `0` (the default) and nothing splits.
+
+Doing it here rather than by hand in Blender is deliberate: a hand-split file
+would live in `assets/source/`, which is untracked and treated as the pristine
+download, so the work would exist on exactly one machine. As a config number it
+is in git and `--force` reproduces it anywhere.
+
+The cost is one extra draw call and one extra shadow caster per split object.
+On the tent that bought 12,360 of its 19,997 triangles out of collision — the
+controller now tests 7,637 — so it is a trade worth making, but it is a trade.
+
+Collision still uses the prop's **visual** mesh, thinned. A low-poly collision
+proxy remains the real fix, and is the next piece of pipeline work.
 
 ## Coordinates
 

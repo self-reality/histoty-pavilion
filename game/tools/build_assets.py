@@ -42,6 +42,7 @@ import os
 import sys
 
 import bpy
+from mathutils import Vector
 
 GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE_DIR = os.path.join(GAME_DIR, 'assets', 'source')
@@ -55,6 +56,7 @@ DEFAULTS = {
     'maxTexture': 1024,   # px on the long edge; 2048 only for hero pieces
     'triangles': 20000,   # per asset; 0 disables decimation entirely
     'quality': 85,        # WebP quality, 0-100
+    'nocolMaxSpan': 0,    # m; parts thinner than this stop colliding. 0 = off
 }
 
 
@@ -78,7 +80,10 @@ def write_default_config():
     """Drop a commented starting point so per-asset tuning is discoverable."""
     cfg = {
         '_doc': 'Per-asset overrides for npm run assets:build. Keys are file '
-                'names in assets/source/. "triangles": 0 disables decimation.',
+                'names in assets/source/. "triangles": 0 disables decimation. '
+                '"nocolMaxSpan": metres — loose parts narrower than this across '
+                'their second-widest axis (ropes, pegs, hardware) are split '
+                'into a "*_nocol" object and stop colliding; 0 disables.',
         'defaults': dict(DEFAULTS),
         'assets': {},
     }
@@ -137,6 +142,97 @@ def resize_textures(cap):
     return touched
 
 
+def separate_loose(obj):
+    """Explode `obj` into one object per connected shell. Returns all of them."""
+    before = set(bpy.data.objects)
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.separate(type='LOOSE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return [obj] + [o for o in bpy.data.objects if o not in before]
+
+
+def join_into(objs, name):
+    """Join `objs` back into one object called `name`. Returns it, or None."""
+    if not objs:
+        return None
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    if len(objs) > 1:
+        bpy.ops.object.join()
+    joined = bpy.context.view_layer.objects.active
+    joined.name = name
+    return joined
+
+
+def second_span(obj):
+    """Width across the object's second-widest axis, in world metres.
+
+    The second axis rather than the smallest is what separates a prop's fiddly
+    bits from its body. A tent wall is thin too — 0.11 m — but it is 6 m long
+    and 4 m tall, so only its *smallest* span is small. A guy-rope or a peg is
+    narrow in two directions at once, and that is the thing worth measuring.
+    """
+    corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+    spans = [max(v[i] for v in corners) - min(v[i] for v in corners) for i in range(3)]
+    return sorted(spans, reverse=True)[1]
+
+
+def mark_noncolliding(span):
+    """Split each mesh's thin shells out into a sibling named `*_nocol`.
+
+    Marketplace props arrive as one welded mesh: tent_military.glb is a single
+    node holding 140 separate shells — fabric panels, but also 90 pegs, tent
+    hardware and cross-bars. The game's collision opt-out keys off the object
+    *name* (see NO_COLLIDE in src/world.mjs), so with one object there is
+    nothing to name and the whole prop has to be solid — including the pegs you
+    then snag on, and the ~10,000 triangles they charge the collider for.
+
+    Splitting by hand in Blender works, but the result would live only in
+    assets/source/, which is deliberately untracked and treated as the pristine
+    download. Doing it here instead keeps the decision in git as one number and
+    lets `--force` reproduce it on any machine.
+
+    A size threshold rather than a hand-picked list because the two populations
+    do not overlap: on the tent, the widest thin part is 0.35 m across and the
+    narrowest solid one (a window pane) is 0.68 m, so 0.4 m lands in open space
+    between them. Per-asset in assets.config.json, since the gap moves with the
+    prop. Set nocolMaxSpan to 0 and nothing splits.
+    """
+    if not span:
+        return 0
+    parts = 0
+    for obj in [o for o in bpy.data.objects if o.type == 'MESH']:
+        base = obj.name
+        shells = separate_loose(obj)
+        thin = [o for o in shells if second_span(o) < span]
+        solid = [o for o in shells if o not in thin]
+        if not thin:
+            join_into(shells, base)
+            continue
+        parts += len(thin)
+        # Name the opt-out first: `base` is still held by one of these shells,
+        # and a rename onto a taken name would silently become `base.001`.
+        join_into(thin, f'{base}_nocol')
+        join_into(solid, base)
+    return parts
+
+
+def count_triangles_matching(suffix):
+    n = 0
+    for obj in bpy.data.objects:
+        if obj.type != 'MESH' or not obj.name.endswith(suffix):
+            continue
+        obj.data.calc_loop_triangles()
+        n += len(obj.data.loop_triangles)
+    return n
+
+
 def decimate(budget):
     """Collapse meshes until the asset fits `budget` triangles.
 
@@ -175,12 +271,20 @@ def process(src_path, out_path, settings, dry):
     for img_name, before, after in resized:
         print(f'      texture {img_name}: {before} -> {after}')
 
+    nocol_parts = mark_noncolliding(settings['nocolMaxSpan'])
+
     tris_before, tris_after = decimate(settings['triangles'])
     if tris_after != tris_before:
         print(f'      triangles: {tris_before:,} -> {tris_after:,}'
               f'  (budget {settings["triangles"]:,})')
     else:
         print(f'      triangles: {tris_before:,} (under budget, untouched)')
+
+    nocol_tris = count_triangles_matching('_nocol') if nocol_parts else 0
+    if nocol_parts:
+        print(f'      _nocol: {nocol_parts} parts under '
+              f'{settings["nocolMaxSpan"]} m, {nocol_tris:,} tris '
+              f'({nocol_tris / tris_after * 100:.0f}%) out of collision')
 
     if dry:
         print('      [dry] not written')
@@ -198,7 +302,8 @@ def process(src_path, out_path, settings, dry):
     verb = 'smaller' if saved >= 0 else 'LARGER'
     print(f'      -> {os.path.basename(out_path)}  {out_mb:.1f} MB  ({abs(saved):.0f}% {verb})')
     return {'srcMB': round(src_mb, 2), 'outMB': round(out_mb, 2),
-            'trisBefore': tris_before, 'trisAfter': tris_after}
+            'trisBefore': tris_before, 'trisAfter': tris_after,
+            'nocolParts': nocol_parts, 'nocolTris': nocol_tris}
 
 
 def main():

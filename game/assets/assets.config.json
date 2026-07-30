@@ -1,9 +1,14 @@
 {
-  "_doc": "Per-asset overrides for npm run assets:build. Keys are file names in assets/source/. \"triangles\": 0 disables decimation.",
+  "_doc": "Per-asset overrides for npm run assets:build. Keys are file names in assets/source/. \"triangles\": 0 disables decimation. \"nocolMaxSpan\": metres — loose parts narrower than this across their second-widest axis (ropes, pegs, hardware) are split into a \"*_nocol\" object and stop colliding; 0 disables.",
   "defaults": {
     "maxTexture": 1024,
     "triangles": 20000,
-    "quality": 85
+    "quality": 85,
+    "nocolMaxSpan": 0
   },
-  "assets": {}
+  "assets": {
+    "tent_military.glb": {
+      "nocolMaxSpan": 0.4
+    }
+  }
 }

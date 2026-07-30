@@ -30,15 +30,18 @@ const r = await page.evaluate(async () => {
     ['tent_nocol_pole', false], ['', false],
   ].map(([name, want]) => ({ name, want, got: isNonColliding(name) }));
 
-  // 2) The tent's triangles reached the collider.
+  // 2) The tent's triangles reached the collider — and its `_nocol` ones did
+  // not. The split is produced by tools/build_assets.py (nocolMaxSpan), so this
+  // also catches an asset rebuilt without it: nocolTris would fall to zero.
   const tent = g.app.root.findByName('tent_01');
   let tentTris = 0;
+  let nocolTris = 0;
   const walk = (e) => {
     if (e.render) for (const mi of e.render.meshInstances) {
-      if (!isNonColliding(mi.node.name)) {
-        const ib = mi.mesh.indexBuffer && mi.mesh.indexBuffer[0];
-        tentTris += ib ? ib.numIndices / 3 : 0;
-      }
+      const ib = mi.mesh.indexBuffer && mi.mesh.indexBuffer[0];
+      const n = ib ? ib.numIndices / 3 : 0;
+      if (isNonColliding(mi.node.name)) nocolTris += n;
+      else tentTris += n;
     }
     for (const c of e.children) walk(c);
   };
@@ -87,6 +90,7 @@ const r = await page.evaluate(async () => {
     naming,
     colliderTris: g.collider.tris.length,
     tentTris: Math.round(tentTris),
+    nocolTris: Math.round(nocolTris),
     hitDist: hitDist === null ? null : +hitDist.toFixed(2),
     hitProp,
     approachFrom: +L.toFixed(2),
@@ -102,12 +106,16 @@ await browser.close();
 const namingBad = r.naming.filter((n) => n.got !== n.want);
 // The map alone is 9,474 triangles; the tent must have added its own on top.
 const colliderGrew = r.colliderTris >= 9474 + r.tentTris;
+// The tent is the only prop placed, so the collider is exactly the map plus the
+// tent's colliding half — anything more means the `_nocol` half leaked in.
+const nocolExcluded = r.nocolTris > 0 && r.colliderTris === 9474 + r.tentTris;
 // The ray must have been stopped BY THE TENT, not by map geometry in the way.
 const rayHitTent = r.hitProp === 'tent_01' && r.hitDist < r.approachFrom - 0.5;
 // Walking into it must leave the player outside it, with the tent in front.
 const walkStopped = r.endDist < r.startDist && r.blockedBy === 'tent_01';
 
 console.log(`  collider triangles   ${r.colliderTris.toLocaleString()} (map 9,474 + tent ${r.tentTris.toLocaleString()})`);
+console.log(`  tent _nocol tris     ${r.nocolTris.toLocaleString()} rendered, kept out of the collider`);
 console.log(`  ray at tent          hit "${r.hitProp}" at ${r.hitDist} m into a ${r.approachFrom} m approach`);
 console.log(`  walked into tent     ${r.startDist} m -> ${r.endDist} m from centre`);
 console.log(`  blocked by           "${r.blockedBy}" at ${r.blockDist} m`);
@@ -115,9 +123,10 @@ console.log(`  naming convention    ${r.naming.length - namingBad.length}/${r.na
 for (const n of namingBad) console.log(`     WRONG "${n.name}": got ${n.got}, want ${n.want}`);
 if (errs.length) console.log('  page errors:', errs.slice(0, 3));
 
-const ok = !namingBad.length && colliderGrew && rayHitTent && walkStopped && !errs.length;
+const ok = !namingBad.length && colliderGrew && nocolExcluded && rayHitTent && walkStopped && !errs.length;
 if (!ok) {
-  console.log(`\n  colliderGrew=${colliderGrew} rayHitTent=${rayHitTent} walkStopped=${walkStopped}`);
+  console.log(`\n  colliderGrew=${colliderGrew} nocolExcluded=${nocolExcluded}`
+    + ` rayHitTent=${rayHitTent} walkStopped=${walkStopped}`);
 }
 console.log(ok ? '\nPROPS: PASS' : '\nPROPS: FAIL');
 process.exit(ok ? 0 : 1);
