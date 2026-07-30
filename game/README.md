@@ -223,6 +223,26 @@ available and costs one server setting: the engine alone goes 3.4 MB → 0.5 MB
 brotli'd. Minifying the engine on top of that saves a further ~150 KB and costs
 readable stack traces, which is why `lib/playcanvas.mjs` is the unminified build.
 
+### Deploying
+
+`.github/workflows/pages.yml` publishes this folder to GitHub Pages on every
+push to `main`. There is no build step — the game is already static files, so
+the workflow uploads `game/` as-is. Deploying through Actions rather than
+"deploy from a branch" is deliberate: it skips Jekyll, which would otherwise
+mangle `.mjs` modules.
+
+Live at **https://history.singularitymuseum.com** (the domain comes from the
+`CNAME` file next to `index.html`; it must stay in the artifact or Pages drops
+the domain on the next deploy). `self-reality.github.io/histoty-pavilion/`
+redirects there.
+
+Pages already gets the hosting details right for us: `.mjs` is served as
+`text/javascript`, `.glb` as `model/gltf-binary`, everything with
+`Access-Control-Allow-Origin: *` — which is what lets the Editor build pull the
+textured map straight off this deploy (see `mapUrl` in `src/game.mjs`). It
+gzips the engine to 770 KB but does **not** offer brotli, so the 0.5 MB figure
+above needs a different host to collect.
+
 ## Tests
 
 Headless Playwright smoke tests (require `npx playwright install chromium`, software WebGL):
