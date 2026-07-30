@@ -33,11 +33,13 @@ Recent Files list are all equivalent. Blender lives at `/Applications/Blender.ap
 by default; override with `BLENDER=/path/to/blender npm run scene:edit`.
 
 **You can also export without leaving Blender:** Scripting workspace ▸ Open ▸
-`tools/export_scene.py` ▸ Run Script (`Alt-P`). Identical output to the command
-line, plus a popup with the summary and any warnings — worth knowing on macOS,
-where a script's `print()` output goes to a console you cannot see. Once the
-file is open in the Text Editor it stays in the `.blend`, so subsequent exports
-are one `Alt-P`.
+`tools/export_scene.py` ▸ Run Script (`Alt-P`). Same layout as the command line,
+plus a popup with the summary and any warnings — worth knowing on macOS, where a
+script's `print()` output goes to a console you cannot see. Once the file is open
+in the Text Editor it stays in the `.blend`, so subsequent exports are one
+`Alt-P`. The in-Blender run does one thing the headless one will not: it anchors
+loose imports first, so a prop you just dragged in actually ships (see "Adding a
+new prop").
 
 ## What's in the .blend
 
@@ -68,13 +70,19 @@ never exported. It is there so you can see where the ground is.
    `./assets/your_file.glb` (path relative to `game/`).
 6. *Now* move the Empty where you want it. Save, `npm run scene:export`.
 
-**Shortcut for steps 2-6:** import the GLB, put it where you want it, then run
-`tools/adopt_prop.py` (Scripting workspace ▸ Open ▸ Run Script). It finds every
-top-level import that no anchor owns, works out which file in `assets/` it came
-from by matching node names, builds the anchor around it, then saves and
-exports — so the prop is in game when the script finishes. It reuses the name a
-GLB already had in `scene.placements.json`, so re-importing a prop you deleted
-keeps its identity and the diff stays to the numbers that changed.
+**Shortcut for steps 3-6:** import the GLB, put it where you want it, then run
+the exporter from inside Blender (`tools/export_scene.py`, Scripting workspace ▸
+Open ▸ Run Script). Before writing the layout it finds every top-level import
+that no anchor owns, works out which file in `assets/` it came from by matching
+node names, builds the anchor around it, and saves — so the prop is in game when
+the script finishes. It reuses the name a GLB already had in
+`scene.placements.json`, so re-importing a prop you deleted keeps its identity
+and the diff stays to the numbers that changed.
+
+Anchoring only happens in the GUI. `npm run scene:export` exports what is on
+disk and warns about loose imports rather than adopting them: it would have to
+save the `.blend`, and if you have the file open your next `Cmd-S` writes the
+un-anchored scene straight back over it.
 
 Step 4's order matters. The game applies the exported transform to a fresh copy
 of the GLB, so the Empty has to sit at identity when the payload is attached —
@@ -100,9 +108,9 @@ cp ~/scan.jpg game/assets/source/pictures/kremlin_1904.jpg
 npm run assets:build        # -> game/assets/picture_kremlin_1904.glb
 ```
 
-Then import and place it exactly like a crate — or just run `adopt_prop.py`,
-which handles the anchor for you. See the Pictures section of README.md for the
-sizing and material choices the generator makes.
+Then import and place it exactly like a crate — the in-Blender export handles
+the anchor for you. See the Pictures section of README.md for the sizing and
+material choices the generator makes.
 
 Two things that make hanging them painless:
 
@@ -247,11 +255,11 @@ exports: extra collections, lights, viewport layout, notes. Export first.
 
 ## Gotchas
 
-- **`adopt_prop.py` says "Nothing loose to adopt"** right after you imported
-  something. `File > Import` drops objects into the **active collection**, and
-  the script only looks at the top of the scene — anything that landed inside
-  `SCENE` is, as far as it can tell, already anchored. Click **Scene Collection**
-  (the top row of the Outliner) before importing, or drag the imports up to it.
+- **The export anchors nothing** right after you imported something. `File >
+  Import` drops objects into the **active collection**, and adoption only looks
+  at the top of the scene — anything that landed inside `SCENE` is, as far as it
+  can tell, already anchored. Click **Scene Collection** (the top row of the
+  Outliner) before importing, or drag the imports up to it.
 - **Negative scale** (mirroring an object) does not survive the round-trip. The
   exporter warns; use rotation instead.
 - **A prop that shows in Blender but not in game** — you almost certainly moved
