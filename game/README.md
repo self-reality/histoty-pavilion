@@ -239,10 +239,17 @@ the workflow uploads `game/` as-is. Deploying through Actions rather than
 "deploy from a branch" is deliberate: it skips Jekyll, which would otherwise
 mangle `.mjs` modules.
 
-Live at **https://history.singularitymuseum.com** (the domain comes from the
-`CNAME` file next to `index.html`; it must stay in the artifact or Pages drops
-the domain on the next deploy). `self-reality.github.io/histoty-pavilion/`
-redirects there.
+Live at **https://history.singularitymuseum.com**;
+`self-reality.github.io/histoty-pavilion/` redirects there. Do not add a `CNAME`
+file to set that up — the usual advice does not apply to Actions-published
+sites. Tested: a deploy carrying `game/CNAME` left the domain unset. The domain
+lives in repo settings only (Settings → Pages, or `PUT /repos/:o/:r/pages` with
+`cname`), and a `CNAME` file next to `index.html` would just be published as a
+stray file at `/CNAME`.
+
+DNS is a `history` → `self-reality.github.io` CNAME record at Porkbun, which
+holds `singularitymuseum.com`. Note the apex already points at a *different*
+Pages site, so leave its `A` records alone.
 
 Pages already gets the hosting details right for us: `.mjs` is served as
 `text/javascript`, `.glb` as `model/gltf-binary`, everything with
