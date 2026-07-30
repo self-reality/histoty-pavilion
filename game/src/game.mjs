@@ -43,7 +43,7 @@ export class Game extends Script {
    * @title Map URL (embedded GLB)
    * @type {string}
    */
-  mapUrl = 'https://self-reality.github.io/histoty-pavilion/assets/de_dust2.glb';
+  mapUrl = 'https://history.singularitymuseum.com/assets/de_dust2.glb';
 
   /**
    * Map authored directly in the Editor scene — drag the GLB container into the
