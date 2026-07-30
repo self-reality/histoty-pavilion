@@ -72,19 +72,30 @@ const r = await page.evaluate(async () => {
   const startDist = Math.hypot(g.player.pos.x - c.x, g.player.pos.z - c.z);
   // Face the tent. yaw is degrees about Y; forward is -Z at yaw 0.
   g.player.yaw = Math.atan2(-(c.x - floor.x), -(c.z - floor.z)) * 180 / Math.PI;
-  for (let i = 0; i < 240; i++) {
-    g.player.update(1 / 60, { forward: 1, strafe: 0, jump: false, sprint: false });
-  }
-  const endDist = Math.hypot(g.player.pos.x - c.x, g.player.pos.z - c.z);
-
-  // What is actually in front of the stopped player? Same reasoning as above:
-  // "stopped" is only meaningful if the tent is what stopped them.
-  const fwd = g.entityForward ?? null;
   const yawRad = g.player.yaw * Math.PI / 180;
   const blockDir = new V(-Math.sin(yawRad), 0, -Math.cos(yawRad));
-  const eye = new V(g.player.pos.x, g.player.pos.y + 1.0, g.player.pos.z);
-  const block = g.collider.raycast(eye, blockDir, 4);
-  const blockedBy = block ? (block.tri.prop ?? '(map)') : null;
+
+  // Measure at the point of *closest approach*, not on whichever frame the loop
+  // happens to end on. The tent's walls are an A-frame: a capsule pressed into
+  // one rides up the slope, goes airborne, and slides back down and outward. So
+  // the final frame samples a random phase of that bounce and can sit a metre
+  // further out than the player ever actually got — which reads as "the tent
+  // did not stop them" when the truth is the opposite. Closest approach is the
+  // frame where the claim is meaningful: this is as far in as the tent let them.
+  let minDist = Infinity;
+  let blockedBy = null;
+  let blockDist = null;
+  for (let i = 0; i < 240; i++) {
+    g.player.update(1 / 60, { forward: 1, strafe: 0, jump: false, sprint: false });
+    const d = Math.hypot(g.player.pos.x - c.x, g.player.pos.z - c.z);
+    if (d >= minDist) continue;
+    minDist = d;
+    const eye = new V(g.player.pos.x, g.player.pos.y + 1.0, g.player.pos.z);
+    const block = g.collider.raycast(eye, blockDir, 4);
+    blockedBy = block ? (block.tri.prop ?? '(map)') : null;
+    blockDist = block ? block.dist : null;
+  }
+  const endDist = Math.hypot(g.player.pos.x - c.x, g.player.pos.z - c.z);
 
   return {
     naming,
@@ -96,8 +107,9 @@ const r = await page.evaluate(async () => {
     approachFrom: +L.toFixed(2),
     startDist: +startDist.toFixed(2),
     endDist: +endDist.toFixed(2),
+    minDist: +minDist.toFixed(2),
     blockedBy,
-    blockDist: block ? +block.dist.toFixed(2) : null,
+    blockDist: blockDist === null ? null : +blockDist.toFixed(2),
   };
 });
 
@@ -111,14 +123,15 @@ const colliderGrew = r.colliderTris >= 9474 + r.tentTris;
 const nocolExcluded = r.nocolTris > 0 && r.colliderTris === 9474 + r.tentTris;
 // The ray must have been stopped BY THE TENT, not by map geometry in the way.
 const rayHitTent = r.hitProp === 'tent_01' && r.hitDist < r.approachFrom - 0.5;
-// Walking into it must leave the player outside it, with the tent in front.
-const walkStopped = r.endDist < r.startDist && r.blockedBy === 'tent_01';
+// Walking into it must leave the player outside it, with the tent in front at
+// the moment they got as close as they were going to get.
+const walkStopped = r.minDist < r.startDist && r.blockedBy === 'tent_01';
 
 console.log(`  collider triangles   ${r.colliderTris.toLocaleString()} (map 9,474 + tent ${r.tentTris.toLocaleString()})`);
 console.log(`  tent _nocol tris     ${r.nocolTris.toLocaleString()} rendered, kept out of the collider`);
 console.log(`  ray at tent          hit "${r.hitProp}" at ${r.hitDist} m into a ${r.approachFrom} m approach`);
-console.log(`  walked into tent     ${r.startDist} m -> ${r.endDist} m from centre`);
-console.log(`  blocked by           "${r.blockedBy}" at ${r.blockDist} m`);
+console.log(`  walked into tent     ${r.startDist} m -> closest ${r.minDist} m from centre (rested at ${r.endDist} m)`);
+console.log(`  blocked by           "${r.blockedBy}" at ${r.blockDist} m when closest`);
 console.log(`  naming convention    ${r.naming.length - namingBad.length}/${r.naming.length} correct`);
 for (const n of namingBad) console.log(`     WRONG "${n.name}": got ${n.got}, want ${n.want}`);
 if (errs.length) console.log('  page errors:', errs.slice(0, 3));

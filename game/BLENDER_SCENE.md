@@ -176,8 +176,8 @@ download, so the work would exist on exactly one machine. As a config number it
 is in git and `--force` reproduces it anywhere.
 
 The cost is one extra draw call and one extra shadow caster per split object.
-On the tent that bought 12,360 of its 19,997 triangles out of collision — the
-controller now tests 7,637 — so it is a trade worth making, but it is a trade.
+On the tent that bought 12,660 of its 19,998 triangles out of collision — the
+controller now tests 7,338 — so it is a trade worth making, but it is a trade.
 
 Collision still uses the prop's **visual** mesh, thinned. A low-poly collision
 proxy remains the real fix, and is the next piece of pipeline work.
