@@ -212,7 +212,14 @@ async function collectProps() {
   const byName = new Map(manifest.props.map((p) => [p.name, p]));
   if (manifest.placements) {
     try {
-      const res = await fetch(manifest.placements);
+      // `no-store`, because this file is rewritten by every `npm run
+      // scene:export` and a stale copy silently shows the wrong layout. The dev
+      // server (python http.server) sends Last-Modified but no Cache-Control or
+      // ETag, so the browser is free to invent a freshness lifetime and serve
+      // its cached copy without asking. Cmd-Shift-R does not save you: a hard
+      // reload only forces revalidation for the navigation and the subresources
+      // it pulls in, and this fetch is issued from script afterwards.
+      const res = await fetch(manifest.placements, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       for (const prop of data.props ?? []) byName.set(prop.name, prop);
@@ -261,7 +268,11 @@ function loadProp(prop) {
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
-    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}${solid}`
+    // Scale is in the line because "is my Blender edit actually in this tab?" is
+    // the question you ask most while placing, and a stale placements file
+    // answers it silently and wrongly. Read it, compare with the .blend.
+    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}`
+      + ` scale ${sx === sy && sy === sz ? sx : `${sx},${sy},${sz}`}${solid}`
       + (proxies ? ` (${proxies} collision proxy mesh hidden)` : ''));
   });
   return asset;
