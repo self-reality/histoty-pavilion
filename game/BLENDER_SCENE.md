@@ -73,9 +73,10 @@ never exported. It is there so you can see where the ground is.
 **Shortcut for steps 3-6:** import the GLB, put it where you want it, then run
 the exporter from inside Blender (`tools/export_scene.py`, Scripting workspace ▸
 Open ▸ Run Script). Before writing the layout it finds every top-level import
-that no anchor owns, works out which file in `assets/` it came from by matching
-node names, builds the anchor around it, and saves — so the prop is in game when
-the script finishes. It reuses the name a GLB already had in
+that no anchor owns — in `SCENE` or at the top of the Outliner, wherever `File >
+Import` happened to drop it — works out which file in `assets/` it came from by
+matching node names, builds the anchor around it, and saves, so the prop is in
+game when the script finishes. It reuses the name a GLB already had in
 `scene.placements.json`, so re-importing a prop you deleted keeps its identity
 and the diff stays to the numbers that changed.
 
@@ -255,11 +256,12 @@ exports: extra collections, lights, viewport layout, notes. Export first.
 
 ## Gotchas
 
-- **The export anchors nothing** right after you imported something. `File >
-  Import` drops objects into the **active collection**, and adoption only looks
-  at the top of the scene — anything that landed inside `SCENE` is, as far as it
-  can tell, already anchored. Click **Scene Collection** (the top row of the
-  Outliner) before importing, or drag the imports up to it.
+- **Which collection you import into does not matter.** `File > Import` drops
+  objects into the **active** collection, so they land at the top of the
+  Outliner or inside `SCENE` depending on what you last clicked; adoption picks
+  them up either way. Inside `SCENE` it goes by type — everything you author at
+  that level is an Empty, so top-level *geometry* there is an import, never
+  something you meant to keep.
 - **Negative scale** (mirroring an object) does not survive the round-trip. The
   exporter warns; use rotation instead.
 - **A prop that shows in Blender but not in game** — you almost certainly moved

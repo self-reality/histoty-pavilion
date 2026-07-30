@@ -18,10 +18,11 @@ Any other custom properties ride along in `extras`, so Blender-side conventions
 (spawn_*, painting_*, ...) can grow without touching this script.
 
 Run from the GUI, the export first *adopts*: `File > Import > glTF` drops a bare
-hierarchy at the top of the scene, and the walk above cannot see it — no anchor,
-no `glb`, so the prop is invisible to the game no matter where you put it. Any
-such loose import is wired up the way "Adding a new prop" in BLENDER_SCENE.md
-describes by hand, and the .blend saved, before the layout is written:
+hierarchy into whichever collection is active, and the walk above cannot see it
+— no anchor, no `glb`, so the prop is invisible to the game no matter where you
+put it. Any such loose import is wired up the way "Adding a new prop" in
+BLENDER_SCENE.md describes by hand, and the .blend saved, before the layout is
+written:
 
     SCENE collection ▸ anchor Empty (`glb` custom property)
                      ▸ payload parented under it, hide_select, no parent inverse
@@ -200,14 +201,26 @@ def unique_name(base):
 
 
 def loose_roots():
-    """Top-level imports sitting outside SCENE/REF, i.e. nothing exports them."""
-    managed = set()
-    for name in (SCENE_COLLECTION, REF_COLLECTION):
-        coll = bpy.data.collections.get(name)
-        if coll:
-            managed.update(coll.objects)
-    return [o for o in bpy.context.scene.collection.objects
-            if o.parent is None and o not in managed and 'glb' not in o]
+    """Every hand-imported hierarchy no anchor owns — wherever it landed.
+
+    `File > Import` drops objects into the *active* collection, so a loose
+    import is at least as likely to be sitting inside SCENE as at the top of
+    the outliner, and the two are equally invisible to the game: no anchor, no
+    `glb`, nothing ships. Inside SCENE the tell is the type — everything you
+    author at that level is an Empty, either an anchor or a marker, so
+    top-level *geometry* there is always something the importer dropped.
+    """
+    ref = bpy.data.collections.get(REF_COLLECTION)
+    scene_coll = bpy.data.collections.get(SCENE_COLLECTION)
+    managed = set(ref.objects) if ref else set()
+    managed.update(scene_coll.objects if scene_coll else ())
+
+    roots = [o for o in bpy.context.scene.collection.objects
+             if o.parent is None and o not in managed and 'glb' not in o]
+    if scene_coll:
+        roots += [o for o in sorted(scene_coll.objects, key=lambda o: o.name)
+                  if o.parent is None and 'glb' not in o and o.type != 'EMPTY']
+    return list(dict.fromkeys(roots))  # an object can be linked to both
 
 
 def adopt(root, scene_coll):
