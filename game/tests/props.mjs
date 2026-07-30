@@ -152,9 +152,26 @@ const r = await page.evaluate(async () => {
   // a bearing sweep asks "is there ground exactly there?" and quietly skips the
   // bearings where the answer is no — including, on this map, the one the door
   // faces. Using the samples themselves as the starting set has no such gaps.
+  // Outside the footprint *rectangle*, not outside a circle sized by its longer
+  // side. The tent is 11.6 m across and 13.9 m long, so that circle also swept
+  // up a metre of open ground off each narrow end — and on this map the door
+  // faces down one of them. Every sample that could actually walk in sits about
+  // 0.51 m off the box, so the circle ate exactly them: the check flipped to
+  // FAIL on a tent a player still strolls into (verified: 0.29 m from centre),
+  // purely because someone dragged the scale from 1.37 to 1.5.
+  //
+  // The margin is the capsule's own radius, and that is the principled choice
+  // rather than a tuned one: bestApproach is a *minimum* over starts, so extra
+  // starts can only ever help a tent that opens and can never rescue one that
+  // is sealed — every approach to a sealed prop stops at the wall regardless of
+  // where it began. So take the smallest margin that is still legal, which is
+  // the one where the capsule does not begin already intersecting the prop.
+  const clear = g.player.radius;
   const starts = g.player.floors.filter((f) => {
     const d = Math.hypot(f.x - c.x, f.z - c.z);
-    return d > halfFootprint * 1.1 && d < halfFootprint * 2.5;
+    const outside = f.x < lo.x - clear || f.x > hi.x + clear
+                 || f.z < lo.z - clear || f.z > hi.z + clear;
+    return outside && d < halfFootprint * 2.5;
   });
 
   let bestApproach = Infinity;
