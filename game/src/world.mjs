@@ -127,6 +127,21 @@ export class TargetManager {
 export const NO_COLLIDE = /_nocol(?:[._]\d+)*$/i;
 export const isNonColliding = (name) => NO_COLLIDE.test(name || '');
 
+/**
+ * The mirror image: a mesh marked `_col` is collision-only. It never renders and
+ * never casts a shadow — it exists so the collider can be given a cheap stand-in
+ * for geometry that is far more detailed than a capsule can feel.
+ *
+ * Built by tools/build_assets.py (`collisionProxy: "hull"`), which hulls each
+ * connected shell of the visual mesh. A prop that has one collides with it
+ * *instead of* its visual geometry — see propCollisionTriangles.
+ *
+ * `_nocol` does not match this: the `_` before `col` is what separates them, and
+ * `pole_nocol` has an `o` there. tests/props.mjs pins that both ways.
+ */
+export const COLLISION_PROXY = /_col(?:[._]\d+)*$/i;
+export const isCollisionProxy = (name) => COLLISION_PROXY.test(name || '');
+
 // ---- Triangle extraction (world space) ------------------------------------
 // Pulls a triangle soup out of a loaded/instantiated render hierarchy, already
 // baked into world space, ready to feed TriangleCollider.
@@ -168,6 +183,42 @@ export function extractTriangles(rootEntity, opts = {}) {
     }
   }
   return tris;
+}
+
+/**
+ * The triangles a placed prop should contribute to the collider.
+ *
+ * A prop carrying a `_col` proxy collides with that alone; otherwise it collides
+ * with its visual meshes minus any `_nocol` ones. Deciding here rather than at
+ * the call site keeps the precedence in one place: a proxy is authored *because*
+ * the visual mesh is the wrong thing to collide with, so it always wins, and a
+ * prop that has one never pays for its wrinkles.
+ */
+export function propCollisionTriangles(rootEntity) {
+  const hasProxy = rootEntity.findComponents('render')
+    .some((rc) => rc.meshInstances.some((mi) => isCollisionProxy(mi.node.name)));
+  return extractTriangles(rootEntity, {
+    skip: hasProxy ? (name) => !isCollisionProxy(name) : isNonColliding,
+  });
+}
+
+/**
+ * Take the `_col` proxies out of both the camera pass and the shadow pass.
+ *
+ * They stay in the entity hierarchy — propCollisionTriangles still has to find
+ * them — so hiding is per mesh instance rather than by disabling the entity.
+ */
+export function hideCollisionProxies(rootEntity) {
+  let hidden = 0;
+  for (const rc of rootEntity.findComponents('render')) {
+    for (const mi of rc.meshInstances) {
+      if (!isCollisionProxy(mi.node.name)) continue;
+      mi.visible = false;
+      mi.castShadow = false;
+      hidden++;
+    }
+  }
+  return hidden;
 }
 
 // ---- Find walkable floor samples + a spawn --------------------------------

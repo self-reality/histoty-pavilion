@@ -139,7 +139,11 @@ const scene = await page.evaluate(() => {
   for (const c of g.app.root.children) {
     let mi = 0, casters = 0, tris = 0;
     const walk = (e) => {
+      // Invisible instances (a `_col` collision proxy) are never submitted, so
+      // counting them here would charge the frame budget for geometry the GPU
+      // never sees — and the budget exists to track what the frame costs.
       if (e.render) for (const m of e.render.meshInstances) {
+        if (!m.visible) continue;
         mi++; if (m.castShadow) casters++;
         const ib = m.mesh.indexBuffer && m.mesh.indexBuffer[0];
         tris += ib ? ib.numIndices / 3 : 0;

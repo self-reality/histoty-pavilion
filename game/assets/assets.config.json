@@ -1,10 +1,11 @@
 {
-  "_doc": "Per-asset overrides for npm run assets:build. Keys are file names in assets/source/. \"triangles\": 0 disables decimation. \"nocolMaxSpan\": metres — loose parts narrower than this across their second-widest axis (ropes, pegs, hardware) are split into a \"*_nocol\" object and stop colliding; 0 disables. Images in assets/source/pictures/ become picture slabs instead: they take \"pictureDefaults\" plus a same-filename override, and only \"height\" is authored — width follows the image aspect.",
+  "_doc": "Per-asset overrides for npm run assets:build. Keys are file names in assets/source/. \"triangles\": 0 disables decimation. \"nocolMaxSpan\": metres — loose parts narrower than this across their second-widest axis (ropes, pegs, hardware) are split into a \"*_nocol\" object and stop colliding; 0 disables. \"collisionProxy\": \"hull\" adds a low-poly \"*_col\" mesh that the game collides with instead of the visual geometry; \"\" disables. Images in assets/source/pictures/ become picture slabs instead: they take \"pictureDefaults\" plus a same-filename override, and only \"height\" is authored — width follows the image aspect.",
   "defaults": {
     "maxTexture": 1024,
     "triangles": 20000,
     "quality": 85,
-    "nocolMaxSpan": 0
+    "nocolMaxSpan": 0,
+    "collisionProxy": ""
   },
   "pictureDefaults": {
     "height": 1.4,
@@ -14,7 +15,8 @@
   },
   "assets": {
     "tent_military.glb": {
-      "nocolMaxSpan": 0.5
+      "nocolMaxSpan": 0.5,
+      "collisionProxy": "hull"
     }
   }
 }

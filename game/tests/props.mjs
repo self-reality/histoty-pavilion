@@ -19,29 +19,43 @@ await page.waitForFunction(() => window.game && window.game.app.root.findByName(
 await page.waitForTimeout(2500);   // let the prop's collision land
 
 const r = await page.evaluate(async () => {
-  const { isNonColliding } = await import('/src/world.mjs');
+  const { isNonColliding, isCollisionProxy } = await import('/src/world.mjs');
   const g = window.game;
 
-  // 1) The naming convention, including the shapes glTF and Blender produce.
+  // 1) The naming conventions, including the shapes glTF and Blender produce.
+  // The two must not shadow each other: `_nocol` ends in "col", so a sloppy
+  // proxy pattern would classify every opted-out mesh as a collision proxy and
+  // collide with exactly the geometry meant to be skipped.
   const naming = [
     ['pole_nocol', true], ['pole_nocol_0', true], ['pole_nocol.001', true],
     ['Rope_NOCOL_0', true], ['tent_nocol_0_1', true],
     ['Military_tent_01_0', false], ['nocolumn_0', false],
     ['tent_nocol_pole', false], ['', false],
-  ].map(([name, want]) => ({ name, want, got: isNonColliding(name) }));
+  ].map(([name, want]) => ({ name, want, got: isNonColliding(name), fn: 'isNonColliding' }))
+    .concat([
+      ['tent_col', true], ['tent_col_0', true], ['tent_col.001', true],
+      ['TENT_COL_0', true],
+      ['pole_nocol', false], ['pole_nocol_0', false], ['protocol_0', false],
+      ['Military_tent_01_0', false], ['', false],
+    ].map(([name, want]) => ({ name, want, got: isCollisionProxy(name), fn: 'isCollisionProxy' })));
 
-  // 2) The tent's triangles reached the collider — and its `_nocol` ones did
-  // not. The split is produced by tools/build_assets.py (nocolMaxSpan), so this
-  // also catches an asset rebuilt without it: nocolTris would fall to zero.
+  // 2) What the tent contributes, split three ways. The proxy is built by
+  // tools/build_assets.py (collisionProxy), so a rebuild without it shows up
+  // here as proxyTris falling to zero rather than as a silent cost increase.
   const tent = g.app.root.findByName('tent_01');
-  let tentTris = 0;
+  let visibleTris = 0;
   let nocolTris = 0;
+  let proxyTris = 0;
+  let proxyVisible = 0;
   const walk = (e) => {
     if (e.render) for (const mi of e.render.meshInstances) {
       const ib = mi.mesh.indexBuffer && mi.mesh.indexBuffer[0];
       const n = ib ? ib.numIndices / 3 : 0;
-      if (isNonColliding(mi.node.name)) nocolTris += n;
-      else tentTris += n;
+      if (isCollisionProxy(mi.node.name)) {
+        proxyTris += n;
+        if (mi.visible || mi.castShadow) proxyVisible++;
+      } else if (isNonColliding(mi.node.name)) nocolTris += n;
+      else visibleTris += n;
     }
     for (const c of e.children) walk(c);
   };
@@ -100,8 +114,10 @@ const r = await page.evaluate(async () => {
   return {
     naming,
     colliderTris: g.collider.tris.length,
-    tentTris: Math.round(tentTris),
+    visibleTris: Math.round(visibleTris),
     nocolTris: Math.round(nocolTris),
+    proxyTris: Math.round(proxyTris),
+    proxyVisible,
     hitDist: hitDist === null ? null : +hitDist.toFixed(2),
     hitProp,
     approachFrom: +L.toFixed(2),
@@ -117,18 +133,24 @@ await browser.close();
 
 const namingBad = r.naming.filter((n) => n.got !== n.want);
 // The map alone is 9,474 triangles; the tent must have added its own on top.
-const colliderGrew = r.colliderTris >= 9474 + r.tentTris;
+const colliderGrew = r.colliderTris > 9474;
 // The tent is the only prop placed, so the collider is exactly the map plus the
-// tent's colliding half — anything more means the `_nocol` half leaked in.
-const nocolExcluded = r.nocolTris > 0 && r.colliderTris === 9474 + r.tentTris;
+// proxy — anything more means visual geometry leaked into it, which is the whole
+// cost the proxy exists to avoid.
+const proxyIsTheCollider = r.proxyTris > 0 && r.colliderTris === 9474 + r.proxyTris;
+// And the proxy must cost the frame nothing: never drawn, never a shadow caster.
+const proxyHidden = r.proxyVisible === 0;
+// It is only worth the machinery if it is materially cheaper than the mesh.
+const proxyCheaper = r.proxyTris < r.visibleTris / 2;
 // The ray must have been stopped BY THE TENT, not by map geometry in the way.
 const rayHitTent = r.hitProp === 'tent_01' && r.hitDist < r.approachFrom - 0.5;
 // Walking into it must leave the player outside it, with the tent in front at
 // the moment they got as close as they were going to get.
 const walkStopped = r.minDist < r.startDist && r.blockedBy === 'tent_01';
 
-console.log(`  collider triangles   ${r.colliderTris.toLocaleString()} (map 9,474 + tent ${r.tentTris.toLocaleString()})`);
-console.log(`  tent _nocol tris     ${r.nocolTris.toLocaleString()} rendered, kept out of the collider`);
+console.log(`  collider triangles   ${r.colliderTris.toLocaleString()} (map 9,474 + tent proxy ${r.proxyTris.toLocaleString()})`);
+console.log(`  tent geometry        ${r.visibleTris.toLocaleString()} drawn + ${r.nocolTris.toLocaleString()} _nocol, none of it collided`);
+console.log(`  proxy drawn/casting  ${r.proxyVisible} instances (want 0)`);
 console.log(`  ray at tent          hit "${r.hitProp}" at ${r.hitDist} m into a ${r.approachFrom} m approach`);
 console.log(`  walked into tent     ${r.startDist} m -> closest ${r.minDist} m from centre (rested at ${r.endDist} m)`);
 console.log(`  blocked by           "${r.blockedBy}" at ${r.blockDist} m when closest`);
@@ -136,9 +158,11 @@ console.log(`  naming convention    ${r.naming.length - namingBad.length}/${r.na
 for (const n of namingBad) console.log(`     WRONG "${n.name}": got ${n.got}, want ${n.want}`);
 if (errs.length) console.log('  page errors:', errs.slice(0, 3));
 
-const ok = !namingBad.length && colliderGrew && nocolExcluded && rayHitTent && walkStopped && !errs.length;
+const ok = !namingBad.length && colliderGrew && proxyIsTheCollider && proxyHidden
+  && proxyCheaper && rayHitTent && walkStopped && !errs.length;
 if (!ok) {
-  console.log(`\n  colliderGrew=${colliderGrew} nocolExcluded=${nocolExcluded}`
+  console.log(`\n  colliderGrew=${colliderGrew} proxyIsTheCollider=${proxyIsTheCollider}`
+    + ` proxyHidden=${proxyHidden} proxyCheaper=${proxyCheaper}`
     + ` rayHitTent=${rayHitTent} walkStopped=${walkStopped}`);
 }
 console.log(ok ? '\nPROPS: PASS' : '\nPROPS: FAIL');

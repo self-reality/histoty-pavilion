@@ -183,7 +183,7 @@ code path in *both* entry points, a new authoring convention, and its own test.
 ### Props and collision
 
 Placed props are **solid by default** — their geometry joins the collider as they
-load, so you walk into them and shoot them like the map. Two opt-outs:
+load, so you walk into them and shoot them like the map. Three opt-outs:
 
 - **Whole prop** — `solid: false` on its placement entry, or a `solid` = `0`
   custom property on the Blender anchor.
@@ -191,12 +191,21 @@ load, so you walk into them and shoot them like the map. Two opt-outs:
   renders and still casts a shadow; collision just never sees it. This is for
   thin geometry you would otherwise snag on: a tent's guy-ropes and pegs should
   be `_nocol` while the fabric body stays solid.
+- **The whole prop's collision, replaced** — a mesh named **`_col`** is
+  collision-only: never drawn, never a shadow caster, and it collides *instead
+  of* every visual mesh in that prop.
 
-Bought props rarely name their ropes — they arrive as one welded mesh. Set
-`nocolMaxSpan` (metres) for that asset in `assets/assets.config.json` and
-`assets:build` splits the thin shells off into a `*_nocol` object for you; the
-tent's 0.5 takes 12,660 of its 19,998 triangles out of collision, guy-ropes
-included.
+Bought props rarely name their ropes — they arrive as one welded mesh. Two
+per-asset settings in `assets/assets.config.json` do the naming for you:
+
+| setting | does |
+|---|---|
+| `nocolMaxSpan: 0.5` | splits thin shells into `*_nocol` — 12,660 of the tent's 19,998 triangles, guy-ropes included |
+| `collisionProxy: "hull"` | hulls each remaining shell into a `*_col` stand-in — the tent collides as **1,384** triangles instead of 7,338 |
+
+The proxy is the bigger win and the blunter tool: convex shells cannot hold a
+dent, so a recessed doorway gets bridged. See BLENDER_SCENE.md for when to skip
+it.
 
 See BLENDER_SCENE.md for the authoring side. Collision triangles carry a `prop`
 tag, so `collider.raycast(...).tri.prop` answers "what did I just hit?".
@@ -222,7 +231,7 @@ node tests/smoke.mjs   # boots the page, asserts no errors, reports tri/floor co
 node tests/look.mjs    # screenshots a yaw sweep -> /tmp/dust2_yaw_*.png
 node tests/fire.mjs    # drives the shooting loop, asserts ammo/recoil/target-hit
 node tests/raycast.mjs # grid broadphase vs. a full triangle sweep, must agree exactly
-node tests/props.mjs   # props are solid, `_nocol` meshes are not
+node tests/props.mjs   # props are solid; `_nocol` is not, and `_col` is all that is
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

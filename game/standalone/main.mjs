@@ -13,7 +13,8 @@ import { TriangleCollider } from '../src/collision.mjs';
 import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { DebugTools } from '../src/debug.mjs';
-import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding } from '../src/world.mjs';
+import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
+         propCollisionTriangles, hideCollisionProxies } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -259,7 +260,9 @@ function loadProp(prop) {
     root.syncHierarchy();          // world transforms must be final before we
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root);
-    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}${solid}`);
+    const proxies = hideCollisionProxies(root);   // after collision, before the first frame
+    console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}${solid}`
+      + (proxies ? ` (${proxies} collision proxy mesh hidden)` : ''));
   });
   return asset;
 }
@@ -271,7 +274,8 @@ function loadProp(prop) {
  * prop out with `solid: false` on its placement entry, or with a `solid`
  * custom property in Blender (the exporter forwards unknown custom properties
  * into `extras`). Opt out one mesh inside an otherwise-solid prop with a
- * `_nocol` name suffix; see isNonColliding in ../src/world.mjs.
+ * `_nocol` name suffix; see isNonColliding in ../src/world.mjs. A prop shipping
+ * a `_col` proxy collides with that instead of its visual mesh entirely.
  */
 function propIsSolid(prop) {
   const flag = prop.solid ?? prop.extras?.solid;
@@ -284,7 +288,7 @@ function propIsSolid(prop) {
 function addPropCollision(prop, root) {
   if (!collider) return ' (no collider yet)';
   if (!propIsSolid(prop)) return ' — walk-through (solid: false)';
-  const tris = extractTriangles(root, { skip: isNonColliding });
+  const tris = propCollisionTriangles(root);
   if (!tris.length) return ' — no collidable meshes';
   // Provenance: raycast() hands back the triangle it hit, so tagging makes
   // "what did I just shoot / bump into?" answerable in the console and lets

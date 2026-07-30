@@ -179,8 +179,41 @@ The cost is one extra draw call and one extra shadow caster per split object.
 On the tent that bought 12,660 of its 19,998 triangles out of collision — the
 controller now tests 7,338 — so it is a trade worth making, but it is a trade.
 
-Collision still uses the prop's **visual** mesh, thinned. A low-poly collision
-proxy remains the real fix, and is the next piece of pipeline work.
+### Collision proxies
+
+`_nocol` only ever removed geometry. Even with the tent's ropes and pegs gone,
+the collider was still tracing 7,338 triangles of wrinkled fabric for something
+a capsule experiences as six flat walls and a roof.
+
+`collisionProxy` builds a stand-in instead:
+
+```json
+"assets": { "tent_military.glb": { "nocolMaxSpan": 0.5, "collisionProxy": "hull" } }
+```
+
+That adds one `<asset>_col` mesh to the GLB. A prop that ships one collides with
+**it alone** — the visual meshes stop colliding entirely, `_nocol` or not — and
+the proxy never renders and never casts a shadow. On the tent: **1,384
+triangles instead of 7,338**, and the frame budget is untouched at 170 draw
+calls because an invisible mesh instance is never submitted.
+
+It hulls each connected shell separately rather than the prop as a whole. One
+hull of the whole tent would be a solid block with no doorway and no interior —
+the concavity that makes a tent a tent lives *between* its panels, not inside
+them. Per shell, each panel becomes a slab and the space they enclose survives.
+
+A hull rather than heavy decimation because a hull is closed by construction. A
+shell collapsed to 2% grows slivers and holes, and a hole in a collider is a
+player falling out of the world.
+
+**What it costs you.** A convex shell cannot represent a local dent, so
+concavities *within* one panel get bridged. On the tent the proxy stays inside
+the visual silhouette everywhere (4.7 cm at worst) and within 5 cm along a
+head-height ray — but the recessed entrance is filled in, so you stop at the
+outer face instead of stepping into the doorway. Fine for a prop you walk
+around; not what you want for one you walk *into*. For those, leave
+`collisionProxy` off and reach for `_nocol`, or author a proxy by hand and name
+it `*_col`.
 
 ## Coordinates
 

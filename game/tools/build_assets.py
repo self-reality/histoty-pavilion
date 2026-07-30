@@ -57,6 +57,7 @@ raise that asset's budget in assets.config.json.
 
 import hashlib
 import json
+import math
 import os
 import sys
 
@@ -77,7 +78,12 @@ DEFAULTS = {
     'triangles': 20000,   # per asset; 0 disables decimation entirely
     'quality': 85,        # WebP quality, 0-100
     'nocolMaxSpan': 0,    # m; parts thinner than this stop colliding. 0 = off
+    'collisionProxy': '', # '' = collide with the visual mesh; 'hull' = build one
 }
+
+# Degrees. How flat two hull faces must be before the proxy merges them — the
+# difference between a collision slab and a faceted approximation of a wrinkle.
+PROXY_PLANAR_ANGLE = 5
 
 PICTURE_EXTS = ('.jpg', '.jpeg', '.png', '.webp')
 PICTURE_PREFIX = 'picture_'
@@ -116,6 +122,8 @@ def write_default_config():
                 '"nocolMaxSpan": metres — loose parts narrower than this across '
                 'their second-widest axis (ropes, pegs, hardware) are split '
                 'into a "*_nocol" object and stop colliding; 0 disables. '
+                '"collisionProxy": "hull" adds a low-poly "*_col" mesh that the '
+                'game collides with instead of the visual geometry; "" disables. '
                 'Images in assets/source/pictures/ become picture slabs instead: '
                 'they take "pictureDefaults" plus a same-filename override, and '
                 'only "height" is authored — width follows the image aspect.',
@@ -286,6 +294,89 @@ def mark_noncolliding(span):
     return parts
 
 
+def build_collision_proxy(mode, stem):
+    """Add a low-poly `*_col` mesh and let the game collide with that instead.
+
+    Collision has been reusing the visual mesh this whole time. Even with the
+    `_nocol` thin parts gone the tent still charges the collider 7,338
+    triangles for what a player experiences as six flat walls and a roof — the
+    wrinkles in the fabric are lovely and completely wasted on a capsule.
+
+    WHY A HULL PER SHELL, NOT ONE HULL — a single hull of the whole tent would
+    be a solid block: no doorway, no interior, and you would bounce off the air
+    where the entrance is. Hulling each connected shell separately keeps the
+    prop's concavity, because the concavity lives *between* the shells, not
+    inside them. Each wall panel becomes a slab, and the space they enclose
+    stays walkable.
+
+    WHY A HULL AND NOT DECIMATION — collapsing a shell to 2% leaves slivers and
+    holes, and a hole in a collider is a player falling through the world. A
+    convex hull is closed by construction and cannot develop one. It is also
+    the shape a capsule wants: no interior detail to snag on.
+
+    The planar dissolve afterwards is what makes it cheap. A hull of a wrinkled
+    panel still carries a face per wrinkle; merging faces that differ by less
+    than PROXY_PLANAR_ANGLE collapses each panel to something near its
+    silhouette, which is all collision ever needed.
+    """
+    if mode != 'hull':
+        return 0
+    solid = [o for o in bpy.data.objects
+             if o.type == 'MESH' and not o.name.lower().endswith('_nocol')]
+    if not solid:
+        return 0
+
+    # Duplicate first — the visual meshes must come through untouched.
+    bpy.ops.object.select_all(action='DESELECT')
+    for o in solid:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = solid[0]
+    bpy.ops.object.duplicate()
+    shells = []
+    for dup in list(bpy.context.selected_objects):
+        shells.extend(separate_loose(dup))
+
+    hulled = []
+    for shell in shells:
+        bpy.ops.object.select_all(action='DESELECT')
+        shell.select_set(True)
+        bpy.context.view_layer.objects.active = shell
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        try:
+            bpy.ops.mesh.convex_hull()
+        except RuntimeError as err:
+            # A shell too degenerate to hull (all points collinear) has no
+            # volume to collide with either. Drop it rather than ship a sliver.
+            print(f'      ! hull failed on {shell.name}: {err}')
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.data.objects.remove(shell, do_unlink=True)
+            continue
+        bpy.ops.object.mode_set(mode='OBJECT')
+        hulled.append(shell)
+
+    proxy = join_into(hulled, f'{stem}_col')
+    if proxy is None:
+        return 0
+
+    bpy.context.view_layer.objects.active = proxy
+    mod = proxy.modifiers.new(name='planar', type='DECIMATE')
+    mod.decimate_type = 'DISSOLVE'
+    mod.angle_limit = math.radians(PROXY_PLANAR_ANGLE)
+    try:
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+    except RuntimeError as err:
+        print(f'      ! planar dissolve failed: {err}')
+        proxy.modifiers.remove(mod)
+
+    # It is never drawn, so it needs no materials and no UVs.
+    proxy.data.materials.clear()
+    while proxy.data.uv_layers:
+        proxy.data.uv_layers.remove(proxy.data.uv_layers[0])
+    proxy.data.calc_loop_triangles()
+    return len(proxy.data.loop_triangles)
+
+
 def count_triangles_matching(suffix):
     n = 0
     for obj in bpy.data.objects:
@@ -349,6 +440,16 @@ def process(src_path, out_path, settings, dry):
               f'{settings["nocolMaxSpan"]} m, {nocol_tris:,} tris '
               f'({nocol_tris / tris_after * 100:.0f}%) out of collision')
 
+    # After decimation, so the collapse pass never touches the proxy — a hull
+    # decimated to the asset's ratio is exactly the sliver-ridden mesh the hull
+    # was chosen to avoid.
+    stem = os.path.splitext(os.path.basename(out_path))[0]
+    proxy_tris = build_collision_proxy(settings['collisionProxy'], stem)
+    if proxy_tris:
+        was = tris_after - nocol_tris
+        print(f'      _col: {proxy_tris:,} tri proxy replaces {was:,} '
+              f'collision tris ({was / proxy_tris:.0f}x cheaper)')
+
     if dry:
         print('      [dry] not written')
         return None
@@ -366,7 +467,8 @@ def process(src_path, out_path, settings, dry):
     print(f'      -> {os.path.basename(out_path)}  {out_mb:.1f} MB  ({abs(saved):.0f}% {verb})')
     return {'srcMB': round(src_mb, 2), 'outMB': round(out_mb, 2),
             'trisBefore': tris_before, 'trisAfter': tris_after,
-            'nocolParts': nocol_parts, 'nocolTris': nocol_tris}
+            'nocolParts': nocol_parts, 'nocolTris': nocol_tris,
+            'proxyTris': proxy_tris}
 
 
 # ---- Pictures ---------------------------------------------------------------
