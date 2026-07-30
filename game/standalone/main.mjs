@@ -14,7 +14,7 @@ import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { DebugTools } from '../src/debug.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
-         propCollisionTriangles, hideCollisionProxies } from '../src/world.mjs';
+         propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -268,12 +268,14 @@ function loadProp(prop) {
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
+    const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
     // Scale is in the line because "is my Blender edit actually in this tab?" is
     // the question you ask most while placing, and a stale placements file
     // answers it silently and wrongly. Read it, compare with the .blend.
     console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}`
       + ` scale ${sx === sy && sy === sz ? sx : `${sx},${sy},${sz}`}${solid}`
-      + (proxies ? ` (${proxies} collision proxy mesh hidden)` : ''));
+      + (proxies ? ` (${proxies} collision proxy mesh hidden)` : '')
+      + (unlit ? ` (${unlit} unlit material sealed from ambient)` : ''));
   });
   return asset;
 }

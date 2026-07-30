@@ -172,6 +172,14 @@ falloff, and a lit picture on a wall the sun does not reach is a muddy grey
 rectangle you cannot read. It exports as `KHR_materials_unlit`, which the engine
 reads natively.
 
+Unlit is not quite the whole story, though: the engine's unlit hook moves the
+image into `emissive` and leaves `diffuse` white, and ambient light is still
+added on top of a white diffuse. That put a flat ~0.24 of linear light under
+every pixel — blacks came out at 134/255 and the picture read as washed out.
+`unlitIgnoreAmbient` in `src/world.mjs` zeroes the diffuse on any unlit material
+a prop ships, which multiplies that term away. Fog is left alone on purpose, so a
+picture across the map still hazes with everything around it.
+
 The reason a picture is a GLB at all — rather than the `paintings` runtime loader
 that `scene.manifest.mjs` still has a stub for — is that ~1 KB of glTF wrapper
 makes it indistinguishable from a prop to everything downstream. It inherits

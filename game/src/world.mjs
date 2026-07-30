@@ -221,6 +221,44 @@ export function hideCollisionProxies(rootEntity) {
   return hidden;
 }
 
+/**
+ * Stop an unlit material from collecting the scene's ambient light.
+ *
+ * A KHR_materials_unlit material arrives via the engine's extensionUnlit hook,
+ * which moves the image into `emissive` and then sets `diffuse` to WHITE with no
+ * diffuse map. `useLighting = false` drops the lights, but the ambient term is
+ * still accumulated — and ambient x white diffuse is a flat constant added to
+ * every pixel of the surface.
+ *
+ * With this level's ambient (0.55, 0.53, 0.5) that constant is ~0.24 in linear
+ * light, measured straight off a ramp rendered through the material: texel 0
+ * comes back as 134/255 instead of 0. Blacks lift by half, so contrast and
+ * saturation both drop by about half and the surface reads as washed out — the
+ * one thing an unlit picture was supposed to be immune to.
+ *
+ * Zeroing the diffuse multiplies that term out and leaves `emissive` — the
+ * authored image — as the only thing the surface contributes. Nothing here knows
+ * what a picture is: it is a property of unlit materials, so it is applied to
+ * any prop that ships one. Fog is deliberately left alone; a distant picture
+ * should haze with everything else.
+ */
+export function unlitIgnoreAmbient(rootEntity) {
+  let sealed = 0;
+  for (const rc of rootEntity.findComponents('render')) {
+    for (const mi of rc.meshInstances) {
+      const m = mi.material;
+      // Materials are shared between instances of the same container, so a prop
+      // placed twice would otherwise count its materials twice.
+      if (m?.useLighting !== false) continue;
+      if (m.diffuse.r === 0 && m.diffuse.g === 0 && m.diffuse.b === 0) continue;
+      m.diffuse.set(0, 0, 0);
+      m.update();
+      sealed++;
+    }
+  }
+  return sealed;
+}
+
 // ---- Find walkable floor samples + a spawn --------------------------------
 export function findFloors(collider) {
   const b = collider.bounds;
