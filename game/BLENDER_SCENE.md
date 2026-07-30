@@ -80,10 +80,12 @@ game when the script finishes. It reuses the name a GLB already had in
 `scene.placements.json`, so re-importing a prop you deleted keeps its identity
 and the diff stays to the numbers that changed.
 
-Anchoring only happens in the GUI. `npm run scene:export` exports what is on
-disk and warns about loose imports rather than adopting them: it would have to
-save the `.blend`, and if you have the file open your next `Cmd-S` writes the
-un-anchored scene straight back over it.
+`npm run scene:export` adopts too, and writes the same numbers — what it will
+not do is *save* the `.blend`. That is the part that was never safe from a
+headless run: if you have the file open, your next `Cmd-S` writes the
+un-anchored scene straight back over it. So the prop ships either way, and the
+anchor becomes permanent in the file the next time you export from Blender (or
+rebuild with `scene:build --force`). The command says so when it happens.
 
 Step 4's order matters. The game applies the exported transform to a fresh copy
 of the GLB, so the Empty has to sit at identity when the payload is attached —

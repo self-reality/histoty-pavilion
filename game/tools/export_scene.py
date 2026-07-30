@@ -32,10 +32,12 @@ rotation stays on the payload, because the game rebuilds that from the GLB — p
 it on the anchor too and it gets applied twice, which looks right in Blender and
 wrong in game.
 
-Adoption is deliberately interactive-only. A headless run writes the .blend, but
-if you have it open your next Cmd-S puts the un-anchored scene right back, so
-`npm run scene:export` stays a pure read of what is on disk and merely warns
-about anything loose.
+Both paths adopt; only the GUI saves the result. `npm run scene:export` anchors
+in memory and writes the same layout, leaving the .blend untouched — saving it
+from a headless run is what was never safe, because your next Cmd-S in an open
+session would put the un-anchored scene straight back. So a headless export
+ships the prop, and the anchor becomes permanent the next time you export from
+Blender (or rebuild with `scene:build --force`).
 """
 
 import json
@@ -261,13 +263,17 @@ def adopt(root, scene_coll):
 
 
 def adopt_loose():
-    """Anchor every hand-imported hierarchy, then save. Returns (done, failed).
+    """Anchor every hand-imported hierarchy. Returns (done, failed).
 
-    Interactive only, and a no-op when there is nothing loose — a plain export
-    of an already-tidy scene never touches the .blend.
+    Both paths adopt; only the GUI *saves*. Headless anchors in memory and
+    leaves the .blend exactly as it found it — which is what makes it safe to
+    run while you have the file open, the very thing that used to rule adoption
+    out here. The layout written is identical either way, because the anchor's
+    transform is computed, not read back off the saved file.
+
+    A no-op when there is nothing loose, so a plain export of an already-tidy
+    scene never touches the .blend.
     """
-    if bpy.app.background:
-        return [], []
     roots = loose_roots()
     if not roots:
         return [], []
@@ -286,7 +292,7 @@ def adopt_loose():
         result, problem = adopt(root, scene_coll)
         (failed if problem else done).append(problem or result)
 
-    if done:
+    if done and not bpy.app.background:
         bpy.ops.wm.save_mainfile()
         print(f'[export] saved {bpy.data.filepath}')
     return done, failed
@@ -326,8 +332,9 @@ def collect(collection):
             if obj.type != 'EMPTY':
                 # Loose imported geometry: it renders in Blender, so the scene
                 # looks finished, but nothing references it and it never ships.
-                # The GUI path adopts these before we get here; a headless run
-                # only reports them, because saving under an open session loses.
+                # Adoption ran before we got here and would have claimed this,
+                # so reaching this line means it could not — an unmatched GLB,
+                # reported alongside as an adopt failure.
                 warnings.append(f'{obj.name}: top-level {obj.type.lower()} with no "glb" '
                                 'property — imported but never attached to an anchor? '
                                 'It will NOT appear in game (see BLENDER_SCENE.md)')
@@ -372,6 +379,12 @@ def main():
         print(f'[export] WARNING {w}')
     for name, glb in adopted:
         print(f'[export] adopted {name:<20} <- {glb}')
+    if adopted and bpy.app.background:
+        # Say it, or the .blend and the layout disagree with nobody the wiser.
+        print(f'[export] NOTE  the anchor{"s" if len(adopted) > 1 else ""} above '
+              f'{"are" if len(adopted) > 1 else "is"} in the layout but not saved '
+              'to the .blend — the prop ships now; export from Blender (or '
+              '`npm run scene:build -- --force`) to make it permanent there')
     for p in props:
         print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}')
     for m in markers:
