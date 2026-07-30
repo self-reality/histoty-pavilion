@@ -188,32 +188,42 @@ a capsule experiences as six flat walls and a roof.
 `collisionProxy` builds a stand-in instead:
 
 ```json
-"assets": { "tent_military.glb": { "nocolMaxSpan": 0.5, "collisionProxy": "hull" } }
+"assets": { "tent_military.glb": { "nocolMaxSpan": 0.5, "collisionProxy": "dissolve" } }
 ```
 
 That adds one `<asset>_col` mesh to the GLB. A prop that ships one collides with
 **it alone** — the visual meshes stop colliding entirely, `_nocol` or not — and
-the proxy never renders and never casts a shadow. On the tent: **1,384
-triangles instead of 7,338**, and the frame budget is untouched at 170 draw
-calls because an invisible mesh instance is never submitted.
+the proxy never renders and never casts a shadow. On the tent: **1,252 triangles
+instead of 7,338**, with the frame budget untouched at 170 draw calls, because an
+invisible mesh instance is never submitted.
 
-It hulls each connected shell separately rather than the prop as a whole. One
-hull of the whole tent would be a solid block with no doorway and no interior —
-the concavity that makes a tent a tent lives *between* its panels, not inside
-them. Per shell, each panel becomes a slab and the space they enclose survives.
+Two modes, and the choice is entirely about whether the prop has a way in.
 
-A hull rather than heavy decimation because a hull is closed by construction. A
-shell collapsed to 2% grows slivers and holes, and a hole in a collider is a
-player falling out of the world.
+| mode | does | use for |
+|------|------|---------|
+| `dissolve` | merges faces flatter than `collisionProxyAngle` (default 15°) | anything with a door, arch, or interior |
+| `hull` | replaces each connected shell with its convex hull | props you walk *around* — boulders, crates, statues |
 
-**What it costs you.** A convex shell cannot represent a local dent, so
-concavities *within* one panel get bridged. On the tent the proxy stays inside
-the visual silhouette everywhere (4.7 cm at worst) and within 5 cm along a
-head-height ray — but the recessed entrance is filled in, so you stop at the
-outer face instead of stepping into the doorway. Fine for a prop you walk
-around; not what you want for one you walk *into*. For those, leave
-`collisionProxy` off and reach for `_nocol`, or author a proxy by hand and name
-it `*_col`.
+**`dissolve` is the default choice**, because it only ever removes geometry.
+Every opening in the mesh survives, and on the tent it is *cheaper* than the
+hull anyway (1,252 vs 1,384 triangles).
+
+**`hull` seals doorways, and that is not a bug to be fixed.** It is what convex
+means. Hulling per shell rather than per prop already saves the concavity that
+lives *between* panels — without it the whole tent becomes one solid block — but
+an opening *inside* a single shell gets filled either way. Measured on the tent:
+the hull proxy stays inside the visual silhouette everywhere (4.7 cm at worst,
+5 cm along a head-height ray), so it does not fatten the prop; it just bricks up
+the entrance. Approaching from every walkable direction, you get within 0.4 m of
+the centre with `dissolve` and no closer than 3.84 m with `hull`.
+
+`tests/props.mjs` asserts the tent is still enterable for exactly this reason.
+That check exists because the sealed hull build passed every *other* check —
+"the player was stopped by the tent" is precisely what a bricked-up entrance
+looks like from the outside.
+
+Raise `collisionProxyAngle` for a cheaper, blockier collider: on the tent, 15°
+gives 1,252 triangles, 20° gives 897, 30° gives 682.
 
 ## Coordinates
 

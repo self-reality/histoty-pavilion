@@ -78,12 +78,11 @@ DEFAULTS = {
     'triangles': 20000,   # per asset; 0 disables decimation entirely
     'quality': 85,        # WebP quality, 0-100
     'nocolMaxSpan': 0,    # m; parts thinner than this stop colliding. 0 = off
-    'collisionProxy': '', # '' = collide with the visual mesh; 'hull' = build one
+    # '' = collide with the visual mesh. 'dissolve' keeps openings, 'hull' does
+    # not — see build_collision_proxy.
+    'collisionProxy': '',
+    'collisionProxyAngle': 15,   # degrees; how flat two faces must be to merge
 }
-
-# Degrees. How flat two hull faces must be before the proxy merges them — the
-# difference between a collision slab and a faceted approximation of a wrinkle.
-PROXY_PLANAR_ANGLE = 5
 
 PICTURE_EXTS = ('.jpg', '.jpeg', '.png', '.webp')
 PICTURE_PREFIX = 'picture_'
@@ -294,7 +293,7 @@ def mark_noncolliding(span):
     return parts
 
 
-def build_collision_proxy(mode, stem):
+def build_collision_proxy(mode, angle, stem):
     """Add a low-poly `*_col` mesh and let the game collide with that instead.
 
     Collision has been reusing the visual mesh this whole time. Even with the
@@ -302,24 +301,25 @@ def build_collision_proxy(mode, stem):
     triangles for what a player experiences as six flat walls and a roof — the
     wrinkles in the fabric are lovely and completely wasted on a capsule.
 
-    WHY A HULL PER SHELL, NOT ONE HULL — a single hull of the whole tent would
-    be a solid block: no doorway, no interior, and you would bounce off the air
-    where the entrance is. Hulling each connected shell separately keeps the
-    prop's concavity, because the concavity lives *between* the shells, not
-    inside them. Each wall panel becomes a slab, and the space they enclose
-    stays walkable.
+    Two modes, and the difference between them is whether the prop has a way in.
 
-    WHY A HULL AND NOT DECIMATION — collapsing a shell to 2% leaves slivers and
-    holes, and a hole in a collider is a player falling through the world. A
-    convex hull is closed by construction and cannot develop one. It is also
-    the shape a capsule wants: no interior detail to snag on.
+    'dissolve' merges faces that differ by less than `angle` and does nothing
+    else. It only ever *removes* geometry, so every hole in the mesh survives —
+    a doorway stays a doorway. This is the default choice.
 
-    The planar dissolve afterwards is what makes it cheap. A hull of a wrinkled
-    panel still carries a face per wrinkle; merging faces that differ by less
-    than PROXY_PLANAR_ANGLE collapses each panel to something near its
-    silhouette, which is all collision ever needed.
+    'hull' replaces each connected shell with its convex hull. Cheaper on
+    organic shapes and closed by construction, so it cannot develop the slivers
+    and holes that aggressive collapse does — but a convex shell cannot hold an
+    opening. It is for props you walk *around*: a boulder, a crate, a statue.
+
+    Hulling per shell rather than per prop is what keeps a hulled prop from
+    becoming a solid block, since the concavity of something like a tent lives
+    *between* its panels. It does not save the doorway, though: an opening
+    inside a single shell is convex-filled either way. That is not a bug to fix
+    so much as what "convex" means — hence 'dissolve' being the default, and
+    tests/props.mjs asserting the tent is still enterable.
     """
-    if mode != 'hull':
+    if mode not in ('hull', 'dissolve'):
         return 0
     solid = [o for o in bpy.data.objects
              if o.type == 'MESH' and not o.name.lower().endswith('_nocol')]
@@ -332,37 +332,41 @@ def build_collision_proxy(mode, stem):
         o.select_set(True)
     bpy.context.view_layer.objects.active = solid[0]
     bpy.ops.object.duplicate()
-    shells = []
-    for dup in list(bpy.context.selected_objects):
-        shells.extend(separate_loose(dup))
+    parts = list(bpy.context.selected_objects)
 
-    hulled = []
-    for shell in shells:
-        bpy.ops.object.select_all(action='DESELECT')
-        shell.select_set(True)
-        bpy.context.view_layer.objects.active = shell
-        bpy.ops.object.mode_set(mode='EDIT')
-        bpy.ops.mesh.select_all(action='SELECT')
-        try:
-            bpy.ops.mesh.convex_hull()
-        except RuntimeError as err:
-            # A shell too degenerate to hull (all points collinear) has no
-            # volume to collide with either. Drop it rather than ship a sliver.
-            print(f'      ! hull failed on {shell.name}: {err}')
+    if mode == 'hull':
+        shells = []
+        for dup in parts:
+            shells.extend(separate_loose(dup))
+        parts = []
+        for shell in shells:
+            bpy.ops.object.select_all(action='DESELECT')
+            shell.select_set(True)
+            bpy.context.view_layer.objects.active = shell
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='SELECT')
+            try:
+                bpy.ops.mesh.convex_hull()
+            except RuntimeError as err:
+                # A shell too degenerate to hull (all points collinear) has no
+                # volume to collide with either. Drop it, don't ship a sliver.
+                print(f'      ! hull failed on {shell.name}: {err}')
+                bpy.ops.object.mode_set(mode='OBJECT')
+                bpy.data.objects.remove(shell, do_unlink=True)
+                continue
             bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.data.objects.remove(shell, do_unlink=True)
-            continue
-        bpy.ops.object.mode_set(mode='OBJECT')
-        hulled.append(shell)
+            parts.append(shell)
 
-    proxy = join_into(hulled, f'{stem}_col')
+    proxy = join_into(parts, f'{stem}_col')
     if proxy is None:
         return 0
 
+    # Both modes finish here. For 'dissolve' this IS the simplification; for
+    # 'hull' it is cleanup, since a hull still carries a face per wrinkle.
     bpy.context.view_layer.objects.active = proxy
     mod = proxy.modifiers.new(name='planar', type='DECIMATE')
     mod.decimate_type = 'DISSOLVE'
-    mod.angle_limit = math.radians(PROXY_PLANAR_ANGLE)
+    mod.angle_limit = math.radians(angle)
     try:
         bpy.ops.object.modifier_apply(modifier=mod.name)
     except RuntimeError as err:
@@ -444,11 +448,13 @@ def process(src_path, out_path, settings, dry):
     # decimated to the asset's ratio is exactly the sliver-ridden mesh the hull
     # was chosen to avoid.
     stem = os.path.splitext(os.path.basename(out_path))[0]
-    proxy_tris = build_collision_proxy(settings['collisionProxy'], stem)
+    proxy_tris = build_collision_proxy(
+        settings['collisionProxy'], settings['collisionProxyAngle'], stem)
     if proxy_tris:
         was = tris_after - nocol_tris
-        print(f'      _col: {proxy_tris:,} tri proxy replaces {was:,} '
-              f'collision tris ({was / proxy_tris:.0f}x cheaper)')
+        print(f'      _col: {settings["collisionProxy"]} @ '
+              f'{settings["collisionProxyAngle"]}deg -> {proxy_tris:,} tris, '
+              f'replacing {was:,} ({was / proxy_tris:.0f}x cheaper)')
 
     if dry:
         print('      [dry] not written')

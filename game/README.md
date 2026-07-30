@@ -201,11 +201,12 @@ per-asset settings in `assets/assets.config.json` do the naming for you:
 | setting | does |
 |---|---|
 | `nocolMaxSpan: 0.5` | splits thin shells into `*_nocol` — 12,660 of the tent's 19,998 triangles, guy-ropes included |
-| `collisionProxy: "hull"` | hulls each remaining shell into a `*_col` stand-in — the tent collides as **1,384** triangles instead of 7,338 |
+| `collisionProxy: "dissolve"` | merges near-flat faces into a `*_col` stand-in — the tent collides as **1,252** triangles instead of 7,338 |
 
-The proxy is the bigger win and the blunter tool: convex shells cannot hold a
-dent, so a recessed doorway gets bridged. See BLENDER_SCENE.md for when to skip
-it.
+`collisionProxy` also takes `"hull"`, which is cheaper still but replaces each
+shell with its convex hull — and a convex shell cannot hold an opening, so it
+bricks up doorways. Use it for props you walk around, not into. BLENDER_SCENE.md
+has the measurements.
 
 See BLENDER_SCENE.md for the authoring side. Collision triangles carry a `prop`
 tag, so `collider.raycast(...).tri.prop` answers "what did I just hit?".

@@ -111,7 +111,69 @@ const r = await page.evaluate(async () => {
   }
   const endDist = Math.hypot(g.player.pos.x - c.x, g.player.pos.z - c.z);
 
+  // 5) The tent has a doorway, and the doorway has to still work. A collision
+  // proxy is a simplification, and the failure mode of simplifying a building
+  // is sealing the way in — which reads as success on every check above, since
+  // "the player was stopped by the tent" is exactly what a bricked-up entrance
+  // does. A convex hull proxy did precisely this and passed 1)-4).
+  // Walk at the tent from every direction; at least one has to get inside.
+  //
+  // Every distance here is derived from the prop's own measured footprint, not
+  // from the numbers that happened to fit when this was written. The tent is
+  // authored in Blender and gets rescaled; a hardcoded "8 m out, 2 m is inside"
+  // silently stops meaning anything the moment someone drags the scale handle.
+  const lo = { x: Infinity, y: Infinity, z: Infinity };
+  const hi = { x: -Infinity, y: -Infinity, z: -Infinity };
+  // Measured over the geometry that actually collides. Including `_nocol` here
+  // would size the probe to the guy-ropes, which splay 17 m corner to corner —
+  // three times the tent — and "inside" would become a radius you reach while
+  // still standing against an outside wall. That is not a hypothetical: it made
+  // this check pass against the sealed hull proxy it was written to catch.
+  const bounds = (e) => {
+    if (e.render) for (const mi of e.render.meshInstances) {
+      if (isNonColliding(mi.node.name)) continue;
+      for (const k of ['x', 'y', 'z']) {
+        lo[k] = Math.min(lo[k], mi.aabb.center[k] - mi.aabb.halfExtents[k]);
+        hi[k] = Math.max(hi[k], mi.aabb.center[k] + mi.aabb.halfExtents[k]);
+      }
+    }
+    for (const ch of e.children) bounds(ch);
+  };
+  bounds(tent);
+  const halfFootprint = Math.max(hi.x - lo.x, hi.z - lo.z) / 2;
+  // Pitched to sit in the middle of the gap between the two outcomes, not at the
+  // edge of one: walking in reaches 0.4 m of centre, being turned away at the
+  // wall leaves you at 3.84 m, and 0.4x of a 6.35 m half-footprint is 2.54 m.
+  // At 0.6x it was 3.81 m — technically still failing the sealed build, by 3 cm.
+  const insideR = halfFootprint * 0.4;
+
+  // Start from every walkable sample in a ring around the prop rather than from
+  // one sample per compass bearing. findFloors lays samples on a fixed grid, so
+  // a bearing sweep asks "is there ground exactly there?" and quietly skips the
+  // bearings where the answer is no — including, on this map, the one the door
+  // faces. Using the samples themselves as the starting set has no such gaps.
+  const starts = g.player.floors.filter((f) => {
+    const d = Math.hypot(f.x - c.x, f.z - c.z);
+    return d > halfFootprint * 1.1 && d < halfFootprint * 2.5;
+  });
+
+  let bestApproach = Infinity;
+  for (const s of starts) {
+    const from = Math.hypot(s.x - c.x, s.z - c.z);
+    const steps = Math.ceil(from * 60);   // a second of walking per metre
+    g.player.teleport(s.x, s.y + 0.2, s.z);
+    g.player.yaw = Math.atan2(-(c.x - s.x), -(c.z - s.z)) * 180 / Math.PI;
+    for (let i = 0; i < steps; i++) {
+      g.player.update(1 / 60, { forward: 1, strafe: 0, jump: false, sprint: false });
+      bestApproach = Math.min(bestApproach,
+        Math.hypot(g.player.pos.x - c.x, g.player.pos.z - c.z));
+    }
+  }
+
   return {
+    bestApproach: +bestApproach.toFixed(2),
+    insideR: +insideR.toFixed(2),
+    starts: starts.length,
     naming,
     colliderTris: g.collider.tris.length,
     visibleTris: Math.round(visibleTris),
@@ -142,6 +204,9 @@ const proxyIsTheCollider = r.proxyTris > 0 && r.colliderTris === 9474 + r.proxyT
 const proxyHidden = r.proxyVisible === 0;
 // It is only worth the machinery if it is materially cheaper than the mesh.
 const proxyCheaper = r.proxyTris < r.visibleTris / 2;
+// Scaled to the prop's own footprint, so this keeps meaning the same thing
+// after someone resizes the tent in Blender.
+const stillEnterable = r.bestApproach < r.insideR;
 // The ray must have been stopped BY THE TENT, not by map geometry in the way.
 const rayHitTent = r.hitProp === 'tent_01' && r.hitDist < r.approachFrom - 0.5;
 // Walking into it must leave the player outside it, with the tent in front at
@@ -154,15 +219,17 @@ console.log(`  proxy drawn/casting  ${r.proxyVisible} instances (want 0)`);
 console.log(`  ray at tent          hit "${r.hitProp}" at ${r.hitDist} m into a ${r.approachFrom} m approach`);
 console.log(`  walked into tent     ${r.startDist} m -> closest ${r.minDist} m from centre (rested at ${r.endDist} m)`);
 console.log(`  blocked by           "${r.blockedBy}" at ${r.blockDist} m when closest`);
+console.log(`  doorway still open   best approach ${r.bestApproach} m from centre over ${r.starts} start points (want < ${r.insideR})`);
 console.log(`  naming convention    ${r.naming.length - namingBad.length}/${r.naming.length} correct`);
 for (const n of namingBad) console.log(`     WRONG "${n.name}": got ${n.got}, want ${n.want}`);
 if (errs.length) console.log('  page errors:', errs.slice(0, 3));
 
 const ok = !namingBad.length && colliderGrew && proxyIsTheCollider && proxyHidden
-  && proxyCheaper && rayHitTent && walkStopped && !errs.length;
+  && proxyCheaper && stillEnterable && rayHitTent && walkStopped && !errs.length;
 if (!ok) {
   console.log(`\n  colliderGrew=${colliderGrew} proxyIsTheCollider=${proxyIsTheCollider}`
     + ` proxyHidden=${proxyHidden} proxyCheaper=${proxyCheaper}`
+    + ` stillEnterable=${stillEnterable}`
     + ` rayHitTent=${rayHitTent} walkStopped=${walkStopped}`);
 }
 console.log(ok ? '\nPROPS: PASS' : '\nPROPS: FAIL');
