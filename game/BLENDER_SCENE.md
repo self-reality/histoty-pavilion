@@ -204,6 +204,11 @@ exports: extra collections, lights, viewport layout, notes. Export first.
 
 ## Gotchas
 
+- **`adopt_prop.py` says "Nothing loose to adopt"** right after you imported
+  something. `File > Import` drops objects into the **active collection**, and
+  the script only looks at the top of the scene — anything that landed inside
+  `SCENE` is, as far as it can tell, already anchored. Click **Scene Collection**
+  (the top row of the Outliner) before importing, or drag the imports up to it.
 - **Negative scale** (mirroring an object) does not survive the round-trip. The
   exporter warns; use rotation instead.
 - **A prop that shows in Blender but not in game** — you almost certainly moved

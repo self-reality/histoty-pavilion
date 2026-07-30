@@ -34,6 +34,9 @@ from mathutils import Matrix
 SCENE_COLLECTION = 'SCENE'
 REF_COLLECTION = 'REF'
 
+# Matches PICTURE_PREFIX in build_assets.py — see anchor_base().
+PICTURE_PREFIX = 'picture_'
+
 
 def game_dir():
     """game/, derived from the open .blend at game/scene/*.blend."""
@@ -125,6 +128,22 @@ def existing_name_for(glb, game):
     return None
 
 
+def anchor_base(glb):
+    """A readable anchor name from a GLB filename.
+
+    The first token is usually the useful part of a prop's name and the rest is
+    the vendor's variant noise: tent_military.glb -> tent_01. Generated pictures
+    invert that — every one of them starts with `picture_`, so the first token
+    alone would name them picture_01, picture_02, picture_03 and lose which
+    picture each anchor holds. Those names then stick, because existing_name_for
+    reuses whatever landed in scene.placements.json.
+    """
+    stem = os.path.splitext(os.path.basename(glb))[0]
+    if stem.startswith(PICTURE_PREFIX) and len(stem) > len(PICTURE_PREFIX):
+        return stem + '_01'
+    return stem.split('_')[0] + '_01'
+
+
 def unique_name(base):
     if base not in bpy.data.objects:
         return base
@@ -154,8 +173,7 @@ def adopt(root, game, scene_coll):
     placement = root.matrix_world.copy()
     rotation = importer_rotation(os.path.join(game, glb))
 
-    name = existing_name_for(glb, game) or unique_name(
-        os.path.splitext(os.path.basename(glb))[0].split('_')[0] + '_01')
+    name = existing_name_for(glb, game) or unique_name(anchor_base(glb))
     anchor = bpy.data.objects.new(name, None)
     anchor.empty_display_type = 'ARROWS'
     anchor.empty_display_size = 1.5
