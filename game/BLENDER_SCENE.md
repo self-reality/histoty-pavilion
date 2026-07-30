@@ -90,6 +90,32 @@ parses each URL once, then instantiates per placement.
 Anything else you add as a custom property rides along into `extras` in the
 JSON, so you can invent conventions without touching the exporter.
 
+## Adding a picture
+
+A picture is a prop, so the steps above are the steps — there is nothing new to
+learn. What differs is only that you generate the GLB instead of downloading it:
+
+```bash
+cp ~/scan.jpg game/assets/source/pictures/kremlin_1904.jpg
+npm run assets:build        # -> game/assets/picture_kremlin_1904.glb
+```
+
+Then import and place it exactly like a crate — or just run `adopt_prop.py`,
+which handles the anchor for you. See the Pictures section of README.md for the
+sizing and material choices the generator makes.
+
+Two things that make hanging them painless:
+
+- **The origin is on the back face**, so the anchor Empty belongs *on* the wall,
+  not floating half a slab in front of it. With snapping on (`Shift-Tab`, mode
+  **Face**, and **Align Rotation to Target** ticked in the Snapping popover), one
+  click puts a picture flat against a wall at the correct rotation.
+- **An imported picture faces you in front view** (numpad 1), i.e. Blender −Y. If
+  a placed one looks black, you are behind it — backfaces are culled.
+
+Pictures never collide, so you cannot get wedged against one and they cost the
+collider nothing. The wall behind it is what stops you.
+
 ## Collision
 
 A placed prop is **solid by default** — its geometry joins the collider when it
@@ -125,17 +151,24 @@ time. It splits every mesh by loose parts, measures each shell across its
 called `<name>_nocol`:
 
 ```json
-"assets": { "tent_military.glb": { "nocolMaxSpan": 0.4 } }
+"assets": { "tent_military.glb": { "nocolMaxSpan": 0.5 } }
 ```
 
 The second axis, not the smallest — a tent wall is 0.11 m thin too, but it is
 6 m long and 4 m tall. Only pegs and ropes are narrow in *two* directions.
 
-It works here because the two populations do not overlap: the tent's widest
-thin part is 0.35 m across and its narrowest solid one (a window pane) is
-0.68 m, so 0.4 lands in open space between them. Check that gap before trusting
-a threshold on a new prop — `npm run assets:build -- --force --dry` reports what
-it would catch without writing anything. Set it to `0` (the default) and nothing splits.
+Measured along each shell's **own** axes (by PCA), not the world's. That is not
+a detail: the tent's guy-ropes are 4.4 m long and 2 cm thick, but they run
+diagonally from roof to ground, so an axis-aligned box around one is 2.5 m wide
+on its second axis and the rope reads as solid — leaving trip-wires strung
+across the approach, precisely the geometry you wanted gone.
+
+It works here because the two populations do not overlap: the tent's widest thin
+part is 0.38 m across (a rolled awning) and its narrowest solid one is 0.62 m (a
+door flap), so 0.5 sits between them with room either side. Check that gap before
+trusting a threshold on a new prop — `npm run assets:build -- --force --dry`
+reports what it would catch without writing anything. Set it to `0` (the default)
+and nothing splits.
 
 Doing it here rather than by hand in Blender is deliberate: a hand-split file
 would live in `assets/source/`, which is untracked and treated as the pristine

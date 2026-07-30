@@ -131,6 +131,55 @@ Two things decimation cannot fix, worth knowing before you lean on it:
 - Sources stay out of git on purpose (`assets/source/` is ignored) — scans bloat
   a repo permanently and irreversibly. Keep them on a drive or in cloud storage.
 
+### Pictures
+
+Drop an image in `assets/source/pictures/` and the same build turns it into a
+placeable slab. No new command, and no engine code knows pictures exist:
+
+```bash
+cp ~/Downloads/kremlin_1904.jpg assets/source/pictures/
+npm run assets:build
+# -> assets/picture_kremlin_1904.glb — now place it in Blender like any prop
+```
+
+```
+assets/source/pictures/kremlin_1904.jpg   ← raw photo, NOT in git
+        ↓  tools/build_assets.py
+assets/picture_kremlin_1904.glb           ← 12 tris, WebP texture; tracked, ships
+```
+
+The slab is a box, 1.4 m tall and 3 cm thick by default, with the image unlit on
+the front face and a dark matte mount on the edges and back. Four things it
+decides for you:
+
+- **Width follows the image's pixel aspect**, so nothing is ever stretched and
+  there is no aspect convention to remember. You author `height` only.
+- **The origin sits on the centre of the back face**, not the middle of the slab.
+  Snap the anchor Empty to a wall and the picture stands proud of it by its
+  thickness — no half-depth offset to work out, nothing buried in the masonry.
+- **It faces Blender −Y**, the direction the front view (numpad 1) looks from, so
+  an unrotated picture faces you the moment you import it.
+- **It never collides** — the mesh is named `*_nocol` (see below). The wall it
+  hangs on already stops you, and a picture you can bump into is one you can get
+  wedged against.
+
+Override per picture in `assets/assets.config.json` under its filename —
+`{"kremlin_1904.jpg": {"height": 2.4, "maxTexture": 2048}}` for a hero piece.
+Defaults live in the `pictureDefaults` block.
+
+Unlit rather than lit is deliberate: this level is dusk-lit with a fast fog
+falloff, and a lit picture on a wall the sun does not reach is a muddy grey
+rectangle you cannot read. It exports as `KHR_materials_unlit`, which the engine
+reads natively.
+
+The reason a picture is a GLB at all — rather than the `paintings` runtime loader
+that `scene.manifest.mjs` still has a stub for — is that ~1 KB of glTF wrapper
+makes it indistinguishable from a prop to everything downstream. It inherits
+WYSIWYG Blender placement, one-line diffs in `scene.placements.json`, per-URL
+container dedup (hang the same picture twice, download it once), the collision
+opt-outs, and the `tests/perf.mjs` budget. The runtime path would have cost a
+code path in *both* entry points, a new authoring convention, and its own test.
+
 ### Props and collision
 
 Placed props are **solid by default** — their geometry joins the collider as they
