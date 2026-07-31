@@ -4,12 +4,36 @@
   "source": "scene/pavilion.blend",
   "props": [
     {
-      "name": "picture_data_full_hd_01",
-      "pos": [6.36467, 2.53985, 0.0],
+      "name": "g-man_01",
+      "pos": [6.76929, 0.4, -11.75884],
       "rot": [0.0, 0.0, 0.0, 1.0],
       "euler": [0.0, 0.0, 0.0],
-      "scale": [1.0, 1.0, 1.0],
+      "scale": [0.02978, 0.02978, 0.02978],
+      "glb": "./assets/g-man.glb"
+    },
+    {
+      "name": "picture_data_full_hd_01",
+      "pos": [4.20102, 1.80104, -12.0],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [1.26494, 1.26494, 1.26494],
       "glb": "./assets/picture_data_full_hd.glb"
+    },
+    {
+      "name": "picture_fragile_fullhd_01",
+      "pos": [9.6, 1.5927, -10.21051],
+      "rot": [0.0, -0.70711, 0.0, 0.70711],
+      "euler": [0.0, -90.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "glb": "./assets/picture_fragile_fullhd.glb"
+    },
+    {
+      "name": "picture_innocent_full_hd_2_01",
+      "pos": [8.5572, 1.55655, -12.0],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [0.60078, 0.60078, 0.60078],
+      "glb": "./assets/picture_innocent_full_hd_2.glb"
     },
     {
       "name": "tent_01",
