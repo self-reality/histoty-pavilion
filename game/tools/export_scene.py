@@ -86,6 +86,9 @@ NOISE_KEYS = {'cycles', 'cycles_visibility', '_RNA_UI'}
 # Matches PICTURE_PREFIX in build_assets.py — see anchor_base().
 PICTURE_PREFIX = 'picture_'
 
+# Blender's uniquifying suffix on a name that was already taken — see base_names().
+DEDUP_SUFFIX = re.compile(r'\.\d{3}$')
+
 
 def script_args():
     return sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
@@ -106,6 +109,20 @@ def glb_node_names(path):
     return {n.get('name') for n in doc.get('nodes', []) if n.get('name')}
 
 
+def base_names(names):
+    """Node names with Blender's uniquifying suffix taken off.
+
+    Object names are unique per .blend, so importing a hierarchy whose root is
+    already taken gets you `Sketchfab_model.001` — and Sketchfab names *every*
+    download's root `Sketchfab_model`, so the second one you import no longer
+    matches the file it came from and adoption gives up on a prop that is
+    sitting right there. Normalising both sides costs nothing: a node the GLB
+    genuinely calls `foo.001` reduces to the same `foo` on both sides, so it
+    still matches itself.
+    """
+    return {DEDUP_SUFFIX.sub('', n) for n in names}
+
+
 def find_source_glb(payload_names):
     """Which asset did this hierarchy come from? Match on node names.
 
@@ -115,12 +132,13 @@ def find_source_glb(payload_names):
     assets_dir = os.path.join(GAME_DIR, 'assets')
     if not os.path.isdir(assets_dir):
         return None, f'no {assets_dir}'
+    wanted = base_names(payload_names)
     hits = []
     for entry in sorted(os.listdir(assets_dir)):
         if not entry.lower().endswith('.glb'):
             continue
         names = glb_node_names(os.path.join(assets_dir, entry))
-        if names and payload_names <= names:
+        if names and wanted <= base_names(names):
             hits.append(entry)
     if not hits:
         return None, ('no .glb in assets/ contains these node names — is the file '
@@ -130,17 +148,33 @@ def find_source_glb(payload_names):
     return f'./assets/{hits[0]}', None
 
 
-def importer_rotation(glb_path):
-    """What the glTF importer puts on a root, measured rather than assumed.
+def importer_rotation(glb_path, root_name=None):
+    """What the glTF importer puts on the payload's root, measured not assumed.
 
     Import the file, read the root, throw the copy away — including the meshes
     and materials it dragged in, so the probe leaves no .001 junk behind.
+
+    "The root" is not always the first parentless object: a glTF may open with
+    several, and the extras are rarely the one that matters — g-man.glb leads
+    with two stray lamp meshes before the `Sketchfab_model` empty that carries
+    the whole character. Taking the first one read an identity rotation off a
+    lamp, so the -90° the real root carries never came out of the anchor and
+    the game applied it a second time, laying the character flat on the floor.
+
+    So match the payload's own root by name when the caller knows it, and
+    otherwise take the largest hierarchy, which is the payload by construction.
     """
     before_objs = set(bpy.data.objects)
     before_data = set(bpy.data.meshes) | set(bpy.data.materials) | set(bpy.data.images)
     bpy.ops.import_scene.gltf(filepath=glb_path)
     added = [o for o in bpy.data.objects if o not in before_objs]
-    root = next((o for o in added if o.parent is None), None)
+    roots = [o for o in added if o.parent is None]
+    root = None
+    if root_name:
+        want = DEDUP_SUFFIX.sub('', root_name)
+        root = next((o for o in roots if DEDUP_SUFFIX.sub('', o.name) == want), None)
+    if root is None:
+        root = max(roots, key=lambda o: len(o.children_recursive), default=None)
     rotation = root.matrix_world.copy() if root else Matrix.Identity(4)
     rotation.translation = (0, 0, 0)
 
@@ -208,9 +242,16 @@ def loose_roots():
     `File > Import` drops objects into the *active* collection, so a loose
     import is at least as likely to be sitting inside SCENE as at the top of
     the outliner, and the two are equally invisible to the game: no anchor, no
-    `glb`, nothing ships. Inside SCENE the tell is the type — everything you
-    author at that level is an Empty, either an anchor or a marker, so
-    top-level *geometry* there is always something the importer dropped.
+    `glb`, nothing ships. Inside SCENE the tell is type *plus* children: what
+    you author at that level is a *childless* Empty — a marker — so top-level
+    geometry, or an Empty with a hierarchy hanging off it, came from the
+    importer either way.
+
+    Testing the type alone is what this used to do, and it silently lost every
+    prop whose glTF has a root node: the importer represents that node as an
+    Empty, so a Sketchfab download (all of which are wrapped in one) read as a
+    marker — exported, diffed, and never drawn. Anchors are excluded before the
+    type is ever consulted, by owning a `glb`.
     """
     ref = bpy.data.collections.get(REF_COLLECTION)
     scene_coll = bpy.data.collections.get(SCENE_COLLECTION)
@@ -221,7 +262,8 @@ def loose_roots():
              if o.parent is None and o not in managed and 'glb' not in o]
     if scene_coll:
         roots += [o for o in sorted(scene_coll.objects, key=lambda o: o.name)
-                  if o.parent is None and 'glb' not in o and o.type != 'EMPTY']
+                  if o.parent is None and 'glb' not in o
+                  and (o.type != 'EMPTY' or o.children)]
     return list(dict.fromkeys(roots))  # an object can be linked to both
 
 
@@ -232,7 +274,7 @@ def adopt(root, scene_coll):
         return None, f'{root.name}: {why}'
 
     placement = root.matrix_world.copy()
-    rotation = importer_rotation(os.path.join(GAME_DIR, glb))
+    rotation = importer_rotation(os.path.join(GAME_DIR, glb), root.name)
 
     name = existing_name_for(glb) or unique_name(anchor_base(glb))
     anchor = bpy.data.objects.new(name, None)
@@ -329,13 +371,18 @@ def collect(collection):
                                 'fine, but nobody in Blender can see what they are placing')
             props.append(entry)
         else:
-            if obj.type != 'EMPTY':
+            if obj.type != 'EMPTY' or obj.children:
                 # Loose imported geometry: it renders in Blender, so the scene
                 # looks finished, but nothing references it and it never ships.
                 # Adoption ran before we got here and would have claimed this,
                 # so reaching this line means it could not — an unmatched GLB,
-                # reported alongside as an adopt failure.
-                warnings.append(f'{obj.name}: top-level {obj.type.lower()} with no "glb" '
+                # reported alongside as an adopt failure. An Empty *with*
+                # children is the same story one level up: a glTF root node,
+                # which is why the children are what it is judged on rather
+                # than the type a marker happens to share with it.
+                kind = 'empty holding imported geometry' if obj.type == 'EMPTY' \
+                    else f'top-level {obj.type.lower()}'
+                warnings.append(f'{obj.name}: {kind} with no "glb" '
                                 'property — imported but never attached to an anchor? '
                                 'It will NOT appear in game (see BLENDER_SCENE.md)')
             markers.append(entry)

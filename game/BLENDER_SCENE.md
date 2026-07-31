@@ -53,9 +53,10 @@ never exported. It is there so you can see where the ground is.
   Empty — that is deliberate, not a glitch.
 - An Empty with a **`glb` custom property** is a *prop*: the game loads that GLB
   and puts it at the Empty's transform.
-- An Empty **without** one is a *marker*: exported as a transform under
+- A **childless** Empty without one is a *marker*: exported as a transform under
   `markers`, for the game to do something with later (`spawn_*`, `painting_*`).
-  Nothing consumes markers yet.
+  Nothing consumes markers yet. (Childless is what separates a marker from a
+  loose import whose root happens to be an Empty — see Gotchas.)
 
 ## Adding a new prop
 
@@ -261,9 +262,11 @@ exports: extra collections, lights, viewport layout, notes. Export first.
 - **Which collection you import into does not matter.** `File > Import` drops
   objects into the **active** collection, so they land at the top of the
   Outliner or inside `SCENE` depending on what you last clicked; adoption picks
-  them up either way. Inside `SCENE` it goes by type — everything you author at
-  that level is an Empty, so top-level *geometry* there is an import, never
-  something you meant to keep.
+  them up either way. Inside `SCENE` it goes by type *and* children — what you
+  author at that level is a childless Empty, so top-level geometry there is an
+  import, and so is an Empty with a hierarchy under it. That second case is the
+  usual one for a Sketchfab download, which arrives wrapped in a
+  `Sketchfab_model` root node the importer represents as an Empty.
 - **Negative scale** (mirroring an object) does not survive the round-trip. The
   exporter warns; use rotation instead.
 - **A prop that shows in Blender but not in game** — you almost certainly moved
