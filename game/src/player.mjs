@@ -24,7 +24,15 @@ export class Player {
     this.camera = cameraEntity;   // child: holds pitch + sits at eye height
     this.collider = collider;
 
-    this.radius = opts.radius ?? 0.42;
+    // 0.30 m, not the 0.42 a quake-lineage shooter would use, because those
+    // hulls were sized for maps drawn around them and this one has props with
+    // real doorways. The tent's is 0.99 m clear (measured against the collider,
+    // not the art): 0.42 left 7.5 cm either side, so getting in relied on the
+    // slide resolving you off the frame rather than on walking through a gap.
+    // 0.30 gives ~20 cm either side — the margin the door had before the tent
+    // was scaled to 1.1 — and is still wider than the shoulders it stands in
+    // for. Seams behaves identically at both (tests/seams.mjs, 9 -> 7 falls).
+    this.radius = opts.radius ?? 0.3;
     this.height = opts.height ?? 1.8;
     this.eyeHeight = opts.eyeHeight ?? 1.62;
     this.stepHeight = opts.stepHeight ?? 0.5;
