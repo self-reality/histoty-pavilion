@@ -193,6 +193,11 @@ const r = await page.evaluate(async () => {
     starts: starts.length,
     naming,
     colliderTris: g.collider.tris.length,
+    // Attributed per prop by standalone/main.mjs, which stamps every triangle
+    // it adds with the name of the prop it came from. Asking what the *tent*
+    // put in the collider keeps the claim below about the tent rather than
+    // about whatever else happens to be placed in the scene.
+    tentColliderTris: g.collider.tris.filter((t) => t.prop === 'tent_01').length,
     visibleTris: Math.round(visibleTris),
     nocolTris: Math.round(nocolTris),
     proxyTris: Math.round(proxyTris),
@@ -211,12 +216,18 @@ const r = await page.evaluate(async () => {
 await browser.close();
 
 const namingBad = r.naming.filter((n) => n.got !== n.want);
-// The map alone is 9,474 triangles; the tent must have added its own on top.
-const colliderGrew = r.colliderTris > 9474;
-// The tent is the only prop placed, so the collider is exactly the map plus the
-// proxy — anything more means visual geometry leaked into it, which is the whole
-// cost the proxy exists to avoid.
-const proxyIsTheCollider = r.proxyTris > 0 && r.colliderTris === 9474 + r.proxyTris;
+// The tent's triangles must actually have reached the collider.
+const colliderGrew = r.tentColliderTris > 0;
+// And what reached it must be the proxy and nothing else — anything more means
+// visual geometry leaked in, which is the whole cost the proxy exists to avoid.
+//
+// Asked of the tent's own contribution rather than of the collider total. It
+// used to read `colliderTris === 9474 + proxyTris`, which said the same thing
+// only while the tent was the only prop in the scene; the first solid prop
+// placed beside it (a character, here) failed this by existing. Per-prop, the
+// claim survives the scene growing — and is the stricter reading anyway, since
+// the total could in principle balance a leak here against an absence there.
+const proxyIsTheCollider = r.proxyTris > 0 && r.tentColliderTris === r.proxyTris;
 // And the proxy must cost the frame nothing: never drawn, never a shadow caster.
 const proxyHidden = r.proxyVisible === 0;
 // It is only worth the machinery if it is materially cheaper than the mesh.
@@ -230,7 +241,7 @@ const rayHitTent = r.hitProp === 'tent_01' && r.hitDist < r.approachFrom - 0.5;
 // the moment they got as close as they were going to get.
 const walkStopped = r.minDist < r.startDist && r.blockedBy === 'tent_01';
 
-console.log(`  collider triangles   ${r.colliderTris.toLocaleString()} (map 9,474 + tent proxy ${r.proxyTris.toLocaleString()})`);
+console.log(`  collider triangles   ${r.colliderTris.toLocaleString()} total, of which the tent is ${r.tentColliderTris.toLocaleString()} (its proxy is ${r.proxyTris.toLocaleString()})`);
 console.log(`  tent geometry        ${r.visibleTris.toLocaleString()} drawn + ${r.nocolTris.toLocaleString()} _nocol, none of it collided`);
 console.log(`  proxy drawn/casting  ${r.proxyVisible} instances (want 0)`);
 console.log(`  ray at tent          hit "${r.hitProp}" at ${r.hitDist} m into a ${r.approachFrom} m approach`);
