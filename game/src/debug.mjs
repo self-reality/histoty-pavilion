@@ -57,6 +57,7 @@ export class DebugTools {
 
     this.mode = 0;                // 0 textured, 1 wireframe, 2 normals
     this._frame = 0;
+    this.rigs = [];               // PropRigs, added as their props finish loading
 
     this._mapMeshInstances = [];
     for (const rc of mapRender.findComponents('render')) {
@@ -181,6 +182,79 @@ export class DebugTools {
     section(bodyWrap, 'Actions');
     const row = el('div', 'dbg-row', bodyWrap);
     button(row, 'Teleport spawn', () => this.player.teleport(this.spawn.x, this.spawn.y, this.spawn.z));
+
+    // Rig sections are appended here as props land — they can't be built up
+    // front because the GLBs load well after the panel does.
+    this._body = bodyWrap;
+    for (const rig of this.rigs) this._buildRig(rig);
+  }
+
+  /**
+   * Add a placed prop's rig to the panel.
+   *
+   * Called from the prop loader, which finishes long after _buildPanel, so this
+   * appends rather than assuming a build order — and it tolerates being called
+   * before the panel exists, so wiring order stays the caller's business.
+   */
+  addRig(rig) {
+    this.rigs.push(rig);
+    if (this._body) this._buildRig(rig);
+  }
+
+  // ---- One prop's joints, as live sliders (see src/rig.mjs) ----
+  //
+  // A pose is a couple of dozen angles that only mean anything when you look at
+  // them, so this is the authoring tool, not a diagnostic: drag until it reads
+  // right, hit Copy, paste into the manifest's `rigs`. Folded by default because
+  // a rig is 3 sliders per bone and would otherwise bury the rest of the panel.
+  _buildRig(rig) {
+    const parent = this._body;
+    const head = el('div', 'dbg-sec', parent);
+    const group = el('div', '', parent);
+    group.classList.add('dbg-hidden');
+    const label = `Rig — ${rig.label} (${rig.count})`;
+    head.textContent = `▸ ${label}`;
+    head.style.cursor = 'pointer';
+    head.onclick = () => {
+      const hidden = group.classList.toggle('dbg-hidden');
+      head.textContent = `${hidden ? '▸' : '▾'} ${label}`;
+    };
+
+    // Strip the boilerplate the pattern needs but the eye doesn't:
+    // "ValveBiped.Bip01_L_Thigh*" reads as "L_Thigh".
+    const short = (pattern) => pattern.replace(/^ValveBiped\.Bip01_/, '').replace(/\*$/, '');
+
+    // Half-degree steps: solved joint angles land on halves, and a 1° slider
+    // would show -73 for a bone actually sitting at -72.5 — the readout has to
+    // agree with what Copy pose writes back.
+    for (const bone of rig.bones) {
+      for (let axis = 0; axis < 3; axis++) {
+        slider(group, `${short(bone.pattern)} ${'xyz'[axis]}`, -180, 180, 0.5, bone.angles[axis],
+          (v) => rig.set(bone.pattern, axis, v), 1);
+      }
+    }
+    // Carried nodes. Their deltas are in model units, so the range is derived
+    // from the prop's own scale — ±2 m of travel whatever the model was authored
+    // in, instead of a number that means 7 cm on one prop and 70 m on the next.
+    const perMetre = 1 / (rig.root.getLocalScale().x || 1);
+    for (const move of rig.moves) {
+      for (let axis = 0; axis < 3; axis++) {
+        slider(group, `${short(move.pattern)} ${'xyz'[axis]}`, -2 * perMetre, 2 * perMetre, perMetre / 200,
+          move.delta[axis], (v) => rig.setMove(move.pattern, axis, v), 1);
+      }
+    }
+    // Seat height. Sitting drops the hips ~1 m; this is the knob that finds it.
+    for (let axis = 0; axis < 3; axis++) {
+      slider(group, `offset ${'xyz'[axis]} (m)`, -3, 3, 0.01, rig.offset[['x', 'y', 'z'][axis]],
+        (v) => rig.setOffset(axis, v), 2);
+    }
+
+    const row = el('div', 'dbg-row', group);
+    button(row, 'Copy pose', () => {
+      const text = `'${rig.label}': ${JSON.stringify(rig.toSpec(), null, 2)},`;
+      console.log(text);
+      navigator.clipboard?.writeText(text).catch(() => {});   // console copy is the fallback
+    });
   }
 
   // ---- Fog. scene.fog is read by the renderer every frame, so writing its

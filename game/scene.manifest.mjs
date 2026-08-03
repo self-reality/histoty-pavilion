@@ -75,6 +75,59 @@ export const manifest = {
   // definition that Blender will shadow — prefer the .blend.
   props: [],
 
+  // ---- Articulated props: named nodes of a placed GLB, driven at runtime ----
+  // Keyed by placement name, so this composes with both prop sources — the
+  // Blender-generated placements and the hand-written `props` above — without
+  // the exporter learning what a bone is. The .blend says where the prop is;
+  // this says how it is folded. See src/rig.mjs for the axis convention.
+  //
+  // Angles are DELTAS on the bind pose in degrees, in each bone's own frame.
+  // On a ValveBiped rig +X runs down the bone, so Z is the hinge (hip flex,
+  // knee, ankle), Y swings sideways (hip abduction), X twists. Every number
+  // here was dialled on the debug panel's Rig sliders (`) and pasted back with
+  // its Copy button — the same loop `fog` and `surface` use.
+  rigs: {
+    // Sukhasana — simple cross-legged. Hips flex forward and abduct so the
+    // thighs lie open and near-horizontal; knees fold hard so the shins come
+    // back and cross at the ankles; arms come off the body so they rest on the
+    // knees instead of intersecting them.
+    'g-man_01': {
+      pose: {
+        // The big X twist on the thighs is external hip rotation, and it is not
+        // decoration: without it the knee hinge stays in a vertical plane and
+        // folding the calf drives the shin down through the floor instead of
+        // back along it. That rotation is the whole trick of a cross-legged sit.
+        //
+        // The two legs are near-mirrors but not exact — the right is 5° more
+        // twisted and 11° less flexed, which is what tucks its shin BEHIND the
+        // left instead of through it. Mirroring the left exactly puts both
+        // ankles in the same 5 cm of space.
+        'ValveBiped.Bip01_L_Thigh*':    [-77.5, -40, -72.5],
+        'ValveBiped.Bip01_L_Calf*':     [0, 0, 135],
+        'ValveBiped.Bip01_L_Foot*':     [0, 0, 30],
+        'ValveBiped.Bip01_R_Thigh*':    [82.5, 35, -61.5],
+        'ValveBiped.Bip01_R_Calf*':     [0, 0, 141],
+        'ValveBiped.Bip01_R_Foot*':     [0, 0, 30],
+        // Left arm comes in off the body and the elbow bends, so the hand lands
+        // on the knee rather than passing through the thigh.
+        'ValveBiped.Bip01_L_UpperArm*': [0, 20, -25],
+        'ValveBiped.Bip01_L_Forearm*':  [0, 0, -50],
+        // The right arm is not symmetric because it is carrying something. The
+        // briefcase looks like a loose prop but is rigidly weighted to R_Hand,
+        // so the only way to put it down is to reach down: these angles are
+        // solved to land the case's underside on the floor beside him.
+        'ValveBiped.Bip01_R_UpperArm*': [25, -4, -9],
+        'ValveBiped.Bip01_R_Forearm*':  [0, 0, -50],
+        'ValveBiped.Bip01_Spine1*':     [0, 0, 4],
+      },
+      // Metres. Sitting puts the hips ~1 m below where standing left them, and
+      // that metre is the pose's, not the layout's — move him in the .blend and
+      // it still holds. Applied to the prop root, so it is world metres and
+      // independent of the model's own 0.03 scale.
+      offset: [0, -0.93, 0],
+    },
+  },
+
   // ---- Wall paintings (name -> image), filled later ----
   paintings: [],
 };

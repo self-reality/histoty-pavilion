@@ -16,6 +16,7 @@ import { DebugTools } from '../src/debug.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
+import { rigForProp } from '../src/rig.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
@@ -264,6 +265,11 @@ function loadProp(prop) {
     const [sx, sy, sz] = prop.scale ?? [1, 1, 1];
     root.setLocalScale(sx, sy, sz);
     app.root.addChild(root);
+    // Fold the rig before the hierarchy syncs: the pose moves the prop root
+    // (its seat offset), and that has to be settled before collision bakes
+    // world-space triangles out of it.
+    const rig = rigForProp(root, prop, manifest.rigs);
+    if (rig) debug?.addRig(rig);
     root.syncHierarchy();          // world transforms must be final before we
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root);
@@ -275,7 +281,8 @@ function loadProp(prop) {
     console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}`
       + ` scale ${sx === sy && sy === sz ? sx : `${sx},${sy},${sz}`}${solid}`
       + (proxies ? ` (${proxies} collision proxy mesh hidden)` : '')
-      + (unlit ? ` (${unlit} unlit material sealed from ambient)` : ''));
+      + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
+      + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : ''));
   });
   return asset;
 }
