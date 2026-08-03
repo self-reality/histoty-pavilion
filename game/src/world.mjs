@@ -193,12 +193,19 @@ export function extractTriangles(rootEntity, opts = {}) {
  * the call site keeps the precedence in one place: a proxy is authored *because*
  * the visual mesh is the wrong thing to collide with, so it always wins, and a
  * prop that has one never pays for its wrinkles.
+ *
+ * `opts.collides(name)` vetoes a mesh on top of that — a rig that hid geometry
+ * passes its own predicate so the removed mesh doesn't leave a solid ghost. It
+ * is a separate question from visibility, which is why it is not read off
+ * `mi.visible`: a `_col` proxy is invisible and collides, by design.
  */
-export function propCollisionTriangles(rootEntity) {
+export function propCollisionTriangles(rootEntity, opts = {}) {
+  const collides = opts.collides ?? (() => true);
   const hasProxy = rootEntity.findComponents('render')
     .some((rc) => rc.meshInstances.some((mi) => isCollisionProxy(mi.node.name)));
+  const base = hasProxy ? (name) => !isCollisionProxy(name) : isNonColliding;
   return extractTriangles(rootEntity, {
-    skip: hasProxy ? (name) => !isCollisionProxy(name) : isNonColliding,
+    skip: (name) => base(name) || !collides(name),
   });
 }
 

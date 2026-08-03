@@ -108,18 +108,22 @@ export const manifest = {
         'ValveBiped.Bip01_R_Thigh*':    [82.5, 35, -61.5],
         'ValveBiped.Bip01_R_Calf*':     [0, 0, 141],
         'ValveBiped.Bip01_R_Foot*':     [0, 0, 30],
-        // Left arm comes in off the body and the elbow bends, so the hand lands
-        // on the knee rather than passing through the thigh.
+        // Arms come in off the body and the elbows bend, so the hands land on
+        // the knees rather than passing through the thighs. Both sides are the
+        // same pose mirrored, and mirroring across the body's plane flips Y but
+        // keeps Z — the arm's hinge axis already points the same way on both
+        // sides, so only the swing-out reverses.
         'ValveBiped.Bip01_L_UpperArm*': [0, 20, -25],
         'ValveBiped.Bip01_L_Forearm*':  [0, 0, -50],
-        // The right arm is not symmetric because it is carrying something. The
-        // briefcase looks like a loose prop but is rigidly weighted to R_Hand,
-        // so the only way to put it down is to reach down: these angles are
-        // solved to land the case's underside on the floor beside him.
-        'ValveBiped.Bip01_R_UpperArm*': [25, -4, -9],
+        'ValveBiped.Bip01_R_UpperArm*': [0, -20, -25],
         'ValveBiped.Bip01_R_Forearm*':  [0, 0, -50],
         'ValveBiped.Bip01_Spine1*':     [0, 0, 4],
       },
+      // The briefcase is rigidly weighted to his right hand, so with both arms
+      // resting on the knees it would sit in his lap. He is meditating, not
+      // doing paperwork — drop it from the camera, the shadow pass and the
+      // collider alike.
+      hide: ['briefcase_reference*'],
       // Metres. Sitting puts the hips ~1 m below where standing left them, and
       // that metre is the pose's, not the layout's — move him in the .blend and
       // it still holds. Applied to the prop root, so it is world metres and

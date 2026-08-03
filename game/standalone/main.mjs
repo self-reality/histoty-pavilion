@@ -272,7 +272,7 @@ function loadProp(prop) {
     if (rig) debug?.addRig(rig);
     root.syncHierarchy();          // world transforms must be final before we
                                    // bake collision triangles out of them
-    const solid = addPropCollision(prop, root);
+    const solid = addPropCollision(prop, root, rig);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
     // Scale is in the line because "is my Blender edit actually in this tab?" is
@@ -305,10 +305,12 @@ function propIsSolid(prop) {
 
 // Fold a placed prop's geometry into the collider. Props land after the map, so
 // this joins a collider that is already live and already being queried.
-function addPropCollision(prop, root) {
+function addPropCollision(prop, root, rig) {
   if (!collider) return ' (no collider yet)';
   if (!propIsSolid(prop)) return ' — walk-through (solid: false)';
-  const tris = propCollisionTriangles(root);
+  // A rig that hid geometry vetoes it here too, so nothing the pose removed is
+  // left standing as an invisible obstacle.
+  const tris = propCollisionTriangles(root, rig ? { collides: (n) => rig.collides(n) } : {});
   if (!tris.length) return ' — no collidable meshes';
   // Provenance: raycast() hands back the triangle it hit, so tagging makes
   // "what did I just shoot / bump into?" answerable in the console and lets
