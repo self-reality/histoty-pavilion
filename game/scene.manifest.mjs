@@ -109,15 +109,18 @@ export const manifest = {
         'ValveBiped.Bip01_R_Calf*':     [0, 0, 141],
         'ValveBiped.Bip01_R_Foot*':     [0, 0, 30],
         // Arms come in off the body and the elbows bend, so the hands land on
-        // the knees rather than passing through the thighs. The shoulders are
-        // mirrored (Y flips, Z keeps — both arms' hinge axes already point the
-        // same way, so only the swing-out reverses) but the forearms are not:
-        // the left carries a 74.5° twist about its own length, rolling that
-        // palm over while the right stays as it fell.
+        // the knees rather than passing through the thighs. Both forearms carry
+        // a big twist about their own length — that is what rolls the palms
+        // over onto the knees instead of leaving them edge-on, and it is the
+        // difference between sitting and merely being folded up.
+        //
+        // The two sides are near-mirrors, which is what a mirror looks like on
+        // this rig: X and Y flip, Z keeps. Dialled by hand, so they are close to
+        // that rather than exactly it.
         'ValveBiped.Bip01_L_UpperArm*': [0, 20, -25],
         'ValveBiped.Bip01_L_Forearm*':  [74.5, 0, -38.5],
         'ValveBiped.Bip01_R_UpperArm*': [0, -20, -21.5],
-        'ValveBiped.Bip01_R_Forearm*':  [0, 0, -33],
+        'ValveBiped.Bip01_R_Forearm*':  [-63.5, -7.5, -39],
         'ValveBiped.Bip01_Spine1*':     [0, 0, 4],
       },
       // The briefcase is rigidly weighted to his right hand, so with both arms
