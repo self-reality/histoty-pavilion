@@ -22,7 +22,7 @@ factory; git = truth; Claude-legible.
    Any other custom property rides through to `extras` in the JSON, so conventions can be added
    without touching the exporter. Blender Custom Properties → glTF `extras` was not needed —
    props stay separate GLBs and only their transforms are exported.
-4. ~~**Headless exporter**~~ — done, split in two (`npm run scene:build` / `scene:export`), and
+4. ~~**Headless exporter**~~ — done, split in two (`npm run scene:import` / `scene:export`), and
    it does **not** re-export a GLB. See **Layout, not geometry** below. Geometry-Nodes scatter
    still needs realizing before export if/when we use it.
 5. **Loader binding** — partly done. Props load and place from `scene.placements.json`; the
@@ -37,7 +37,7 @@ placement. Consequences:
 
 - Moving a prop is a **one-line diff**, not a re-baked 10 MB binary.
 - **No git-LFS needed.** `scene/pavilion.blend` is gitignored: it is 10 MB of imported GLB
-  payload used purely for WYSIWYG placement, and `npm run scene:build` regenerates it from
+  payload used purely for WYSIWYG placement, and `npm run scene:import` regenerates it from
   `scene.manifest.mjs` + `scene.placements.json`. That loop is a verified byte-identical no-op,
   so the `.blend` is a cache, not an artifact.
 - The tracked truth stays two small text files. Claude-legible, as intended.

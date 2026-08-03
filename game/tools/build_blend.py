@@ -1,7 +1,7 @@
 """(Re)build the editable Blender scene from the git-tracked scene data.
 
-    npm run scene:build            # -> scene/pavilion.blend
-    npm run scene:build -- --force # rebuild over an existing .blend
+    npm run scene:import            # -> scene/pavilion.blend
+    npm run scene:import -- --force # rebuild over an existing .blend
 
 The .blend is a *derived working file*, not the source of truth — it is 10 MB
 of imported GLB payload and is gitignored. Everything that matters comes from
@@ -12,8 +12,8 @@ two files that are in git:
 
 ...and those two are exactly what this script reads back in, with placements
 overriding same-named manifest props — the same precedence the game loader
-uses. So the loop closes: build -> edit -> export -> (rebuild reproduces it).
-Clone the repo, run scene:build, and you get the current scene.
+uses. So the loop closes: import -> edit -> export -> (re-import reproduces it).
+Clone the repo, run scene:import, and you get the current scene.
 
 What a rebuild does NOT preserve is Blender-side state nobody exports: extra
 collections, lights, viewport setup, notes. Hence the --force guard.

@@ -12,16 +12,22 @@ source of truth — it reads and writes two git-tracked files:
 
 The `.blend` is a working file. It embeds copies of the prop GLBs purely so you
 can see what you are placing; nothing in it ships. Delete it whenever you like
-and `npm run scene:build` recreates it from the two tracked files.
+and `npm run scene:import` recreates it from the two tracked files.
 
 ## The loop
 
 ```bash
-npm run scene:build      # first time only — creates scene/pavilion.blend
+npm run scene:import     # first time only — creates scene/pavilion.blend
 npm run scene:edit       # opens Blender. Move things. Save (Cmd-S).
 npm run scene:export     # writes scene.placements.json
 npm start                # http://localhost:5173 — see it in game
 ```
+
+`scene:import` and `scene:export` are the two directions of the same round
+trip: import pulls the tracked layout *into* the `.blend`, export writes it
+back *out*. Neither has anything to do with `File > Import > glTF` inside
+Blender, which brings a single prop's geometry in and is covered under
+"Adding a new prop".
 
 `scene:export` is what the game reads. Saving in Blender is not enough; export
 is the publish step. Review the `scene.placements.json` diff before committing —
@@ -86,7 +92,7 @@ not do is *save* the `.blend`. That is the part that was never safe from a
 headless run: if you have the file open, your next `Cmd-S` writes the
 un-anchored scene straight back over it. So the prop ships either way, and the
 anchor becomes permanent in the file the next time you export from Blender (or
-rebuild with `scene:build --force`). The command says so when it happens.
+rebuild with `scene:import --force`). The command says so when it happens.
 
 Step 4's order matters. The game applies the exported transform to a fresh copy
 of the GLB, so the Empty has to sit at identity when the payload is attached —
@@ -252,7 +258,7 @@ reading diffs, and the game ignores it when `rot` is present.
 
 ## Rebuilding
 
-`npm run scene:build -- --force` recreates the `.blend` from the tracked files.
+`npm run scene:import -- --force` recreates the `.blend` from the tracked files.
 It restores every prop and marker exactly — the build→export→build loop is a
 byte-identical no-op. What it does *not* restore is Blender-side work nothing
 exports: extra collections, lights, viewport layout, notes. Export first.

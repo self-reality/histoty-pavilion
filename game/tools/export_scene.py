@@ -37,7 +37,7 @@ in memory and writes the same layout, leaving the .blend untouched — saving it
 from a headless run is what was never safe, because your next Cmd-S in an open
 session would put the un-anchored scene straight back. So a headless export
 ships the prop, and the anchor becomes permanent the next time you export from
-Blender (or rebuild with `scene:build --force`).
+Blender (or rebuild with `scene:import --force`).
 """
 
 import json
@@ -431,7 +431,7 @@ def main():
         print(f'[export] NOTE  the anchor{"s" if len(adopted) > 1 else ""} above '
               f'{"are" if len(adopted) > 1 else "is"} in the layout but not saved '
               'to the .blend — the prop ships now; export from Blender (or '
-              '`npm run scene:build -- --force`) to make it permanent there')
+              '`npm run scene:import -- --force`) to make it permanent there')
     for p in props:
         print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}')
     for m in markers:
