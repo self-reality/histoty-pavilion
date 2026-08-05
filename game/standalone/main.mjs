@@ -26,6 +26,11 @@ const { Color, Entity, Asset, Quat } = pc;
 // below, which every call site already tolerates.
 const { DebugTools, togglePanel } = isDebugMode() ? await import('../src/debug.mjs') : {};
 
+// Marks the page for the stripped-down pause overlay (see the body.debug rules
+// in index.html): no dimming over the scene you are tweaking, a small corner
+// resume button, and the ready line alone at the foot.
+if (isDebugMode()) document.body.classList.add('debug');
+
 // ---- Scene constants come from the git-tracked manifest (see ../scene.manifest.mjs) ----
 const MAP = manifest.map;                 // { glb, scale, euler } — Source Z-up -> metres, Y-up
 const SKY = new Color(...manifest.sky);   // camera clear / sky colour

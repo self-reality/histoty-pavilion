@@ -91,6 +91,28 @@
     #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
     .hidden { display: none !important; }
 
+    /* Debug mode (?debug): pausing is something you do to reach the tweak panel,
+       not to read a menu — so the overlay stops dimming the scene you are
+       tweaking, shrinks to a corner resume button (clear of the panel, which
+       sits top-right), and keeps only the ready line at the foot. */
+    body.debug #overlay {
+      background: none; backdrop-filter: none;
+      align-items: flex-start; justify-content: flex-start;
+    }
+    body.debug #overlay h1,
+    body.debug #overlay .sub,
+    body.debug #overlay .controls { display: none; }
+    body.debug #overlay .play {
+      margin: 12px; padding: 8px 22px; font-size: 9px; border-radius: 4px;
+      box-shadow: 0 5px 15px rgba(255,207,90,0.25);
+    }
+    body.debug #loading {
+      position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+      margin: 0; white-space: nowrap;
+      /* No dim behind it any more, so it reads off the HUD's shadow instead. */
+      opacity: 0.85; text-shadow: 0 2px 6px rgba(0,0,0,0.9);
+    }
+
     /* The debug tweak panel brings its own CSS and its own markup (see
        src/debug.mjs); this page is the production one and carries neither. */
   </style>

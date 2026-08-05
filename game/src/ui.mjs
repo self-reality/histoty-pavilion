@@ -11,6 +11,8 @@
 //   hud  — { mag, reserve, reloading, hit() } consumed by Weapon
 //   teardown() — removes the injected DOM + <style>
 
+import { isDebugMode } from './debugmode.mjs';
+
 const ROOT_ID = 'pc-fps-ui';
 const STYLE_ID = 'pc-fps-ui-style';
 
@@ -70,6 +72,22 @@ const CSS = `
 #${ROOT_ID} #overlay .controls .d { justify-self: start; }
 #${ROOT_ID} #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
 
+/* Debug mode (?debug): pausing is something you do to reach the tweak panel, not
+   to read a menu — so the overlay stops dimming the scene you are tweaking,
+   shrinks to a corner resume button (clear of the panel, which sits top-right),
+   and keeps only the ready line at the foot. */
+#${ROOT_ID}.debug #overlay { background: none; backdrop-filter: none;
+  align-items: flex-start; justify-content: flex-start; }
+#${ROOT_ID}.debug #overlay h1,
+#${ROOT_ID}.debug #overlay .sub,
+#${ROOT_ID}.debug #overlay .controls { display: none; }
+#${ROOT_ID}.debug #overlay .play { margin: 12px; padding: 8px 22px; font-size: 9px;
+  border-radius: 4px; box-shadow: 0 5px 15px rgba(255,207,90,0.25); }
+/* No dim behind the ready line any more, so it reads off the HUD's shadow. */
+#${ROOT_ID}.debug #loading { position: fixed; left: 50%; bottom: 18px;
+  transform: translateX(-50%); margin: 0; white-space: nowrap;
+  opacity: 0.85; text-shadow: 0 2px 6px rgba(0,0,0,0.9); }
+
 /* No debug-panel rules here on purpose: the panel styles and builds itself, and
    only in debug mode (see debug.mjs / debugmode.mjs). */
 `;
@@ -115,6 +133,8 @@ export function injectUI() {
 
   const root = document.createElement('div');
   root.id = ROOT_ID;
+  // Debug launches get the stripped-down overlay (see the .debug rules in CSS).
+  if (isDebugMode()) root.classList.add('debug');
   root.innerHTML = HTML;
   document.body.appendChild(root);
 
