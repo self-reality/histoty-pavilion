@@ -83,7 +83,9 @@ REF_COLLECTION = 'REF'
 # Blender stashes addon state in custom properties too; keep them out of git.
 NOISE_KEYS = {'cycles', 'cycles_visibility', '_RNA_UI'}
 
-# Matches PICTURE_PREFIX in build_assets.py — see anchor_base().
+# The prefix the frames-for-artwork app puts on every GLB it emits — see
+# anchor_base(). It is the one thing that side of the contract guarantees, so
+# changing it here silently renames every picture anchor in the scene.
 PICTURE_PREFIX = 'picture_'
 
 # Blender's uniquifying suffix on a name that was already taken — see base_names().

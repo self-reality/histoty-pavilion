@@ -111,16 +111,16 @@ JSON, so you can invent conventions without touching the exporter.
 ## Adding a picture
 
 A picture is a prop, so the steps above are the steps — there is nothing new to
-learn. What differs is only that you generate the GLB instead of downloading it:
+learn. What differs is only where the GLB comes from: drag the photograph into
+**frames-for-artwork** (a standalone browser app — see the Pictures section of
+README.md), set its height, and save the download into `game/assets/`.
 
-```bash
-cp ~/scan.jpg game/assets/source/pictures/kremlin_1904.jpg
-npm run assets:build        # -> game/assets/picture_kremlin_1904.glb
+```
+~/scan.jpg  →  frames-for-artwork  →  game/assets/picture_kremlin_1904.glb
 ```
 
 Then import and place it exactly like a crate — the in-Blender export handles
-the anchor for you. See the Pictures section of README.md for the sizing and
-material choices the generator makes.
+the anchor for you.
 
 Two things that make hanging them painless:
 

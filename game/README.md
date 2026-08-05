@@ -150,20 +150,23 @@ Two things decimation cannot fix, worth knowing before you lean on it:
 
 ### Pictures
 
-Drop an image in `assets/source/pictures/` and the same build turns it into a
-placeable slab. No new command, and no engine code knows pictures exist:
-
-```bash
-cp ~/Downloads/kremlin_1904.jpg assets/source/pictures/
-npm run assets:build
-# -> assets/picture_kremlin_1904.glb — now place it in Blender like any prop
-```
+A picture is a GLB like any other prop — but it is **not built here**. Building
+one used to mean a headless Blender run to decode a jpg, resize it and write out
+a hardcoded 8-vertex box, which is a 1 GB desktop install doing work a browser
+does natively. That moved out to a standalone app, **frames-for-artwork**:
 
 ```
-assets/source/pictures/kremlin_1904.jpg   ← raw photo, NOT in git
-        ↓  tools/build_assets.py
-assets/picture_kremlin_1904.glb           ← 12 tris, WebP texture; tracked, ships
+kremlin_1904.jpg          ← drag it into the app
+        ↓  frames-for-artwork (browser, no build step)
+picture_kremlin_1904.glb  ← drop in assets/, place in Blender like any prop
 ```
+
+Nothing on this side changed. The GLB it emits declares `KHR_materials_unlit`
+and `EXT_texture_webp`, is named `picture_*` so the scene exporter names its
+anchor after it, and carries a `*_nocol` mesh so it never collides — the same
+contract `tools/build_assets.py` used to emit, verified against it byte for byte
+in that app's test suite. `assets/picture_*.glb` here were built the old way and
+are unaffected.
 
 The slab is a box, 1.4 m tall and 3 cm thick by default, with the image unlit on
 the front face and a dark matte mount on the edges and back. Four things it
@@ -180,9 +183,7 @@ decides for you:
   hangs on already stops you, and a picture you can bump into is one you can get
   wedged against.
 
-Override per picture in `assets/assets.config.json` under its filename —
-`{"kremlin_1904.jpg": {"height": 2.4, "maxTexture": 2048}}` for a hero piece.
-Defaults live in the `pictureDefaults` block.
+Height is the one thing you author, in the app, before you download.
 
 Unlit rather than lit is deliberate: this level is dusk-lit with a fast fog
 falloff, and a lit picture on a wall the sun does not reach is a muddy grey

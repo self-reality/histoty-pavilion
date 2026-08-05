@@ -14,24 +14,11 @@ between "asset arrives" and "asset ships":
             ↓  this script
     assets/statue.glb          ← decimated + WebP textures, tracked, what ships
 
-It also builds picture slabs, which are the same idea one step earlier: the raw
-input is a photograph rather than a model, and the GLB is generated rather than
-squeezed.
-
-    assets/source/pictures/kremlin_1904.jpg   ← raw scan/photo, not in git
-            ↓  this script
-    assets/picture_kremlin_1904.glb           ← tracked, ships, place it in Blender
-
-WHY A GLB AND NOT AN IMAGE THE ENGINE LOADS DIRECTLY — a textured quad needs no
-glTF container to exist, and there is a `paintings` stub in scene.manifest.mjs
-that anticipated building one at runtime. Wrapping the image in ~1 KB of glTF
-instead makes a picture indistinguishable from a prop to everything downstream,
-which buys the whole existing pipeline for free: WYSIWYG placement in Blender on
-the anchor Empty you already know, one line per move in scene.placements.json,
-per-URL container dedup so the same picture hung twice downloads once, the
-collision opt-outs, and the tests/perf.mjs budget. The runtime alternative costs
-a code path in both entry points, a new authoring convention, and its own test.
-Zero engine code knows pictures exist.
+This handles models only. Pictures used to be built here too, from photographs
+dropped in assets/source/pictures/ — that moved out to a standalone browser app
+(`frames-for-artwork`), which does the same job without needing a 1 GB desktop
+install to decode a jpg. It emits the same picture_<name>.glb; drop one straight
+into assets/ and place it in Blender like any other prop.
 
 Two rules make it safe to run at any time:
 
@@ -66,7 +53,6 @@ import numpy as np
 
 GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE_DIR = os.path.join(GAME_DIR, 'assets', 'source')
-PICTURE_DIR = os.path.join(SOURCE_DIR, 'pictures')
 OUT_DIR = os.path.join(GAME_DIR, 'assets')
 CONFIG = os.path.join(GAME_DIR, 'assets', 'assets.config.json')
 CACHE = os.path.join(GAME_DIR, 'assets', '.assets.cache.json')
@@ -82,18 +68,6 @@ DEFAULTS = {
     # not — see build_collision_proxy.
     'collisionProxy': '',
     'collisionProxyAngle': 15,   # degrees; how flat two faces must be to merge
-}
-
-PICTURE_EXTS = ('.jpg', '.jpeg', '.png', '.webp')
-PICTURE_PREFIX = 'picture_'
-
-# Only `height` is authored — width comes from the image's own pixel aspect, so a
-# picture is never stretched and there is no aspect convention to remember.
-PICTURE_DEFAULTS = {
-    'height': 1.4,        # m, the long-ish edge you actually judge by eye
-    'thickness': 0.03,    # m, absolute: a small photo and a big one mount alike
-    'maxTexture': 1024,
-    'quality': 85,
 }
 
 
@@ -122,12 +96,8 @@ def write_default_config():
                 'their second-widest axis (ropes, pegs, hardware) are split '
                 'into a "*_nocol" object and stop colliding; 0 disables. '
                 '"collisionProxy": "hull" adds a low-poly "*_col" mesh that the '
-                'game collides with instead of the visual geometry; "" disables. '
-                'Images in assets/source/pictures/ become picture slabs instead: '
-                'they take "pictureDefaults" plus a same-filename override, and '
-                'only "height" is authored — width follows the image aspect.',
+                'game collides with instead of the visual geometry; "" disables.',
         'defaults': dict(DEFAULTS),
-        'pictureDefaults': dict(PICTURE_DEFAULTS),
         'assets': {},
     }
     with open(CONFIG, 'w') as f:
@@ -139,13 +109,6 @@ def write_default_config():
 def settings_for(cfg, name):
     s = dict(DEFAULTS)
     s.update(cfg.get('defaults', {}))
-    s.update(cfg.get('assets', {}).get(name, {}))
-    return s
-
-
-def picture_settings_for(cfg, name):
-    s = dict(PICTURE_DEFAULTS)
-    s.update(cfg.get('pictureDefaults', {}))
     s.update(cfg.get('assets', {}).get(name, {}))
     return s
 
@@ -477,173 +440,13 @@ def process(src_path, out_path, settings, dry):
             'proxyTris': proxy_tris}
 
 
-# ---- Pictures ---------------------------------------------------------------
-
-def picture_out_name(src_name):
-    """assets/source/pictures/Kremlin 1904.JPG -> picture_kremlin_1904.glb"""
-    stem = os.path.splitext(src_name)[0].lower()
-    safe = ''.join(c if c.isalnum() else '_' for c in stem).strip('_')
-    while '__' in safe:
-        safe = safe.replace('__', '_')
-    return f'{PICTURE_PREFIX}{safe}.glb'
-
-
-def flat_material(name, img):
-    """A material that shows `img` at authored brightness, ignoring scene light.
-
-    A Background shader is Blender's unlit surface, and the glTF exporter turns
-    it into KHR_materials_unlit — which the engine reads (see the extensionUnlit
-    hook in lib/playcanvas.mjs) and maps to a material with useLighting off.
-
-    Unlit rather than lit because a picture is content, not a surface: a lit one
-    on a wall the sun does not reach is a muddy grey rectangle you cannot read,
-    and this level is deliberately dusk-lit with a fast fog falloff.
-    """
-    mat = bpy.data.materials.new(name)
-    mat.use_nodes = True
-    mat.use_backface_culling = True   # closed box; backfaces are wasted fill
-    nt = mat.node_tree
-    nt.nodes.clear()
-    tex = nt.nodes.new('ShaderNodeTexImage')
-    tex.image = img
-    bg = nt.nodes.new('ShaderNodeBackground')
-    out = nt.nodes.new('ShaderNodeOutputMaterial')
-    nt.links.new(tex.outputs['Color'], bg.inputs['Color'])
-    nt.links.new(bg.outputs['Background'], out.inputs['Surface'])
-    return mat
-
-
-def mount_material(name):
-    """The edges and back: a dark matte mount, lit normally so depth reads."""
-    mat = bpy.data.materials.new(name)
-    mat.use_nodes = True
-    mat.use_backface_culling = True
-    bsdf = mat.node_tree.nodes.get('Principled BSDF')
-    if bsdf:
-        bsdf.inputs['Base Color'].default_value = (0.05, 0.045, 0.04, 1.0)
-        if 'Roughness' in bsdf.inputs:
-            bsdf.inputs['Roughness'].default_value = 0.85
-    return mat
-
-
-def build_slab(name, width, height, thickness, front_mat, side_mat):
-    """A box with the image on one face, origin at the centre of its BACK.
-
-    Origin on the back plane rather than the centre of the slab so the anchor
-    Empty sits exactly ON the wall in Blender: snap the Empty to the wall face
-    and the picture stands proud of it by `thickness`, with no half-depth offset
-    to work out by hand. Nothing is buried inside the masonry.
-
-    Built upright and facing Blender -Y, which is the direction the front view
-    (numpad 1) looks from — so an unrotated picture faces you when you import it.
-    Blender +Y is PlayCanvas -Z; the exporter's Y-up conversion handles the rest.
-    """
-    hw, hh = width / 2.0, height / 2.0
-    verts = [
-        (-hw, -thickness, -hh), (hw, -thickness, -hh),   # 0,1 front bottom
-        (hw, -thickness, hh), (-hw, -thickness, hh),      # 2,3 front top
-        (-hw, 0.0, -hh), (hw, 0.0, -hh),                 # 4,5 back bottom
-        (hw, 0.0, hh), (-hw, 0.0, hh),                   # 6,7 back top
-    ]
-    # Wound so every normal points out of the slab; front face first, because
-    # material_index 0 is the image and the rest are the mount.
-    faces = [
-        (0, 1, 2, 3),   # front  (-Y) — the picture
-        (4, 7, 6, 5),   # back   (+Y)
-        (0, 4, 5, 1),   # bottom (-Z)
-        (3, 2, 6, 7),   # top    (+Z)
-        (0, 3, 7, 4),   # left   (-X)
-        (1, 5, 6, 2),   # right  (+X)
-    ]
-
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
-    mesh.validate()
-
-    mesh.materials.append(front_mat)
-    mesh.materials.append(side_mat)
-    for poly in mesh.polygons:
-        poly.material_index = 0 if poly.index == 0 else 1
-
-    # Full-image UVs on the front face only; the mount has no texture to map.
-    uv = mesh.uv_layers.new(name='UVMap')
-    corner_uv = {0: (0.0, 0.0), 1: (1.0, 0.0), 2: (1.0, 1.0), 3: (0.0, 1.0)}
-    front = mesh.polygons[0]
-    for loop_i in front.loop_indices:
-        uv.data[loop_i].uv = corner_uv[mesh.loops[loop_i].vertex_index]
-
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(obj)
-    return obj
-
-
-def process_picture(src_path, out_path, settings, dry):
-    name = os.path.basename(src_path)
-    src_mb = os.path.getsize(src_path) / 1e6
-    print(f'  {name}  ({src_mb:.1f} MB)')
-
-    clear_scene()
-    img = bpy.data.images.load(src_path)
-    px_w, px_h = img.size
-    if not px_w or not px_h:
-        print(f'      ! unreadable image, skipped')
-        return None
-
-    resized = resize_textures(settings['maxTexture'])
-    for img_name, before, after in resized:
-        print(f'      texture {img_name}: {before} -> {after}')
-
-    height = float(settings['height'])
-    thickness = float(settings['thickness'])
-    width = height * (px_w / px_h)
-
-    # `_nocol` so the slab never joins the collider (see NO_COLLIDE in
-    # src/world.mjs). The wall it hangs on already stops you, and a picture you
-    # can bump into is a picture you can get wedged against.
-    obj_name = os.path.splitext(os.path.basename(out_path))[0] + '_nocol'
-    build_slab(
-        obj_name, width, height, thickness,
-        flat_material(obj_name + '_face', img),
-        mount_material(obj_name + '_mount'),
-    )
-    print(f'      {px_w}x{px_h} px -> {width:.2f} x {height:.2f} m'
-          f'  ({thickness * 100:.0f} cm thick, aspect {px_w / px_h:.3f})')
-
-    if dry:
-        print('      [dry] not written')
-        return None
-
-    bpy.ops.export_scene.gltf(
-        filepath=out_path,
-        export_format='GLB',
-        export_image_format='WEBP',
-        export_image_quality=settings['quality'],
-        use_selection=False,
-    )
-    out_mb = os.path.getsize(out_path) / 1e6
-    print(f'      -> {os.path.basename(out_path)}  {out_mb:.2f} MB, '
-          f'{count_triangles()} tris (all _nocol)')
-    return {'srcMB': round(src_mb, 2), 'outMB': round(out_mb, 3),
-            'px': [px_w, px_h], 'metres': [round(width, 3), round(height, 3)],
-            'thickness': thickness}
-
-
-def picture_sources():
-    if not os.path.isdir(PICTURE_DIR):
-        return []
-    return sorted(f for f in os.listdir(PICTURE_DIR)
-                  if f.lower().endswith(PICTURE_EXTS))
-
-
 def main():
     args = parse_args()
 
-    # Both created eagerly so the two drop-off points are discoverable without
-    # reading the docs: models here, images in pictures/.
-    for d in (SOURCE_DIR, PICTURE_DIR):
-        if not os.path.isdir(d):
-            os.makedirs(d, exist_ok=True)
-            print(f'created {os.path.relpath(d, GAME_DIR)}/ — put raw assets there')
+    # Created eagerly so the drop-off point is discoverable without reading docs.
+    if not os.path.isdir(SOURCE_DIR):
+        os.makedirs(SOURCE_DIR, exist_ok=True)
+        print(f'created {os.path.relpath(SOURCE_DIR, GAME_DIR)}/ — put raw assets there')
 
     cfg = load_json(CONFIG, None)
     if cfg is None:
@@ -652,26 +455,16 @@ def main():
 
     cache = {} if args['force'] else load_json(CACHE, {})
     sources = sorted(f for f in os.listdir(SOURCE_DIR) if f.lower().endswith('.glb'))
-    pictures = picture_sources()
-    if not sources and not pictures:
+    if not sources:
         print(f'nothing in {os.path.relpath(SOURCE_DIR, GAME_DIR)}/ — nothing to do '
-              f'(models go there as .glb, images in pictures/)')
+              f'(models go there as .glb)')
         return
 
-    print(f'\nassets:build — {len(sources)} model(s), {len(pictures)} picture(s)\n')
+    print(f'\nassets:build — {len(sources)} model(s)\n')
     built, skipped = 0, 0
 
-    # Models and pictures share the cache, the config and the --dry/--force
-    # flags; they differ only in what turns a source into an output. Cache keys
-    # are bare filenames and the extensions never overlap, so the two cannot
-    # collide.
-    jobs = (
-        [(n, os.path.join(SOURCE_DIR, n), os.path.join(OUT_DIR, n),
-          settings_for(cfg, n), process) for n in sources]
-        + [(n, os.path.join(PICTURE_DIR, n),
-            os.path.join(OUT_DIR, picture_out_name(n)),
-            picture_settings_for(cfg, n), process_picture) for n in pictures]
-    )
+    jobs = [(n, os.path.join(SOURCE_DIR, n), os.path.join(OUT_DIR, n),
+             settings_for(cfg, n), process) for n in sources]
 
     for name, src, out, settings, build in jobs:
         key = digest(src, settings)
