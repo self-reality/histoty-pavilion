@@ -16,7 +16,12 @@ import { Script, Entity, Asset, Color, Layer } from 'playcanvas';
 import { TriangleCollider } from './collision.mjs';
 import { Player } from './player.mjs';
 import { Weapon } from './weapon.mjs';
-import { DebugTools } from './debug.mjs';
+// Statically imported, unlike the standalone build's dynamic import: an Editor
+// project resolves its scripts through the asset registry, where a bare relative
+// import() at runtime has no reliable base URL. isDebugMode() still gates the
+// panel — the code is merely present, never built.
+import { DebugTools, togglePanel, removePanel } from './debug.mjs';
+import { isDebugMode } from './debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn } from './world.mjs';
 import { applyFog, disableFogOn, SurfaceLook, EDITOR_FOG, EDITOR_SURFACE } from './atmosphere.mjs';
 import { injectUI } from './ui.mjs';
@@ -116,8 +121,8 @@ export class Game extends Script {
     app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
     if ('exposure' in app.scene) app.scene.exposure = 1.0;
 
-    // Distance haze + the map's PBR response. Both are live sliders in the
-    // debug panel (`); see atmosphere.mjs for the numbers' authoring home.
+    // Distance haze + the map's PBR response. Both are live sliders on a debug
+    // launch (&debug); see atmosphere.mjs for the numbers' authoring home.
     applyFog(app.scene, EDITOR_FOG);
     this.surface = new SurfaceLook(EDITOR_SURFACE);
 
@@ -316,10 +321,11 @@ export class Game extends Script {
       queryTargets: (o, d, maxDist) => this.targets.query(o, d, maxDist),
     });
 
-    this.debug = new DebugTools({
+    // Tweak panel on debug URLs only (launch with `&debug`); null otherwise.
+    this.debug = isDebugMode() ? new DebugTools({
       app, player: this.player, collider: this.collider, mapRender: renderRoot, spawn,
       surface: this.surface, sun: this.sun, fill: this.fill, camera: this.camera,
-    });
+    }) : null;
 
     // Debug handle (parity with the standalone build; used by automated checks).
     window.game = {
@@ -368,9 +374,9 @@ export class Game extends Script {
     this._onPlay = () => { if (!this.ui.playBtn.disabled && app.mouse) app.mouse.enablePointerLock(); };
     this.ui.playBtn.addEventListener('click', this._onPlay);
 
-    // Backtick toggles the debug panel.
+    // Backtick toggles the debug panel (no-op when there isn't one).
     this._onWinKey = (e) => {
-      if (e.code === 'Backquote') document.getElementById('debugPanel')?.classList.toggle('dbg-hidden');
+      if (e.code === 'Backquote') togglePanel();
     };
     window.addEventListener('keydown', this._onWinKey);
     this._winHandlers.push([window, 'keydown', this._onWinKey]);
@@ -462,6 +468,7 @@ export class Game extends Script {
       this._createdLayer = null;
     }
     if (this._teardownUI) this._teardownUI();
+    removePanel();   // the panel lives outside the injected UI root
     if (app.__fpsGameCleanup) app.__fpsGameCleanup = null;
   }
 

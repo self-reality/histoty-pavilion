@@ -12,7 +12,8 @@ The game is pure static files (engine is vendored in `lib/`), so any static serv
 ```bash
 cd game
 npm start          # python3 -m http.server 5173
-# then open http://localhost:5173/
+# then open http://localhost:5173/          production
+#           http://localhost:5173/?debug    same game + the tweak panel
 ```
 
 Click **Play** to lock the mouse and start. Press **Esc** to release the mouse (pauses).
@@ -28,13 +29,27 @@ Click **Play** to lock the mouse and start. Press **Esc** to release the mouse (
 | `Space` | Jump |
 | `R` | Reload |
 | `T` | Teleport to a random spawn point |
-| `` ` `` | Toggle the debug tweak panel |
-| `V` | Cycle view: textured → wireframe → collision-normals |
 | `Esc` | Release mouse |
 
-### Debug panel
+### Debug mode
 
-Press `` ` `` for a right-side panel with live diagnostics:
+The tweak panel lives on its own URL. `/` is the production build and has no
+panel, no sliders and no way to reach them — it doesn't even fetch
+`src/debug.mjs`. Add `?debug` (or open `/debug.html`, which redirects there) and
+the same game comes up with the panel open:
+
+```
+http://localhost:5173/          production
+http://localhost:5173/?debug    production + the tweak panel
+http://localhost:5173/debug.html
+```
+
+There is one page, not two: `debug.html` is a four-line redirect, and the flag is
+read by `src/debugmode.mjs`. The Editor build reads the same flag — append
+`&debug` to the launch URL. `tests/debug.mjs` asserts both halves, so a slider
+that leaks back into production fails the build rather than shipping.
+
+In debug mode, `` ` `` toggles the panel and `V` cycles the view mode. What's in it:
 
 - **Readouts** — position, grounded state, vertical speed, current view mode.
 - **View / `V`** — switch the map to a collision-normals overlay (green = walkable
@@ -61,13 +76,15 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 
 | File | Responsibility |
 |------|----------------|
-| `index.html` | Canvas, HUD, crosshair, start overlay, import map |
+| `index.html` | Canvas, HUD, crosshair, start overlay, import map — production, no debug markup |
+| `debug.html` | Redirect to `/?debug`, so debug mode has a URL you can type |
 | `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, spawn-finding, targets, input, game loop |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
-| `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live controller sliders |
+| `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
+| `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
 **No physics engine / WASM** — collision is a custom sphere-discretised capsule vs. the
 map's triangle mesh, so the whole thing is plain JS + one engine file + one `.glb`. It runs
@@ -268,6 +285,7 @@ node tests/look.mjs    # screenshots a yaw sweep -> /tmp/dust2_yaw_*.png
 node tests/fire.mjs    # drives the shooting loop, asserts ammo/recoil/target-hit
 node tests/raycast.mjs # grid broadphase vs. a full triangle sweep, must agree exactly
 node tests/props.mjs   # props are solid; `_nocol` is not, and `_col` is all that is
+node tests/debug.mjs   # panel + sliders on ?debug, none of it on the production URL
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

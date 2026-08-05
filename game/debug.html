@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="data:," />
+  <title>de_dust2 — debug mode</title>
+  <!--
+    Debug mode is index.html with `?debug` on it (see src/debugmode.mjs), so
+    this page is a redirect rather than a second copy of the game's markup —
+    a copy would drift from the original and nobody would notice until the
+    two pages disagreed. This exists so the debug build has a URL you can type.
+  -->
+  <script>location.replace('./?debug' + location.hash);</script>
+  <meta http-equiv="refresh" content="0; url=./?debug" />
+</head>
+<body style="font: 15px system-ui, sans-serif; background: #0b0d10; color: #eee; padding: 40px;">
+  <p><a href="./?debug" style="color: #ffcf5a;">Debug mode →</a></p>
+</body>
+</html>

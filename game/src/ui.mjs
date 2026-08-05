@@ -70,39 +70,8 @@ const CSS = `
 #${ROOT_ID} #overlay .controls .d { justify-self: start; }
 #${ROOT_ID} #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
 
-#${ROOT_ID} #debugPanel { position: fixed; top: 12px; right: 12px; width: 236px; z-index: 30;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: #dfe3e8;
-  background: rgba(14, 17, 22, 0.86); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
-  backdrop-filter: blur(6px); box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-  max-height: calc(100vh - 24px); overflow-y: auto; user-select: none; }
-#${ROOT_ID} #debugPanel.dbg-hidden { display: none; }
-#${ROOT_ID} .dbg-head { display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.1);
-  position: sticky; top: 0; background: rgba(14,17,22,0.95); }
-#${ROOT_ID} .dbg-title { letter-spacing: 3px; font-weight: 700; color: var(--accent); font-size: 11px; }
-#${ROOT_ID} .dbg-x { background: none; border: none; color: #aab; font-size: 16px; line-height: 1; cursor: pointer; padding: 0 4px; }
-#${ROOT_ID} .dbg-body { padding: 10px 12px 14px; }
-#${ROOT_ID} .dbg-body.dbg-hidden { display: none; }
-#${ROOT_ID} .dbg-sec { margin: 12px 0 6px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #8b93a0; }
-#${ROOT_ID} .dbg-stats { display: grid; grid-template-columns: 1fr; gap: 3px; }
-#${ROOT_ID} .dbg-stat { display: flex; justify-content: space-between; }
-#${ROOT_ID} .dbg-k { color: #8b93a0; }
-#${ROOT_ID} .dbg-v { color: #eaeef3; }
-#${ROOT_ID} .dbg-seg { display: flex; gap: 4px; }
-#${ROOT_ID} .dbg-segbtn { flex: 1; padding: 5px 0; font: inherit; font-size: 11px; cursor: pointer;
-  color: #cdd3da; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; }
-#${ROOT_ID} .dbg-segbtn.on { background: var(--accent); color: #1a140a; border-color: var(--accent); font-weight: 700; }
-#${ROOT_ID} .dbg-slider { margin: 7px 0; }
-#${ROOT_ID} .dbg-slabel { display: flex; justify-content: space-between; margin-bottom: 2px; color: #b9c0c9; }
-#${ROOT_ID} .dbg-sval { color: var(--accent); }
-#${ROOT_ID} .dbg-slider input[type=range] { width: 100%; accent-color: var(--accent); }
-#${ROOT_ID} .dbg-color { display: flex; align-items: center; justify-content: space-between; margin: 7px 0; color: #b9c0c9; }
-#${ROOT_ID} .dbg-color input[type=color] { width: 56px; height: 20px; padding: 0; cursor: pointer;
-  background: none; border: 1px solid rgba(255,255,255,0.2); border-radius: 4px; }
-#${ROOT_ID} .dbg-row { display: flex; gap: 6px; margin: 6px 0; }
-#${ROOT_ID} .dbg-btn { flex: 1; padding: 7px 6px; font: inherit; font-size: 11px; cursor: pointer;
-  color: #eaeef3; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; }
-#${ROOT_ID} .dbg-btn:hover { background: rgba(255,255,255,0.16); }
+/* No debug-panel rules here on purpose: the panel styles and builds itself, and
+   only in debug mode (see debug.mjs / debugmode.mjs). */
 `;
 
 const HTML = `
@@ -117,7 +86,6 @@ const HTML = `
     <div class="name">AK · de_dust2</div>
   </div>
 </div>
-<div id="debugPanel" class="dbg-hidden"></div>
 <div id="overlay">
   <h1>DE_DUST2</h1>
   <div class="sub">PlayCanvas · First-Person Shooter</div>
@@ -130,8 +98,6 @@ const HTML = `
     <span class="k">Space</span><span class="d">Jump</span>
     <span class="k">R</span><span class="d">Reload</span>
     <span class="k">T</span><span class="d">Teleport to new spawn</span>
-    <span class="k">\`</span><span class="d">Debug panel</span>
-    <span class="k">V</span><span class="d">Cycle view (textured / wire / normals)</span>
     <span class="k">Esc</span><span class="d">Release mouse</span>
   </div>
   <div id="loading">Preparing map…</div>

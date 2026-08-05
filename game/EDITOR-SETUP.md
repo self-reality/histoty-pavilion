@@ -85,7 +85,9 @@ props onto it — put the map into the scene yourself:
    they render at runtime with no code needed.
 
 > Prefer code placement instead? Position entities in `game.mjs` `_wireWorld()` using
-> world coordinates — read a spot's coords from the in-game debug panel (`` ` ``).
+> world coordinates — read a spot's coords from the in-game debug panel. That panel
+> is debug-mode only now: append `&debug` to the launch URL to get it, then `` ` ``
+> toggles it (see "Debug mode" in README.md).
 
 ## Syncing code (terminal / Claude Code)
 

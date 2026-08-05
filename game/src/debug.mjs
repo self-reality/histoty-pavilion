@@ -32,12 +32,119 @@ function flatMat(color) {
   return m;
 }
 
+// The panel's markup and CSS both live here rather than in the page, because
+// this module is only loaded in debug mode (see debugmode.mjs) and a production
+// page that carries the panel's stylesheet is a production page one line away
+// from carrying the panel. Nothing outside this file knows the panel exists.
+const PANEL_ID = 'debugPanel';
+const STYLE_ID = 'debugPanelStyle';
+
+const CSS = `
+#${PANEL_ID} {
+  position: fixed; top: 12px; right: 12px; width: 236px; z-index: 30;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  color: #dfe3e8; background: rgba(14, 17, 22, 0.86);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+  backdrop-filter: blur(6px); box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  max-height: calc(100vh - 24px); overflow-y: auto; user-select: none;
+}
+#${PANEL_ID}.dbg-hidden { display: none; }
+#${PANEL_ID}::-webkit-scrollbar { width: 8px; }
+#${PANEL_ID}::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
+.dbg-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,0.1);
+  position: sticky; top: 0; background: rgba(14,17,22,0.95);
+}
+.dbg-title { letter-spacing: 3px; font-weight: 700; color: #ffcf5a; font-size: 11px; }
+.dbg-x {
+  background: none; border: none; color: #aab; font-size: 16px; line-height: 1;
+  cursor: pointer; padding: 0 4px;
+}
+.dbg-body { padding: 10px 12px 14px; }
+.dbg-body.dbg-hidden { display: none; }
+.dbg-sec {
+  margin: 12px 0 6px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: #8b93a0;
+}
+.dbg-stats { display: grid; grid-template-columns: 1fr; gap: 3px; }
+.dbg-stat { display: flex; justify-content: space-between; }
+.dbg-k { color: #8b93a0; }
+.dbg-v { color: #eaeef3; }
+.dbg-seg { display: flex; gap: 4px; }
+.dbg-segbtn {
+  flex: 1; padding: 5px 0; font: inherit; font-size: 11px; cursor: pointer;
+  color: #cdd3da; background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+}
+.dbg-segbtn.on { background: #ffcf5a; color: #1a140a; border-color: #ffcf5a; font-weight: 700; }
+.dbg-slider { margin: 7px 0; }
+.dbg-slabel { display: flex; justify-content: space-between; margin-bottom: 2px; color: #b9c0c9; }
+.dbg-sval { color: #ffcf5a; }
+.dbg-slider input[type=range] { width: 100%; accent-color: #ffcf5a; }
+.dbg-color { display: flex; align-items: center; justify-content: space-between; margin: 7px 0; color: #b9c0c9; }
+.dbg-color input[type=color] {
+  width: 56px; height: 20px; padding: 0; cursor: pointer; background: none;
+  border: 1px solid rgba(255,255,255,0.2); border-radius: 4px;
+}
+.dbg-row { display: flex; gap: 6px; margin: 6px 0; }
+.dbg-btn {
+  flex: 1; padding: 7px 6px; font: inherit; font-size: 11px; cursor: pointer;
+  color: #eaeef3; background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;
+}
+.dbg-btn:hover { background: rgba(255,255,255,0.16); }
+`;
+
+/**
+ * Find or create the panel's <style> and root element.
+ *
+ * Both are keyed by id and reused, so rebuilding the panel (an Editor
+ * hot-reload re-runs the whole script) replaces its contents instead of
+ * stacking a second copy on top of the first.
+ */
+function ensurePanelRoot() {
+  if (!document.getElementById(STYLE_ID)) {
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = CSS;
+    document.head.appendChild(style);
+  }
+  let root = document.getElementById(PANEL_ID);
+  if (!root) {
+    root = document.createElement('div');
+    root.id = PANEL_ID;
+    document.body.appendChild(root);
+  }
+  return root;
+}
+
+/**
+ * Toggle the panel's visibility (bound to the backtick key by both builds).
+ * A no-op when there is no panel, which is every production page.
+ */
+export function togglePanel() {
+  document.getElementById(PANEL_ID)?.classList.toggle('dbg-hidden');
+}
+
+/**
+ * Drop the panel and its stylesheet. The Editor build calls this when the
+ * script tears down, so a hot-reload never leaves a panel wired to a dead game.
+ */
+export function removePanel() {
+  document.getElementById(PANEL_ID)?.remove();
+  document.getElementById(STYLE_ID)?.remove();
+}
+
 /**
  * DebugTools — owns the right-side tweak panel and the diagnostics behind it:
  *   • view modes: textured / wireframe / collision-normals overlay
  *   • live readouts for position / grounded / vertical speed
  *   • live sliders for the movement/controller params
  *   • live atmosphere / surface / lighting sliders (see atmosphere.mjs)
+ *
+ * Only built in debug mode — the entry points construct this behind
+ * isDebugMode() (see debugmode.mjs), so production ships no sliders.
  *
  * The look sections are optional: pass `surface` (a SurfaceLook), `sun` and
  * `fill` (directional light entities) to get them. Without them the panel is
@@ -132,11 +239,14 @@ export class DebugTools {
 
   // ---- Right-side tweak panel ----
   _buildPanel() {
-    const root = document.getElementById('debugPanel');
+    const root = ensurePanelRoot();
     root.innerHTML = '';
     root.classList.remove('dbg-hidden');
 
     const head = el('div', 'dbg-head', root);
+    // The two keys the panel itself can't show you: it is the only place they
+    // are documented now that production's controls list doesn't mention them.
+    head.title = '` toggles this panel · V cycles the view mode';
     el('span', 'dbg-title', head).textContent = 'DEBUG';
     const collapse = el('button', 'dbg-x', head); collapse.textContent = '–';
     const bodyWrap = el('div', 'dbg-body', root);

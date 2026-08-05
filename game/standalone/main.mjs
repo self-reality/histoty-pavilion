@@ -12,13 +12,19 @@ import { manifest } from '../scene.manifest.mjs';
 import { TriangleCollider } from '../src/collision.mjs';
 import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
-import { DebugTools } from '../src/debug.mjs';
+import { isDebugMode } from '../src/debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
+
+// ---- Debug mode (see ../src/debugmode.mjs) ----
+// Dynamic, not a static import: on the production URL the tweak panel is not
+// merely hidden, its module is never requested. `debug` stays null everywhere
+// below, which every call site already tolerates.
+const { DebugTools, togglePanel } = isDebugMode() ? await import('../src/debug.mjs') : {};
 
 // ---- Scene constants come from the git-tracked manifest (see ../scene.manifest.mjs) ----
 const MAP = manifest.map;                 // { glb, scale, euler } — Source Z-up -> metres, Y-up
@@ -64,7 +70,7 @@ window.addEventListener('resize', () => app.resizeCanvas());
 app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
 if ('exposure' in app.scene) app.scene.exposure = 1.0;
 
-// Distance haze, straight from the manifest. Live sliders in the debug panel (`).
+// Distance haze, straight from the manifest. Live sliders on the debug URL (?debug).
 applyFog(app.scene, manifest.fog);
 
 // The map's PBR response. Materials are adopted once the GLB lands (see boot()).
@@ -183,11 +189,13 @@ function boot() {
       queryTargets: (o, d, maxDist) => targets.query(o, d, maxDist),
     });
 
-    // Debug tweak panel.
-    debug = new DebugTools({
-      app, player, collider, mapRender: renderRoot, spawn,
-      surface, sun, fill, camera: cameraEntity,
-    });
+    // Debug tweak panel — debug URLs only; null on the production one.
+    if (DebugTools) {
+      debug = new DebugTools({
+        app, player, collider, mapRender: renderRoot, spawn,
+        surface, sun, fill, camera: cameraEntity,
+      });
+    }
 
     // Lightweight debug handle (handy for tweaking / automated checks).
     window.game = { app, player, weapon, targets, collider, debug, surface, camera: cameraEntity, root: playerRoot };
@@ -372,12 +380,11 @@ ui.playBtn.addEventListener('click', () => {
 });
 
 // Backtick toggles the debug panel; V cycles view mode (handled in PlayCanvas keydown).
-window.addEventListener('keydown', (e) => {
-  if (e.code === 'Backquote') {
-    const panel = document.getElementById('debugPanel');
-    if (panel) panel.classList.toggle('dbg-hidden');
-  }
-});
+if (togglePanel) {
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Backquote') togglePanel();
+  });
+}
 
 document.addEventListener('pointerlockchange', () => {
   const locked = isLocked();

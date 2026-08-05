@@ -24,8 +24,8 @@ export const manifest = {
   sky: [0.957, 0.839, 1], // camera clear colour / sky — warm pink-white
 
   // ---- Distance fog ----
-  // Read by src/atmosphere.mjs into scene.fog; every field is a live slider in
-  // the debug panel (`), and these numbers were dialled in there and copied
+  // Read by src/atmosphere.mjs into scene.fog; every field is a live slider on
+  // the debug URL (/?debug), and these numbers were dialled in there and copied
   // back. A cool blue-lilac haze under the warm sky, closing in fast: the level
   // fades out well inside its own ~112 m span, so sight lines read as depth
   // rather than as a flat wall of geometry. type: off | linear | exp | exp2.
@@ -84,7 +84,7 @@ export const manifest = {
   // Angles are DELTAS on the bind pose in degrees, in each bone's own frame.
   // On a ValveBiped rig +X runs down the bone, so Z is the hinge (hip flex,
   // knee, ankle), Y swings sideways (hip abduction), X twists. Every number
-  // here was dialled on the debug panel's Rig sliders (`) and pasted back with
+  // here was dialled on the debug panel's Rig sliders (/?debug) and pasted back with
   // its Copy button — the same loop `fog` and `surface` use.
   rigs: {
     // Sukhasana — simple cross-legged. Hips flex forward and abduct so the
