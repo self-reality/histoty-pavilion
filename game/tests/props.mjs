@@ -142,45 +142,61 @@ const r = await page.evaluate(async () => {
   };
   bounds(tent);
   const halfFootprint = Math.max(hi.x - lo.x, hi.z - lo.z) / 2;
-  // Pitched to sit in the middle of the gap between the two outcomes, not at the
-  // edge of one: walking in reaches 0.4 m of centre, being turned away at the
-  // wall leaves you at 3.84 m, and 0.4x of a 6.35 m half-footprint is 2.54 m.
-  // At 0.6x it was 3.81 m — technically still failing the sealed build, by 3 cm.
+  // Pitched to sit in the middle of the gap between the two outcomes, not at
+  // the edge of one. Measured on this tent, whose collidable half-footprint is
+  // 5.1 m: walking in through the door reaches 0.03 m of centre, while the same
+  // prop rebuilt with a `hull` proxy — which seals the doorway — is turned away
+  // at 2.75 m. 0.4x lands on 2.04 m, comfortably between them.
+  //
+  // Both of those numbers come from actually running it, the sealed one by
+  // rebuilding the tent with collisionProxy: "hull" in the asset kit and
+  // swapping it in. Re-measure the same way before moving this constant.
   const insideR = halfFootprint * 0.4;
 
-  // Start from every walkable sample in a ring around the prop rather than from
-  // one sample per compass bearing. findFloors lays samples on a fixed grid, so
-  // a bearing sweep asks "is there ground exactly there?" and quietly skips the
-  // bearings where the answer is no — including, on this map, the one the door
-  // faces. Using the samples themselves as the starting set has no such gaps.
-  // Outside the footprint *rectangle*, not outside a circle sized by its longer
-  // side. The tent is 11.6 m across and 13.9 m long, so that circle also swept
-  // up a metre of open ground off each narrow end — and on this map the door
-  // faces down one of them. Every sample that could actually walk in sits about
-  // 0.51 m off the box, so the circle ate exactly them: the check flipped to
-  // FAIL on a tent a player still strolls into (verified: 0.29 m from centre),
-  // purely because someone dragged the scale from 1.37 to 1.5.
+  // Try every bearing, and find the ground at each one by raycasting for it.
   //
-  // The margin is the capsule's own radius, and that is the principled choice
-  // rather than a tuned one: bestApproach is a *minimum* over starts, so extra
-  // starts can only ever help a tent that opens and can never rescue one that
-  // is sealed — every approach to a sealed prop stops at the wall regardless of
-  // where it began. So take the smallest margin that is still legal, which is
-  // the one where the capsule does not begin already intersecting the prop.
-  const clear = g.player.radius;
-  const starts = g.player.floors.filter((f) => {
-    const d = Math.hypot(f.x - c.x, f.z - c.z);
-    const outside = f.x < lo.x - clear || f.x > hi.x + clear
-                 || f.z < lo.z - clear || f.z > hi.z + clear;
-    return outside && d < halfFootprint * 2.5;
-  });
+  // Both halves matter. Sweeping bearings is what gives the doorway a chance to
+  // be found: a door is about a metre wide, and this used to start from
+  // g.player.floors, which is findFloors' 26x26 grid over the WHOLE map — one
+  // sample every 4.3 x 5.1 m on this one. Only six of its 269 samples landed in
+  // the ring around the tent, at bearings 175, 202, 222, 245, 281 and 310, and
+  // this tent's door faces 182-196. Two starts straddled the opening, missed it
+  // by 7 degrees and 6, and the check called a wide-open tent sealed. Where
+  // those six points fall is an accident of a grid drawn for the level, not for
+  // the prop, so it changes whenever the prop is rescaled — which is what
+  // silently broke it.
+  //
+  // Raycasting for the ground is what makes the sweep honest, and it is the
+  // reason a sweep was abandoned before: asking "is there a floor sample
+  // exactly at this bearing?" quietly skips every bearing where the answer is
+  // no. Asking the collider "what is under this point?" does not. Bearings with
+  // nothing to stand on are dropped rather than guessed at; on this map 88 of
+  // the 180 survive, the door among them.
+  //
+  // Density is free here. bestApproach is a *minimum* over starts, so more
+  // starts can only ever help a prop that opens and can never rescue one that
+  // is sealed — every approach to a sealed prop stops at its wall regardless of
+  // where it began. Under-sampling is the only way this check can lie.
+  const top = g.collider.bounds.maxy + 5;
+  const maxd = (top - g.collider.bounds.miny) + 10;
+  const down = new V(0, -1, 0);
+  // Clear of the footprint by the capsule's own radius: the smallest margin at
+  // which the player does not begin already intersecting the prop.
+  const R = halfFootprint + g.player.radius + 2;
 
   let bestApproach = Infinity;
-  for (const s of starts) {
-    const from = Math.hypot(s.x - c.x, s.z - c.z);
-    const steps = Math.ceil(from * 60);   // a second of walking per metre
-    g.player.teleport(s.x, s.y + 0.2, s.z);
-    g.player.yaw = Math.atan2(-(c.x - s.x), -(c.z - s.z)) * 180 / Math.PI;
+  let starts = 0;
+  for (let deg = 0; deg < 360; deg += 2) {
+    const a = deg * Math.PI / 180;
+    const sx = c.x + Math.sin(a) * R;
+    const sz = c.z + Math.cos(a) * R;
+    const ground = g.collider.raycast(new V(sx, top, sz), down, maxd);
+    // Nothing to stand on, or a slope too steep to walk off — not a start.
+    if (!ground || ground.normal.y <= 0.6) continue;
+    starts += 1;
+    g.player.teleport(sx, ground.point.y + 0.2, sz);
+    g.player.yaw = Math.atan2(-(c.x - sx), -(c.z - sz)) * 180 / Math.PI;
+    const steps = Math.ceil(R * 60);   // a second of walking per metre
     for (let i = 0; i < steps; i++) {
       g.player.update(1 / 60, { forward: 1, strafe: 0, jump: false, sprint: false });
       bestApproach = Math.min(bestApproach,
@@ -191,7 +207,7 @@ const r = await page.evaluate(async () => {
   return {
     bestApproach: +bestApproach.toFixed(2),
     insideR: +insideR.toFixed(2),
-    starts: starts.length,
+    starts,
     naming,
     colliderTris: g.collider.tris.length,
     // Attributed per prop by standalone/main.mjs, which stamps every triangle
