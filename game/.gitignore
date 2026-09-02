@@ -20,3 +20,7 @@ tools/__pycache__/
 # behind by the move, or a stale cache, cannot creep back into a commit.
 assets/source/
 assets/.assets.cache.json
+
+# macOS AppleDouble sidecars. This drive is exFAT, so copying an asset in
+# creates a 4 KB `._name.glb` beside it that is not a model.
+._*
