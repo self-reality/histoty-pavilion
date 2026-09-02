@@ -14,8 +14,9 @@ scene/*.blend[0-9]
 # Blender runs the tools with its bundled Python.
 tools/__pycache__/
 
-# Raw source assets (marketplace downloads, scans). Processed into assets/*.glb
-# by `npm run assets:build`; the processed output is what ships and is tracked.
-# Keep the originals on a drive or in cloud storage — scans bloat a repo fast.
+# Raw source assets and the build cache. Assets are no longer built here — they
+# arrive finished from the singularity-developement-kit and are tracked the
+# moment they land in assets/. These two lines stay anyway, so a source/ left
+# behind by the move, or a stale cache, cannot creep back into a commit.
 assets/source/
 assets/.assets.cache.json

@@ -145,7 +145,7 @@ Three ways to opt out, at different scales:
 |------|----|
 | The whole prop walk-through (decor, a distant silhouette) | Custom property `solid` = `0` on the anchor Empty |
 | One mesh inside a solid prop walk-through | End that object's name with **`_nocol`** |
-| A bought prop's ropes and pegs walk-through, without hand-editing it | `nocolMaxSpan` in `assets/assets.config.json` |
+| A bought prop's ropes and pegs walk-through, without hand-editing it | `nocolMaxSpan`, in the asset kit — see below |
 
 `_nocol` is the one you will reach for most. A tent's guy-ropes and pegs are
 thin geometry that you snag on and get stuck against, while the fabric body is
@@ -163,10 +163,12 @@ Marketplace props usually arrive welded: `tent_military.glb` is one node holding
 140 separate shells — fabric panels, but also 90 pegs, hinges and cross-bars.
 There is no rope object to rename, so the whole thing has to be solid.
 
-`nocolMaxSpan` in `assets/assets.config.json` does the naming for you at build
-time. It splits every mesh by loose parts, measures each shell across its
-**second-widest axis**, and joins everything under the threshold into a sibling
-called `<name>_nocol`:
+`nocolMaxSpan` does the naming for you at build time. That build no longer
+happens here — it is `assets.config.json` in the **singularity-developement-kit**,
+which is where props are made (see the Assets section of README.md). It splits
+every mesh by loose parts, measures each shell across its **second-widest
+axis**, and joins everything under the threshold into a sibling called
+`<name>_nocol`:
 
 ```json
 "assets": { "tent_military.glb": { "nocolMaxSpan": 0.5 } }
@@ -184,14 +186,14 @@ across the approach, precisely the geometry you wanted gone.
 It works here because the two populations do not overlap: the tent's widest thin
 part is 0.38 m across (a rolled awning) and its narrowest solid one is 0.62 m (a
 door flap), so 0.5 sits between them with room either side. Check that gap before
-trusting a threshold on a new prop — `npm run assets:build -- --force --dry`
-reports what it would catch without writing anything. Set it to `0` (the default)
-and nothing splits.
+trusting a threshold on a new prop — `npm run build -- --force --dry` in the
+kit reports what it would catch without writing anything, and its viewer shows
+you the split in colour. Set it to `0` (the default) and nothing splits.
 
-Doing it here rather than by hand in Blender is deliberate: a hand-split file
-would live in `assets/source/`, which is untracked and treated as the pristine
-download, so the work would exist on exactly one machine. As a config number it
-is in git and `--force` reproduces it anywhere.
+Doing it at build time rather than by hand in Blender is deliberate: a
+hand-split file would live with the raw sources, which are untracked and treated
+as the pristine download, so the work would exist on exactly one machine. As a
+config number it is in git and `--force` reproduces it anywhere.
 
 The cost is one extra draw call and one extra shadow caster per split object.
 On the tent that bought 12,660 of its 19,998 triangles out of collision — the

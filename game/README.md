@@ -106,47 +106,58 @@ world space and indexed into a 2 m grid.
 
 ### Assets
 
-Raw downloads and scans are not what ships. `assets/source/` holds the originals
-exactly as they arrived; `npm run assets:build` turns them into the files the
-game loads:
+Assets are **not built here**. They arrive finished, and `assets/*.glb` is
+tracked delivery — which is why this repo needs no Blender to run, serve or
+deploy. Building them is the job of the **singularity-developement-kit**:
+
+```
+~/Downloads/statue.glb          ← raw, never modified
+        ↓  singularity-developement-kit: npm run build
+dist/statue.glb                 ← textures resized + WebP, decimated, collision sorted
+        ↓  copy
+game/assets/statue.glb          ← tracked here, place it in Blender like any prop
+```
 
 ```bash
-cp ~/Downloads/statue.glb assets/source/
-npm run assets:build            # only processes what changed
-npm run assets:build -- --dry   # report, write nothing
-npm run assets:build -- --force # reprocess everything
+cp ../../singularity-developement-kit/dist/statue.glb assets/
 ```
 
+That kit holds the pipeline, the budgets, a browser viewer that shows what the
+collider actually gets, and `ASSET_CONTRACT.md` — the standard every `.glb` in
+`assets/` keeps. Check one from anywhere:
+
+```bash
+node ../../singularity-developement-kit/test/contract.mjs assets/tent_military.glb
 ```
-assets/source/statue.glb   ← raw, never modified, NOT in git
-        ↓  tools/build_assets.py (headless Blender)
-assets/statue.glb          ← textures resized + WebP, decimated to budget; tracked, ships
-```
 
-Budgets live in `assets/assets.config.json` — 1024 px textures, 20k triangles,
-WebP quality 85 by default, overridable per asset. The step is content-addressed,
-so it is a no-op unless a source file or its settings changed. **Moving props
-around never triggers it**: placement lives in `scene.placements.json` and is
-written by `npm run scene:export`, which touches no geometry.
+`tent_military.glb` went 9.8 MB → 1.17 MB and 38,544 → 19,998 triangles through
+it, with no visible difference at play distance, and collides as 1,252.
 
-`tent_military.glb` went 9.8 MB → 1.1 MB and 38,544 → 19,998 triangles through
-this, with no visible difference at play distance.
+**Copying by hand rather than depending on the kit is deliberate.** There is one
+pavilion, so a submodule or a published package would be version-pinning
+ceremony around a `cp`. It also keeps the dependency pointing one way: an asset
+never learns which pavilion it is going to.
 
-Textures come out as WebP rather than KTX2 deliberately. KTX2/Basis is the
-better answer for texture *memory*, because it stays compressed on the GPU — but
-it needs a WASM transcoder vendored into `lib/` and an encoder binary on the
-build machine, neither of which is here. WebP is decoded by the browser, the
-engine already reads `EXT_texture_webp`, and Blender exports it directly. Revisit
-KTX2 when GPU memory rather than download is the binding constraint.
+What stays on this side, because it is this pavilion's business and not an
+asset's: where a prop stands (`scene.placements.json`), the lighting and fog,
+the Z-up → Y-up axis correction the engine wants, and the per-frame budgets
+`tests/perf.mjs` enforces. Moving props around never touches geometry.
 
 Two things decimation cannot fix, worth knowing before you lean on it:
 
 - Collapsing a mesh discards detail a normal map would have carried. Invisible on
   marketplace props at these ratios; **not** invisible on photogrammetry, where a
   20:1 collapse without baking a normal map from the original reads as soft. Bake
-  first, or raise that asset's budget.
-- Sources stay out of git on purpose (`assets/source/` is ignored) — scans bloat
-  a repo permanently and irreversibly. Keep them on a drive or in cloud storage.
+  first, or raise that asset's budget in the kit.
+- Raw sources live with the kit, not here — scans bloat a repo permanently and
+  irreversibly. Keep them on a drive or in cloud storage.
+
+Textures arrive as WebP rather than KTX2 deliberately. KTX2/Basis is the better
+answer for texture *memory*, because it stays compressed on the GPU — but it
+needs a WASM transcoder vendored into `lib/` and an encoder binary on the build
+machine, neither of which is here. WebP is decoded by the browser, the engine
+already reads `EXT_texture_webp`, and Blender exports it directly. Revisit KTX2
+when GPU memory rather than download is the binding constraint.
 
 ### Pictures
 
@@ -163,10 +174,11 @@ picture_kremlin_1904.glb  ← drop in assets/, place in Blender like any prop
 
 Nothing on this side changed. The GLB it emits declares `KHR_materials_unlit`
 and `EXT_texture_webp`, is named `picture_*` so the scene exporter names its
-anchor after it, and carries a `*_nocol` mesh so it never collides — the same
-contract `tools/build_assets.py` used to emit, verified against it byte for byte
-in that app's test suite. `assets/picture_*.glb` here were built the old way and
-are unaffected.
+anchor after it, and carries a `*_nocol` mesh so it never collides. Those are
+rules in the kit's `ASSET_CONTRACT.md`, which both builders answer to — the
+`picture_*` prefix is a promise about behaviour, and `npm run check` enforces
+it whoever wrote the file. `assets/picture_*.glb` here were built by the old
+Blender path and pass unchanged.
 
 The slab is a box, 1.4 m tall and 3 cm thick by default, with the image unlit on
 the front face and a dark matte mount on the edges and back. Four things it
@@ -221,8 +233,9 @@ load, so you walk into them and shoot them like the map. Three opt-outs:
   collision-only: never drawn, never a shadow caster, and it collides *instead
   of* every visual mesh in that prop.
 
-Bought props rarely name their ropes — they arrive as one welded mesh. Two
-per-asset settings in `assets/assets.config.json` do the naming for you:
+Bought props rarely name their ropes — they arrive as one welded mesh. The
+naming is done for you at build time, by two per-asset settings in the kit's
+`assets.config.json`:
 
 | setting | does |
 |---|---|

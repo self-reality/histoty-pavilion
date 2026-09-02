@@ -132,9 +132,11 @@ export const isNonColliding = (name) => NO_COLLIDE.test(name || '');
  * never casts a shadow — it exists so the collider can be given a cheap stand-in
  * for geometry that is far more detailed than a capsule can feel.
  *
- * Built by tools/build_assets.py (`collisionProxy: "hull"`), which hulls each
- * connected shell of the visual mesh. A prop that has one collides with it
- * *instead of* its visual geometry — see propCollisionTriangles.
+ * Built upstream by the asset kit (`collisionProxy` in its assets.config.json),
+ * which either dissolves near-flat faces or hulls each connected shell of the
+ * visual mesh. A prop that has one collides with it *instead of* its visual
+ * geometry — see propCollisionTriangles. The naming rule is the contract; this
+ * side does not care which tool wrote the file.
  *
  * `_nocol` does not match this: the `_` before `col` is what separates them, and
  * `pole_nocol` has an `o` there. tests/props.mjs pins that both ways.

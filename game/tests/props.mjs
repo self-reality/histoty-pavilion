@@ -39,9 +39,10 @@ const r = await page.evaluate(async () => {
       ['Military_tent_01_0', false], ['', false],
     ].map(([name, want]) => ({ name, want, got: isCollisionProxy(name), fn: 'isCollisionProxy' })));
 
-  // 2) What the tent contributes, split three ways. The proxy is built by
-  // tools/build_assets.py (collisionProxy), so a rebuild without it shows up
-  // here as proxyTris falling to zero rather than as a silent cost increase.
+  // 2) What the tent contributes, split three ways. The proxy is built
+  // upstream by the asset kit (collisionProxy), so a GLB re-imported without
+  // one shows up here as proxyTris falling to zero rather than as a silent
+  // cost increase.
   const tent = g.app.root.findByName('tent_01');
   let visibleTris = 0;
   let nocolTris = 0;
