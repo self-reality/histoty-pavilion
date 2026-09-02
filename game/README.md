@@ -108,18 +108,18 @@ world space and indexed into a 2 m grid.
 
 Assets are **not built here**. They arrive finished, and `assets/*.glb` is
 tracked delivery — which is why this repo needs no Blender to run, serve or
-deploy. Building them is the job of the **singularity-developement-kit**:
+deploy. Building them is the job of the **singularity-development-kit**:
 
 ```
 ~/Downloads/statue.glb          ← raw, never modified
-        ↓  singularity-developement-kit: npm run build
+        ↓  singularity-development-kit: npm run build
 dist/statue.glb                 ← textures resized + WebP, decimated, collision sorted
         ↓  copy
 game/assets/statue.glb          ← tracked here, place it in Blender like any prop
 ```
 
 ```bash
-cp ../../singularity-developement-kit/dist/statue.glb assets/
+cp ../../singularity-development-kit/dist/statue.glb assets/
 ```
 
 That kit holds the pipeline, the budgets, a browser viewer that shows what the
@@ -127,7 +127,7 @@ collider actually gets, and `ASSET_CONTRACT.md` — the standard every `.glb` in
 `assets/` keeps. Check one from anywhere:
 
 ```bash
-node ../../singularity-developement-kit/test/contract.mjs assets/tent_military.glb
+node ../../singularity-development-kit/test/contract.mjs assets/tent_military.glb
 ```
 
 `tent_military.glb` went 9.8 MB → 1.17 MB and 38,544 → 19,998 triangles through

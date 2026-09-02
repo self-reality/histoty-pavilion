@@ -164,7 +164,7 @@ Marketplace props usually arrive welded: `tent_military.glb` is one node holding
 There is no rope object to rename, so the whole thing has to be solid.
 
 `nocolMaxSpan` does the naming for you at build time. That build no longer
-happens here — it is `assets.config.json` in the **singularity-developement-kit**,
+happens here — it is `assets.config.json` in the **singularity-development-kit**,
 which is where props are made (see the Assets section of README.md). It splits
 every mesh by loose parts, measures each shell across its **second-widest
 axis**, and joins everything under the threshold into a sibling called
