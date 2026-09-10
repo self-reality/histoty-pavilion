@@ -80,14 +80,16 @@ const WEAPON_VOICES = {
 
 /**
  * Read the bank's own manifest and register one audio asset per shipped file.
- * Returns voice name -> [Asset], e.g. `step_walk -> [4 assets]`.
+ * Returns `{ voices, assets }` — voice name -> [Asset], e.g.
+ * `step_walk -> [4 assets]`, alongside the flat list for teardown.
  */
-async function loadBank(app, dir, assets) {
+async function loadBank(app, dir) {
   const res = await fetch(`${dir}sounds.manifest.json`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
 
   const voices = new Map();
+  const assets = [];
   for (const [stem, entry] of Object.entries(data.sounds ?? {})) {
     // Each entry lists its .wav master and its .ogg. Only the .ogg ships (176 KB
     // for the bank against 845 KB), so an entry without one is a master we were
@@ -105,7 +107,14 @@ async function loadBank(app, dir, assets) {
     if (!voices.has(voice)) voices.set(voice, []);
     voices.get(voice).push(asset);
   }
-  return voices;
+  return { voices, assets };
+}
+
+/** Hand a set of audio assets back to the registry. */
+function unload(app, assets) {
+  for (const asset of assets) {
+    try { app.assets.remove(asset); asset.unload(); } catch (err) { /* ignore */ }
+  }
 }
 
 /**
@@ -155,9 +164,9 @@ export class SoundBank {
   }
 
   async _load() {
-    let voices;
+    let bank;
     try {
-      voices = await loadBank(this.app, this.dir, this._assets);
+      bank = await loadBank(this.app, this.dir);
     } catch (err) {
       // Not fatal. The game is perfectly playable silent, and a missing bank
       // should read as "nobody has copied the files in yet" rather than as a
@@ -165,10 +174,14 @@ export class SoundBank {
       console.warn(`[sound] no bank at ${this.dir}:`, err.message);
       return;
     }
-    if (this._destroyed) return;   // hot-reload tore us down mid-fetch
+    // A hot-reload can tear us down while the fetch is still out, in which
+    // case destroy() ran before there was anything for it to give back — so
+    // the assets this call just registered have to be returned here instead.
+    if (this._destroyed) { unload(this.app, bank.assets); return; }
+    this._assets = bank.assets;
 
     let files = 0;
-    for (const [voice, assets] of voices) {
+    for (const [voice, assets] of bank.voices) {
       const slots = [];
       for (const asset of assets) {
         // `overlap` so a held trigger layers tails instead of retriggering one
@@ -278,9 +291,7 @@ export class SoundBank {
       for (const name of slots) this.sound?.removeSlot(name);
     }
     this.voices.clear();
-    for (const asset of this._assets) {
-      try { this.app.assets.remove(asset); asset.unload(); } catch (err) { /* ignore */ }
-    }
+    unload(this.app, this._assets);
     this._assets = [];
     if (this._madeSound) this.entity.removeComponent('sound');
     if (this._madeListener) this.entity.removeComponent('audiolistener');
