@@ -11,8 +11,12 @@ copies of the prop GLBs purely so placement is WYSIWYG, and each anchor's `glb`
 custom property points at the real asset the game loads. That keeps the diff a
 handful of numbers per prop instead of a re-baked binary.
 
-  anchor WITH a `glb` custom property  -> props[]    (loaded + placed)
-  anchor WITHOUT one                   -> markers[]  (transform only)
+  anchor WITH a `glb` custom property  -> props[]      (loaded + placed)
+  anchor WITHOUT one                   -> markers[]    (transform only)
+  cutter in the NEG collection         -> negatives[]  (subtracted from the map)
+
+A negative is the mirror of a prop and exports on the same terms — a name, a
+shape and a transform, no geometry. See tools/negatives.py.
 
 Any other custom properties ride along in `extras`, so Blender-side conventions
 (spawn_*, painting_*, ...) can grow without touching this script.
@@ -72,6 +76,7 @@ def resolve_tools_dir():
 
 TOOLS_DIR = resolve_tools_dir()
 sys.path.insert(0, TOOLS_DIR)
+import negatives  # noqa: E402
 from pc_axes import decompose_pc  # noqa: E402
 
 GAME_DIR = os.path.dirname(TOOLS_DIR)
@@ -257,11 +262,17 @@ def loose_roots():
     """
     ref = bpy.data.collections.get(REF_COLLECTION)
     scene_coll = bpy.data.collections.get(SCENE_COLLECTION)
+    neg_coll = negatives.collection()
     managed = set(ref.objects) if ref else set()
     managed.update(scene_coll.objects if scene_coll else ())
+    managed.update(neg_coll.objects if neg_coll else ())
 
+    # A cutter is geometry with no GLB behind it, so adoption would go looking
+    # for the file it came from and report not finding one. Judge it by name:
+    # a misfiled cutter is reported as a misfiled cutter, by stray_cutters().
     roots = [o for o in bpy.context.scene.collection.objects
-             if o.parent is None and o not in managed and 'glb' not in o]
+             if o.parent is None and o not in managed and 'glb' not in o
+             and not o.name.startswith(negatives.NEG_PREFIX)]
     if scene_coll:
         roots += [o for o in sorted(scene_coll.objects, key=lambda o: o.name)
                   if o.parent is None and 'glb' not in o
@@ -344,12 +355,81 @@ def adopt_loose():
 
 # --- exporting the layout ---------------------------------------------------
 
-def extras_of(obj):
+def extras_of(obj, skip=()):
     return {
         k: v for k, v in obj.items()
-        if not k.startswith('_') and k not in NOISE_KEYS and k != 'glb'
+        if not k.startswith('_') and k not in NOISE_KEYS and k != 'glb' and k not in skip
         and isinstance(v, (str, int, float, bool))
     }
+
+
+def collect_negatives(collection):
+    """The NEG collection -> negatives[]. Shape and transform, nothing else."""
+    entries, warnings = [], []
+    for obj in sorted(collection.objects, key=lambda o: o.name):
+        if obj.parent is not None:
+            continue
+        if obj.type != 'MESH':
+            warnings.append(f'{obj.name}: a top-level {obj.type.lower()} in '
+                            f'"{negatives.NEG_COLLECTION}" — a cutter has to be a mesh primitive')
+            continue
+        shape = negatives.shape_of(obj)
+        if shape not in negatives.SHAPES:
+            warnings.append(f'{obj.name}: "{negatives.SHAPE_KEY}" is "{shape}", which is not one '
+                            f'of {", ".join(negatives.SHAPES)} — the game will skip it')
+            continue
+
+        entry = {'name': obj.name, 'shape': shape}
+        entry.update(decompose_pc(obj.matrix_world))
+        sides = negatives.sides_of(obj) if shape == 'cylinder' else negatives.DEFAULT_SIDES
+        if shape == 'cylinder':
+            # Written out rather than assumed, so the game clips against the same
+            # prism the viewport booleaned with.
+            entry['sides'] = sides
+
+        problem = negatives.check_primitive(obj, shape, sides)
+        if problem:
+            warnings.append(problem)
+        if any(s < 0 for s in entry['scale']):
+            warnings.append(f'{obj.name}: negative scale — a mirrored cutter turns its faces '
+                            'inward, which would mean "everywhere except here"; the game refuses '
+                            'it. Use rotation instead')
+
+        extras = extras_of(obj, skip=(negatives.SHAPE_KEY,))
+        if extras:
+            entry['extras'] = extras
+        entries.append(entry)
+    return entries, warnings
+
+
+def stray_cutters(collection):
+    """`neg_*` objects filed somewhere other than NEG.
+
+    Worth its own message because the failure is silent in the direction that
+    matters: the object is in the scene, it looks like a cutter, and it carves
+    nothing. `File > Import`-style accidents put things in whatever collection
+    was last active, and a cube is even easier to misfile than an import.
+    """
+    inside = set(collection.objects) if collection else set()
+    return [f'{o.name}: named like a cutter but not in the '
+            f'"{negatives.NEG_COLLECTION}" collection — it will not carve anything'
+            for o in sorted(bpy.context.scene.objects, key=lambda o: o.name)
+            if o.name.startswith(negatives.NEG_PREFIX) and o not in inside]
+
+
+def refresh_preview(cutters):
+    """Re-point the Boolean modifiers at whatever the cutters now overlap.
+
+    Viewport only — it changes nothing that gets exported, so a headless run
+    skips it rather than doing work it cannot save (same reason the adoption
+    note exists). Run from Blender it is what keeps the holes you see honest
+    after a cutter has been dragged across the map.
+    """
+    ref = bpy.data.collections.get(REF_COLLECTION)
+    if bpy.app.background or ref is None or not cutters:
+        return None
+    added, removed = negatives.wire_booleans(cutters, list(ref.objects))
+    return f'boolean preview: {added} modifier(s) on the map ({removed} replaced)'
 
 
 def collect(collection):
@@ -405,12 +485,19 @@ def main():
         )
 
     props, markers, warnings = collect(collection)
+
+    neg_coll = negatives.collection()
+    cutters, neg_warnings = collect_negatives(neg_coll) if neg_coll else ([], [])
+    warnings += neg_warnings + stray_cutters(neg_coll)
+    preview = refresh_preview(list(neg_coll.objects) if neg_coll else [])
+
     payload = {
         '_generated': 'tools/export_scene.py — do not hand-edit; edit the .blend',
         'version': 1,
         'source': os.path.relpath(bpy.data.filepath, GAME_DIR) if bpy.data.filepath else None,
         'props': props,
         'markers': markers,
+        'negatives': cutters,
     }
 
     # indent=2, except numeric arrays stay on one line — a moved prop should be
@@ -438,12 +525,17 @@ def main():
         print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}')
     for m in markers:
         print(f'[export] marker {m["name"]:<20} pos {m["pos"]}')
+    for c in cutters:
+        print(f'[export] negative {c["name"]:<18} pos {c["pos"]}  ({c["shape"]})')
+    if preview:
+        print(f'[export] {preview}')
 
-    summary = (f'{len(props)} props, {len(markers)} markers -> '
+    summary = (f'{len(props)} props, {len(markers)} markers, {len(cutters)} negatives -> '
                f'{os.path.relpath(out_path, GAME_DIR)}')
     print(f'[export] wrote {summary}')
 
-    lines = [f'adopted {name} <- {glb}' for name, glb in adopted] + [summary]
+    lines = [f'adopted {name} <- {glb}' for name, glb in adopted] \
+        + ([preview] if preview else []) + [summary]
     notify(lines, warnings + adopt_failures)
 
 

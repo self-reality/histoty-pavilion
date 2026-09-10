@@ -64,6 +64,10 @@ never exported. It is there so you can see where the ground is.
   Nothing consumes markers yet. (Childless is what separates a marker from a
   loose import whose root happens to be an Empty — see Gotchas.)
 
+**`NEG`** — negative spaces: cutters that take geometry *out* of the map. Red
+wireframe primitives, each wired into the `REF` objects it overlaps by a Boolean
+modifier so the hole is visible while you place it. See below.
+
 ## Adding a new prop
 
 1. Drop the GLB in `game/assets/`.
@@ -133,6 +137,73 @@ Two things that make hanging them painless:
 
 Pictures never collide, so you cannot get wedged against one and they cost the
 collider nothing. The wall behind it is what stops you.
+
+## Negative spaces
+
+A prop adds geometry at a transform. A negative takes it away: put a cutter in
+the level and the map's triangles are clipped out of its volume before the
+collider is built, so a doorway is a doorway to the player, to every raycast and
+to the debug normals overlay.
+
+The map GLB is never touched. Nothing is baked and nothing is re-exported —
+`assets/de_dust2.glb` is the pristine rip it always was, and what ships is the
+cutter's transform, seven lines of `scene.placements.json` beside the props.
+
+**A negative only removes.** Cut a box out of the ground and you get a
+rectangular hole with no walls and no floor, looking straight through into the
+sky. So a well is two things: `neg_well_01` opens the floor and a `well_01` prop
+supplies the shaft you look down. Same for a doorway — the cutter opens the
+wall, a frame prop fills it. Naming them as a pair is worth the keystrokes.
+
+### Adding one
+
+1. `Add > Mesh > Cube` (or Cylinder) — into the **`NEG`** collection. Which
+   collection is not a detail here, the way it is for a prop: `NEG` is what
+   makes it a cutter rather than a stray mesh nobody ships.
+2. Name it `neg_something_01`.
+3. For a cylinder, add a custom property `neg` = `cylinder` (a cube needs
+   nothing; `box` is the default).
+4. Move and scale it into the wall. Save, `npm run scene:export`.
+
+Exporting from inside Blender (Scripting ▸ Run Script) re-points the Boolean
+modifiers at whatever the cutter now overlaps, so drag a doorway two walls to
+the left and the old wall closes up as the new one opens. The headless
+`npm run scene:export` writes the same layout but leaves the viewport alone —
+same split as prop adoption, and for the same reason.
+
+### What ships
+
+```json
+{ "name": "neg_door_01", "shape": "box",
+  "pos": [35.2, 4.13333, -8.0], "rot": [0, 0, 0, 1],
+  "euler": [0, 0, 0], "scale": [0.6, 1.1, 1.0] }
+```
+
+A prop entry with `shape` where `glb` would be. `scale` is a half-extent, which
+is what makes a default cube 2 m across: the entry above is a 1.2 m wide, 2.2 m
+tall opening cut 2 m deep through the wall.
+
+### Rules that bite
+
+- **Scale it in Object Mode, not Edit Mode.** Only the transform is exported, so
+  a vertex you dragged shows one volume in Blender and carves another in game.
+  The exporter compares the mesh against the unit primitive and says so.
+- **No mirroring.** Negative scale turns the faces inward, which reads as
+  "everywhere except here" — the game refuses such a cutter outright rather than
+  deleting the level. Use rotation.
+- **Convex only.** One cutter is one convex volume; an L-shaped hole is two
+  cutters. A cylinder is the flat-sided prism Blender draws, not the circle it
+  stands for, and both sides agree on that down to the ring's phase.
+- **The map only.** Props are placed after the carve and keep all their
+  geometry. A cutter over a crate does nothing to the crate.
+- **It is not yet visible.** This is the collision half: the wall you can walk
+  through still *looks* solid, because the render mesh has not been clipped. Put
+  the frame prop in the hole and the pairing above covers it; carving the render
+  side is the other half of the feature.
+
+A cutter that carves nothing says so in the console at boot — that is the one
+failure mode with no other symptom, and it usually means the volume has been
+left somewhere the map has no geometry.
 
 ## Collision
 
@@ -261,7 +332,7 @@ reading diffs, and the game ignores it when `rot` is present.
 ## Rebuilding
 
 `npm run scene:import -- --force` recreates the `.blend` from the tracked files.
-It restores every prop and marker exactly — the build→export→build loop is a
+It restores every prop, marker and negative exactly — the build→export→build loop is a
 byte-identical no-op. What it does *not* restore is Blender-side work nothing
 exports: extra collections, lights, viewport layout, notes. Export first.
 
@@ -276,7 +347,11 @@ exports: extra collections, lights, viewport layout, notes. Export first.
   usual one for a Sketchfab download, which arrives wrapped in a
   `Sketchfab_model` root node the importer represents as an Empty.
 - **Negative scale** (mirroring an object) does not survive the round-trip. The
-  exporter warns; use rotation instead.
+  exporter warns; use rotation instead. On a cutter it is worse than cosmetic —
+  see Negative spaces.
+- **A cutter outside `NEG`** carves nothing, and looks entirely correct sitting
+  in the viewport while it does so. The exporter names any `neg_*` object it
+  finds filed somewhere else.
 - **A prop that shows in Blender but not in game** — you almost certainly moved
   the mesh instead of the Empty, or forgot `npm run scene:export`.
 - **Duplicate names**: Blender silently renames to `crate_01.001`, which exports

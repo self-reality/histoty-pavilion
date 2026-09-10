@@ -90,6 +90,18 @@ export const manifest = {
   // definition that Blender will shadow — prefer the .blend.
   props: [],
 
+  // ---- Negative spaces: convex volumes subtracted from the map ----
+  // The mirror of `props` — a prop adds geometry at a transform, a negative
+  // takes it away. Authored in Blender's NEG collection and normally arriving
+  // through `placements` above; entries here are the same escape hatch `props`
+  // is, and are shadowed by same-named ones from Blender.
+  //
+  //   { name: 'neg_door_01', shape: 'box', pos: [x, y, z], euler: [...], scale: [...] }
+  //
+  // `shape` is 'box' or 'cylinder' (add `sides`), sized like the Blender
+  // primitive: a cube is 2 m across at scale 1. See src/negatives.mjs.
+  negatives: [],
+
   // ---- Articulated props: named nodes of a placed GLB, driven at runtime ----
   // Keyed by placement name, so this composes with both prop sources — the
   // Blender-generated placements and the hand-written `props` above — without

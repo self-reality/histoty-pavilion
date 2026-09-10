@@ -17,6 +17,7 @@ import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
+import { collectVolumes, carve } from '../src/negatives.mjs';
 import { SoundBank } from '../src/audio.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -158,12 +159,18 @@ let started = false;
 
 // ---- Boot ----
 function boot() {
+  // The layout fetch is started here rather than after the map lands, because
+  // the negatives in it have to be applied before the collider is built. Kicked
+  // off alongside the GLB download it costs nothing; awaited afterwards it
+  // would put a round trip on the critical path.
+  const layout = loadLayout();
+
   const asset = new Asset('de_dust2', 'container', { url: MAP.glb });
   asset.on('error', (err) => { ui.loading.textContent = 'Failed to load map: ' + err; });
   app.assets.add(asset);
   app.assets.load(asset);
 
-  asset.ready(() => {
+  asset.ready(() => layout.then((scene) => {
     ui.loading.textContent = 'Building collision…';
 
     const renderRoot = asset.resource.instantiateRenderEntity();
@@ -177,7 +184,14 @@ function boot() {
     // Both-sided ripped walls + dry-stone PBR response (see atmosphere.mjs).
     surface.adopt(renderRoot);
 
-    const tris = extractTriangles(renderRoot);
+    // Negative spaces, subtracted before anything can hold a reference to the
+    // soup — a carved doorway has to be a doorway to the spawn finder and the
+    // target scatter too, not only to the player (see ../src/negatives.mjs).
+    const negatives = collectVolumes(scene.negatives);
+    const carved = extractTriangles(renderRoot);
+    const tris = carve(carved, negatives);
+    reportNegatives(negatives, carved.length, tris.length);
+
     collider = new TriangleCollider(tris, 2.0);
 
     const floors = findFloors(collider);
@@ -213,7 +227,7 @@ function boot() {
     }
 
     // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, weapon, targets, collider, debug, audio, surface, camera: cameraEntity, root: playerRoot };
+    window.game = { app, player, weapon, targets, collider, debug, audio, negatives, surface, camera: cameraEntity, root: playerRoot };
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
@@ -221,19 +235,44 @@ function boot() {
 
     // Authored props (tent, etc.) are cosmetic, so load them after the map is
     // playable rather than gating "Ready" on a 10 MB GLB.
-    collectProps().then((props) => props.forEach(loadProp));
-  });
+    scene.props.forEach(loadProp);
+  }).catch((err) => {
+    // Boot used to run straight inside asset.ready(), where a throw was an
+    // uncaught error the console and tests/smoke.mjs both see. Inside a promise
+    // chain the same throw is a silent rejection, so put it back on the stack.
+    ui.loading.textContent = 'Failed to build the scene: ' + err.message;
+    setTimeout(() => { throw err; });
+  }));
 }
 
-// Where props come from, in increasing priority:
-//   1. manifest.props        — hand-written entries
+// A cutter that removed nothing is the failure mode worth printing: the entry
+// is in the layout, the export said nothing, and the doorway simply is not
+// there. Usually it has been left somewhere the map has no geometry.
+function reportNegatives(volumes, before, after) {
+  if (!volumes.length) return;
+  const cut = volumes.filter((v) => v.hits);
+  console.log(`[negatives] ${cut.length}/${volumes.length} carved the map: `
+    + `${before.toLocaleString()} -> ${after.toLocaleString()} tris`);
+  for (const v of volumes) {
+    if (v.hits) console.log(`[negatives] ${v.name} cut ${v.hits} triangle${v.hits > 1 ? 's' : ''}`);
+    else console.warn(`[negatives] ${v.name} cut NOTHING — is it inside the map?`);
+  }
+}
+
+// Where the authored scene comes from, in increasing priority:
+//   1. scene.manifest.mjs    — hand-written `props` / `negatives`
 //   2. scene.placements.json — generated from scene/pavilion.blend by
 //                              tools/export_scene.py (see BLENDER_SCENE.md)
 // Same-named entries from Blender win, so migrating a prop into the .blend
 // needs no manifest edit. A missing/invalid placements file is not fatal: the
-// build still runs on the hand-written props alone.
-async function collectProps() {
-  const byName = new Map(manifest.props.map((p) => [p.name, p]));
+// build still runs on the hand-written entries alone.
+//
+// Props and negatives ride the same file and the same precedence — one is
+// geometry added, the other geometry taken away — so they are fetched together
+// rather than each reaching for the layout on its own.
+async function loadLayout() {
+  const props = new Map(manifest.props.map((p) => [p.name, p]));
+  const negatives = new Map((manifest.negatives ?? []).map((n) => [n.name, n]));
   if (manifest.placements) {
     try {
       // `no-store`, because this file is rewritten by every `npm run
@@ -246,12 +285,13 @@ async function collectProps() {
       const res = await fetch(manifest.placements, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      for (const prop of data.props ?? []) byName.set(prop.name, prop);
+      for (const prop of data.props ?? []) props.set(prop.name, prop);
+      for (const neg of data.negatives ?? []) negatives.set(neg.name, neg);
     } catch (err) {
       console.warn(`[scene] no Blender placements (${manifest.placements}):`, err.message);
     }
   }
-  return [...byName.values()];
+  return { props: [...props.values()], negatives: [...negatives.values()] };
 }
 
 // One container asset per URL — a scattered prop placed 50 times downloads and

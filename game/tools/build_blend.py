@@ -25,6 +25,10 @@ Layout of the generated .blend:
   SCENE   what you actually author. One Empty per prop ("anchor"), displayed as
           arrows, carrying a `glb` custom property; the imported geometry hangs
           underneath it purely so placement is WYSIWYG.
+  NEG     negative spaces: convex cutters that carve the map instead of adding
+          to it. Wireframe primitives, each wired into the REF objects it
+          overlaps by a Boolean modifier, so the hole is visible while you place
+          it. See tools/negatives.py.
 
 Move the ANCHOR, never the mesh under it — only the anchor's transform is
 exported. The meshes are hide_select to make that hard to get wrong.
@@ -39,6 +43,7 @@ import bpy
 from mathutils import Matrix
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import negatives  # noqa: E402
 from pc_axes import pc_to_blender, pc_trs_to_matrix  # noqa: E402
 
 GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -157,10 +162,41 @@ def attach(children, anchor, selectable=False):
                 sub.hide_select = True
 
 
+def build_negatives(entries, collection, ref):
+    """Recreate the cutters and re-point the Boolean modifiers at the map.
+
+    Geometry is generated, never restored: an entry holds a shape name and a
+    transform, exactly as a prop entry holds a filename and a transform, so what
+    comes back is the unit primitive the game will clip with rather than
+    whatever mesh the last session happened to hold.
+    """
+    cutters = []
+    for entry in entries:
+        shape = entry.get('shape', 'box')
+        try:
+            cutter = negatives.make_cutter(entry['name'], shape, collection,
+                                           entry.get('sides', negatives.DEFAULT_SIDES))
+        except ValueError as err:
+            print(f'[build] SKIP {entry["name"]}: {err}')
+            continue
+        cutter.matrix_world = pc_to_blender(matrix_of(entry))
+        for key, value in (entry.get('extras') or {}).items():
+            cutter[key] = value
+        print(f'[build] negative {entry["name"]}  ({shape})')
+        cutters.append(cutter)
+
+    added, _ = negatives.wire_booleans(cutters, list(ref.objects))
+    if cutters:
+        print(f'[build] wired  {added} boolean modifier(s) across the map for '
+              f'{len(cutters)} cutter(s)')
+    return cutters
+
+
 def build(manifest, placements, out_path):
     reset_scene()
     ref = make_collection(REF_COLLECTION)
     scene = make_collection(SCENE_COLLECTION)
+    neg = make_collection(negatives.NEG_COLLECTION)
 
     map_cfg = manifest['map']
     map_path = os.path.join(GAME_DIR, map_cfg['glb'])
@@ -193,6 +229,9 @@ def build(manifest, placements, out_path):
         print(f'[build] marker {marker["name"]}')
         anchor_for(marker['name'], matrix_of(marker), scene,
                    dict(marker.get('extras') or {}))
+
+    # Last, so the booleans are wired against a map that is fully imported.
+    build_negatives(placements.get('negatives', []), neg, ref)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=out_path)
