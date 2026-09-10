@@ -83,6 +83,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
+| `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
@@ -218,6 +219,70 @@ container dedup (hang the same picture twice, download it once), the collision
 opt-outs, and the `tests/perf.mjs` budget. The runtime path would have cost a
 code path in *both* entry points, a new authoring convention, and its own test.
 
+### Sound
+
+Twenty-one files — footsteps, jumps, landings and the AK — wired by
+`src/audio.mjs`. Like the GLBs, **they are not built here**. They arrive
+finished from the sibling **sound-design** repo, where none of them is a
+recording: every one is synthesised from parameters, so re-shaping a sound is
+an edit to a number there rather than a hunt for a new sample.
+
+```
+sound-design: npm run build       # config -> dist/, deterministic
+        ↓  cp dist/*.ogg dist/sounds.manifest.json
+game/assets/sounds/               ← tracked here, 176 KB for the lot
+```
+
+The `.ogg`s ship and the `.wav` masters stay behind. What crosses the boundary
+with them is `sounds.manifest.json`, the bank's own delivery note: it names
+every file and the logical voice it is a take of, so **this side hardcodes no
+filename and no variant count**. A fifth `step_walk` take is a re-copy of the
+directory and no code change.
+
+Three things that repo's `SOUND_CONTRACT.md` promises, which this side is built
+on rather than working around:
+
+- **Levels are the mix.** Files are peak-normalised per *category* — gunfire at
+  −1 dBFS, magazine and bolt at −5, movement at −10 — not all to the same peak.
+  A footstep therefore already sits ~9 dB under a rifle shot at gain 1.0, so
+  nothing here sets a per-sound volume, and `sounds.volume` in
+  `scene.manifest.mjs` is a master trim that wants to stay at 1. Normalising
+  them flat and re-balancing in the engine would throw away the one thing the
+  bank knows that the engine does not.
+- **Everything is mono**, so a 3D engine can place it. Nothing in this bank is
+  positional yet — it is all sound the player themselves makes, and you cannot
+  pan your own boots — but the listener is on the camera ready for the first
+  sound that belongs to somebody else.
+- **Every voice has decayed 15 dB by the interval the game retriggers it at**,
+  measured against *this* game's numbers: a shot every 0.1 s, a foot down every
+  0.23 s at `runSpeed`. That is what lets slots run `overlap: true` and have
+  held fire layer tails instead of turning to porridge.
+
+Two triggers are worth knowing about, because the obvious version of each is
+wrong:
+
+- **Footsteps are paced by distance travelled, not by a timer.** A timer keeps
+  stepping while you decelerate into a wall, and its cadence drifts with
+  framerate. One step per 2.2 m is not a human stride — it is the number that
+  makes `player.mjs`'s speeds sound right, and chasing anatomical realism
+  against quake-lineage speeds produces a sprint that sounds like a sewing
+  machine. The walk/run take is chosen by actual speed rather than by whether
+  Shift is held, so the steps slow down with you when you let go of W.
+- **A landing needs 2.5 m/s of fall behind it.** Walking the ripped map,
+  `player.mjs` drops `grounded` for a stray frame at seams before ground-glue
+  snaps it back; without the gate that is a thud every few steps on flat
+  ground. One frame of gravity is ~0.37 m/s and a real landing is 8 m/s or
+  more, so the gate has a factor of twenty of daylight either side of it.
+  `tests/sound.mjs` walks 4 s of map and asserts zero landings.
+
+`weapon.mjs` emits `fire` / `reload` / `dryfire` through an `onEvent` callback
+and knows nothing about a sound bank; the event-to-voice table is the whole
+coupling, and it lives in `audio.mjs`. The Editor build points at the bank with
+a **Sounds (directory URL)** attribute for the same reason it points at the map
+with one — the alternative is 21 hand-assigned audio assets kept in step with a
+bank that is re-rendered upstream. Clear it and the game runs silent, as it
+does if the files were never copied in.
+
 ### Props and collision
 
 Placed props are **solid by default** — their geometry joins the collider as they
@@ -300,6 +365,7 @@ node tests/fire.mjs    # drives the shooting loop, asserts ammo/recoil/target-hi
 node tests/raycast.mjs # grid broadphase vs. a full triangle sweep, must agree exactly
 node tests/props.mjs   # props are solid; `_nocol` is not, and `_col` is all that is
 node tests/debug.mjs   # panel + sliders on ?debug, none of it on the production URL
+node tests/sound.mjs   # right voice at the right moment; no phantom thud on flat ground
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 
@@ -325,6 +391,9 @@ Most feel knobs live at the top of their modules:
   `jumpSpeed`, `stepHeight`).
 - Map scale / orientation: `MAP_SCALE`, `MAP_EULER` in `src/main.mjs`.
 - Weapon: stats block in `src/weapon.mjs` (`fireInterval`, `magSize`, `range`, `reloadTime`).
+- Sound triggers: the constants at the top of `src/audio.mjs` (`STRIDE`, `RUN_SPEED`,
+  `LAND_MIN`, `LAND_HARD`, `JITTER_DB`). How the sounds themselves are *made* is not
+  tunable here — that is `sounds.config.json` in the sound-design repo.
 - Lighting: `sun` / `fill` / ambient in `standalone/main.mjs`.
 - Fog + map surface: the `fog` / `surface` blocks in `scene.manifest.mjs`, applied by
   `src/atmosphere.mjs`. Note that `surface.roughness` is authored as **roughness**, not

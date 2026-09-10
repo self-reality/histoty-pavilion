@@ -58,6 +58,21 @@ export const manifest = {
   // ---- Red dummy targets scattered on floor samples ----
   targets: { max: 10 },
 
+  // ---- Sound bank ----
+  // Like the GLBs, these files are not built here: they arrive finished from
+  // the sibling `sound-design` repo and are tracked in assets/sounds/. The
+  // directory is all this side declares, because the bank ships its own
+  // `sounds.manifest.json` naming every file and the voice it is a take of —
+  // adding a fifth footstep is a re-copy, not an edit. See src/audio.mjs.
+  //
+  // `volume` is a master trim over the whole bank, and wants to stay at 1:
+  // the files are peak-normalised per category (weapon > handling > movement),
+  // so their relative levels ARE the mix and are already right at unity gain.
+  sounds: {
+    dir: './assets/sounds/',
+    volume: 1,
+  },
+
   // ---- Blender-authored layout ----
   // Written by tools/export_scene.py from scene/pavilion.blend; see
   // BLENDER_SCENE.md. Entries here override same-named ones in `props` below,

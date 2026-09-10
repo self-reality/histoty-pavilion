@@ -25,6 +25,7 @@ import { isDebugMode } from './debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors, pickSpawn } from './world.mjs';
 import { applyFog, disableFogOn, SurfaceLook, EDITOR_FOG, EDITOR_SURFACE } from './atmosphere.mjs';
 import { injectUI } from './ui.mjs';
+import { SoundBank } from './audio.mjs';
 
 export class Game extends Script {
   static scriptName = 'game';
@@ -86,6 +87,19 @@ export class Game extends Script {
    */
   mapRotationX = -90;
 
+  /**
+   * Directory holding the sound bank — the 21 .ogg files and the
+   * `sounds.manifest.json` that names them (see src/audio.mjs). A URL rather
+   * than an asset list for the same reason `mapUrl` is one: the Editor would
+   * otherwise want 21 hand-assigned audio assets kept in step with a bank that
+   * is re-rendered upstream. Defaults to this repo's GitHub Pages deploy, which
+   * serves them with CORS enabled. Clear it to run the game silent.
+   * @attribute
+   * @title Sounds (directory URL)
+   * @type {string}
+   */
+  soundsUrl = 'https://history.singularitymuseum.com/assets/sounds/';
+
   initialize() {
     const app = this.app;
 
@@ -101,6 +115,7 @@ export class Game extends Script {
     this.targets = null;
     this.collider = null;
     this.debug = null;
+    this.audio = null;
     this._created = [];              // entities/layers we made → removed in cleanup
     this._mapContainer = null;       // runtime-loaded map container → unloaded in cleanup
     this._winHandlers = [];          // [target, event, fn] for window/document
@@ -315,10 +330,20 @@ export class Game extends Script {
 
     this.targets = new TargetManager(app, this.collider, floors.length ? floors : [spawn], this.addScore);
 
+    // The whole bank is 176 KB, so it loads up front rather than streaming —
+    // the first footstep must not be the one that stalls. "Ready" below is not
+    // gated on it: it means the map is walkable, and the audio lands long
+    // before anyone clicks Play (which is also the gesture that unlocks the
+    // AudioContext). No URL set → no bank, and the game runs silent.
+    this.audio = this.soundsUrl
+      ? new SoundBank(app, this.camera, { dir: this.soundsUrl })
+      : null;
+
     this.weapon = new Weapon(app, this.camera, this.player, this.collider, {
       hud: this.hud,
       layer: this.vmLayer.id,
       queryTargets: (o, d, maxDist) => this.targets.query(o, d, maxDist),
+      onEvent: (event) => this.audio?.onWeaponEvent(event),
     });
 
     // Tweak panel on debug URLs only (launch with `&debug`); null otherwise.
@@ -330,8 +355,8 @@ export class Game extends Script {
     // Debug handle (parity with the standalone build; used by automated checks).
     window.game = {
       app, player: this.player, weapon: this.weapon, targets: this.targets,
-      collider: this.collider, debug: this.debug, surface: this.surface,
-      camera: this.camera, root: this.playerRoot,
+      collider: this.collider, debug: this.debug, audio: this.audio,
+      surface: this.surface, camera: this.camera, root: this.playerRoot,
     };
 
     this.ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
@@ -431,6 +456,10 @@ export class Game extends Script {
 
     this.player.update(d, this.input);
 
+    // Immediately after the controller, and never before it: the jump and the
+    // landing are edges player.update() consumes as it goes past. See audio.mjs.
+    if (this.audio) this.audio.update(d, this.player, this.input);
+
     if (this.debug) this.debug.updateReadout();
 
     if (this.player.pos.y < this.collider.bounds.miny - 20 && this.player.spawn) {
@@ -454,6 +483,8 @@ export class Game extends Script {
     if (this.ui?.playBtn && this._onPlay) this.ui.playBtn.removeEventListener('click', this._onPlay);
     for (const [target, ev, fn] of this._winHandlers) target.removeEventListener(ev, fn);
     this._winHandlers = [];
+
+    if (this.audio) { try { this.audio.destroy(); } catch (err) { /* ignore */ } this.audio = null; }
 
     for (const e of this._created) { try { e.destroy(); } catch (err) { /* ignore */ } }
     this._created = [];

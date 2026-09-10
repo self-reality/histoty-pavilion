@@ -1,0 +1,281 @@
+{
+  "sampleRate": 44100,
+  "channels": 1,
+  "bitDepth": 16,
+  "seed": 20260910,
+  "sounds": {
+    "ak47_fire_1": {
+      "sound": "ak47_fire",
+      "category": "weapon",
+      "files": [
+        "ak47_fire_1.wav",
+        "ak47_fire_1.ogg"
+      ],
+      "seconds": 0.5006,
+      "peakDbfs": -1.0,
+      "rmsDbfs": -21.77,
+      "seed": 9963324826069309372,
+      "sha256": "40ce7c9e82e01c0d807bb5ef02e204cfeb56672a3b0bdb3f435f67921bc780d3"
+    },
+    "ak47_fire_2": {
+      "sound": "ak47_fire",
+      "category": "weapon",
+      "files": [
+        "ak47_fire_2.wav",
+        "ak47_fire_2.ogg"
+      ],
+      "seconds": 0.4748,
+      "peakDbfs": -1.0,
+      "rmsDbfs": -21.16,
+      "seed": 18069749108161384326,
+      "sha256": "7ebe9763fa1084c9045d85da49ae1dcb6e4bf88de2002650b567e8955428af15"
+    },
+    "ak47_fire_3": {
+      "sound": "ak47_fire",
+      "category": "weapon",
+      "files": [
+        "ak47_fire_3.wav",
+        "ak47_fire_3.ogg"
+      ],
+      "seconds": 0.492,
+      "peakDbfs": -1.0,
+      "rmsDbfs": -21.98,
+      "seed": 787882091323620054,
+      "sha256": "a6f6cdec5696b05b904b3379fba1c601fe5677197135375bd2814046d1602dba"
+    },
+    "ak47_dryfire": {
+      "sound": "ak47_dryfire",
+      "category": "handling",
+      "files": [
+        "ak47_dryfire.wav",
+        "ak47_dryfire.ogg"
+      ],
+      "seconds": 0.11,
+      "peakDbfs": -5.0,
+      "rmsDbfs": -27.08,
+      "seed": 12688178520207867255,
+      "sha256": "c02e57ed05daabbacfd5db669dba2a9e048c760511b567d7d5b11a06f1b4e973"
+    },
+    "ak47_clipout": {
+      "sound": "ak47_clipout",
+      "category": "handling",
+      "files": [
+        "ak47_clipout.wav",
+        "ak47_clipout.ogg"
+      ],
+      "seconds": 0.36,
+      "peakDbfs": -5.0,
+      "rmsDbfs": -23.3,
+      "seed": 13432100956671475281,
+      "sha256": "13b235471eecf729814e052d44fbfc34f3a86c7a724a3c341b4b87fb78765922"
+    },
+    "ak47_clipin": {
+      "sound": "ak47_clipin",
+      "category": "handling",
+      "files": [
+        "ak47_clipin.wav",
+        "ak47_clipin.ogg"
+      ],
+      "seconds": 0.42,
+      "peakDbfs": -5.0,
+      "rmsDbfs": -27.27,
+      "seed": 9608427053825612499,
+      "sha256": "6476e2402cf8907b427391458ff231c6fc47fe5b9e9b497b926b98feb5901fca"
+    },
+    "ak47_boltpull": {
+      "sound": "ak47_boltpull",
+      "category": "handling",
+      "files": [
+        "ak47_boltpull.wav",
+        "ak47_boltpull.ogg"
+      ],
+      "seconds": 0.52,
+      "peakDbfs": -5.0,
+      "rmsDbfs": -27.75,
+      "seed": 17130389561811705072,
+      "sha256": "d9b5cd25d96ba37bd5286010472daca50a099dbb62513ffbc0bffd0ebb68749d"
+    },
+    "ak47_reload": {
+      "sound": "ak47_reload",
+      "category": "handling",
+      "files": [
+        "ak47_reload.wav",
+        "ak47_reload.ogg"
+      ],
+      "seconds": 2.3,
+      "peakDbfs": -5.0,
+      "rmsDbfs": -34.04,
+      "seed": 8570965955490524085,
+      "sha256": "ab4a7ce5591189b7c972dc46ec047ba64d76252103f3000a65ea9dd6311e61e3"
+    },
+    "step_walk_1": {
+      "sound": "step_walk",
+      "category": "movement",
+      "files": [
+        "step_walk_1.wav",
+        "step_walk_1.ogg"
+      ],
+      "seconds": 0.3507,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -32.41,
+      "seed": 13400392000407340298,
+      "sha256": "0a2ca3aedaafdcdf1f9746e282ea62d9e4ed0abbde99c598ae78dae7ced969b3"
+    },
+    "step_walk_2": {
+      "sound": "step_walk",
+      "category": "movement",
+      "files": [
+        "step_walk_2.wav",
+        "step_walk_2.ogg"
+      ],
+      "seconds": 0.336,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.41,
+      "seed": 4361131863498090774,
+      "sha256": "7d14726e3a1ce142a4bb926964f855878f8d73a69bdcbe49e7e6a218b448fce2"
+    },
+    "step_walk_3": {
+      "sound": "step_walk",
+      "category": "movement",
+      "files": [
+        "step_walk_3.wav",
+        "step_walk_3.ogg"
+      ],
+      "seconds": 0.3399,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -30.73,
+      "seed": 6244291377775637946,
+      "sha256": "b2613890b25ca6ec464eb4b2f57237a3f8518d1f13f49c4805be32b9e00c0ca4"
+    },
+    "step_walk_4": {
+      "sound": "step_walk",
+      "category": "movement",
+      "files": [
+        "step_walk_4.wav",
+        "step_walk_4.ogg"
+      ],
+      "seconds": 0.3181,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.96,
+      "seed": 3106119268158731,
+      "sha256": "6abed6a1ccd19ca48fb9f423e4734d855fcdfff8951288099c201477e68a4c15"
+    },
+    "step_run_1": {
+      "sound": "step_run",
+      "category": "movement",
+      "files": [
+        "step_run_1.wav",
+        "step_run_1.ogg"
+      ],
+      "seconds": 0.3391,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -31.3,
+      "seed": 4601668133276230825,
+      "sha256": "e118bfbb0e687529168a1bd44a3801ec3205f0879038877b8ca561b51616faac"
+    },
+    "step_run_2": {
+      "sound": "step_run",
+      "category": "movement",
+      "files": [
+        "step_run_2.wav",
+        "step_run_2.ogg"
+      ],
+      "seconds": 0.3439,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.95,
+      "seed": 6733730470659423861,
+      "sha256": "24060ebbbe1ec46cb2a2516379fca0c6ae01cc0b1e9bc4e4062a185ce8175ab7"
+    },
+    "step_run_3": {
+      "sound": "step_run",
+      "category": "movement",
+      "files": [
+        "step_run_3.wav",
+        "step_run_3.ogg"
+      ],
+      "seconds": 0.3416,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.68,
+      "seed": 5642309190339863301,
+      "sha256": "8e02ea309d7f0821b9bacd049d2c418a2eb5b84b466420752df92b06bb874c1c"
+    },
+    "step_run_4": {
+      "sound": "step_run",
+      "category": "movement",
+      "files": [
+        "step_run_4.wav",
+        "step_run_4.ogg"
+      ],
+      "seconds": 0.3418,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -30.97,
+      "seed": 3727964565386435454,
+      "sha256": "cdc96dfa91533dd6aff859c9fef51f880aaaadea857cdfac2010652a6a071015"
+    },
+    "jump_1": {
+      "sound": "jump",
+      "category": "movement",
+      "files": [
+        "jump_1.wav",
+        "jump_1.ogg"
+      ],
+      "seconds": 0.338,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -31.36,
+      "seed": 715604624012840248,
+      "sha256": "4a978acad7fbdcd13fabb668f3548443bb1fcc3bb255562c86a5606a1369a5e6"
+    },
+    "jump_2": {
+      "sound": "jump",
+      "category": "movement",
+      "files": [
+        "jump_2.wav",
+        "jump_2.ogg"
+      ],
+      "seconds": 0.3334,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.32,
+      "seed": 3551227079736747012,
+      "sha256": "8d832a38b001c8be51d48d59f611280a90c0808597e2a91c51bfa4a831e704e3"
+    },
+    "land_1": {
+      "sound": "land",
+      "category": "movement",
+      "files": [
+        "land_1.wav",
+        "land_1.ogg"
+      ],
+      "seconds": 0.3945,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.22,
+      "seed": 9466151425055786594,
+      "sha256": "0129ef4389e6a2bb6d0f84d5f16f2ca56c73a9b69a0327d0a29158b44b57fdfa"
+    },
+    "land_2": {
+      "sound": "land",
+      "category": "movement",
+      "files": [
+        "land_2.wav",
+        "land_2.ogg"
+      ],
+      "seconds": 0.4073,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -30.09,
+      "seed": 14205194080481146504,
+      "sha256": "01fb65f32f3d38a724ded19eeaf7729ae42ef5bc08a6d8c6f789b862227a4ae5"
+    },
+    "land_hard": {
+      "sound": "land_hard",
+      "category": "movement",
+      "files": [
+        "land_hard.wav",
+        "land_hard.ogg"
+      ],
+      "seconds": 0.4378,
+      "peakDbfs": -10.0,
+      "rmsDbfs": -29.48,
+      "seed": 3109399806219132369,
+      "sha256": "7d260b1bedf7fc633ececb4c69961f380a5e94c595d3a4f834bbfeeba040fa62"
+    }
+  }
+}

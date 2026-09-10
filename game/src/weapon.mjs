@@ -34,6 +34,11 @@ export class Weapon {
     this.queryTargets = opts.queryTargets || (() => null);
     this.hud = opts.hud;
     this.layerId = opts.layer ?? null;   // dedicated viewmodel layer (no wall clipping)
+    // Gameplay events for anyone listening — currently the sound bank (see
+    // src/audio.mjs). Deliberately named after what the gun DID ('fire',
+    // 'reload', 'dryfire') rather than after a sound file, so this class never
+    // learns that a sound bank exists and the mapping stays in one table there.
+    this.onEvent = opts.onEvent || null;
 
     // Stats
     this.magSize = 30;
@@ -132,12 +137,23 @@ export class Weapon {
     this.hud.reloading.style.display = this.reloading > 0 ? 'block' : 'none';
   }
 
-  startFire() { this.firing = true; }
+  _emit(event) { if (this.onEvent) this.onEvent(event); }
+
+  startFire() {
+    this.firing = true;
+    // The trigger came back on an empty chamber: either mid-reload, or the
+    // magazine is empty and reload() declined because the reserve is gone.
+    // Only the press edge reaches here, so holding the mouse down clicks once
+    // instead of machine-gunning.
+    if (this.reloading > 0 || this.mag <= 0) this._emit('dryfire');
+  }
+
   stopFire() { this.firing = false; this.recoil = Math.max(0, this.recoil - 0.5); }
 
   reload() {
     if (this.reloading > 0 || this.mag === this.magSize || this.reserve <= 0) return;
     this.reloading = this.reloadTime;
+    this._emit('reload');
     this._syncHud();
   }
 
@@ -150,6 +166,8 @@ export class Weapon {
     this.punchX += 0.9 + this.recoil * 1.6;
     this.punchY += (Math.random() - 0.5) * (0.5 + this.recoil * 1.2);
     this.vmKick = Math.min(0.09, this.vmKick + 0.05);
+
+    this._emit('fire');
 
     // Muzzle flash.
     this.flash.enabled = true;

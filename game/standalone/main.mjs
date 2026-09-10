@@ -17,6 +17,7 @@ import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
+import { SoundBank } from '../src/audio.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
@@ -152,6 +153,7 @@ let weapon = null;
 let targets = null;
 let collider = null;
 let debug = null;
+let audio = null;
 let started = false;
 
 // ---- Boot ----
@@ -188,10 +190,18 @@ function boot() {
 
     targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
 
+    // The whole bank is 176 KB, so it loads up front rather than streaming —
+    // the first footstep must not be the one that stalls. It is not gated on
+    // below: "Ready" means the map is walkable, and the audio lands long
+    // before anyone finishes reading the controls and clicks Play (which is
+    // also the gesture that unlocks the AudioContext).
+    audio = new SoundBank(app, cameraEntity, manifest.sounds);
+
     weapon = new Weapon(app, cameraEntity, player, collider, {
       hud,
       layer: vmLayer.id,
       queryTargets: (o, d, maxDist) => targets.query(o, d, maxDist),
+      onEvent: (event) => audio.onWeaponEvent(event),
     });
 
     // Debug tweak panel — debug URLs only; null on the production one.
@@ -203,7 +213,7 @@ function boot() {
     }
 
     // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, weapon, targets, collider, debug, surface, camera: cameraEntity, root: playerRoot };
+    window.game = { app, player, weapon, targets, collider, debug, audio, surface, camera: cameraEntity, root: playerRoot };
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
@@ -421,6 +431,10 @@ app.on('update', (dt) => {
   }
 
   player.update(d, input);
+
+  // Immediately after the controller, and never before it: the jump and the
+  // landing are edges player.update() consumes as it goes past. See audio.mjs.
+  if (audio) audio.update(d, player, input);
 
   if (debug) debug.updateReadout();
 
