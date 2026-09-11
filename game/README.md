@@ -18,6 +18,26 @@ npm start          # python3 -m http.server 5173
 
 Click **Play** to lock the mouse and start. Press **Esc** to release the mouse (pauses).
 
+### Starting somewhere else
+
+Where you start is authored in the `.blend` (a marker named `spawn*`, see
+`BLENDER_SCENE.md`), and the address bar overrides it. Each parameter changes
+only what it names, so the other one stays as authored:
+
+```
+http://localhost:5173/?at=37.2,3.3,-71.4          stand here (x,y,z in metres)
+http://localhost:5173/?at=37.2,-71.4              here on the ground plan; y is the floor under it
+http://localhost:5173/?look=137                   authored spot, facing 137° (0 = -Z, 90 = -X)
+http://localhost:5173/?look=137,-12               ...and tilted 12° down (+ is up, clamped to ±89)
+http://localhost:5173/?at=37.2,3.3,-71.4&look=137,-12&debug
+```
+
+Numbers that don't parse are ignored rather than sending you to the origin. In
+debug mode the **Copy link here** button writes the address for where you are
+standing and looking, so a place found on foot becomes a link that opens on it.
+The Editor build reads the same parameters off its launch URL. `src/spawn.mjs`
+owns the whole resolution (map centre → marker → address).
+
 ### Controls
 
 | Key | Action |
@@ -65,7 +85,9 @@ In debug mode, `` ` `` toggles the panel and `V` cycles the view mode. What's in
   dielectric reflectance; 0 removes the sun glint entirely) and `metalness`,
   applied to all 34 of the map's materials at once.
 - **Lighting** — sun intensity/pitch/yaw, fill intensity, ambient level, sky colour.
-- **Teleport spawn** — drop back at the spawn point.
+- **Teleport spawn** — drop back at the spawn point, facing the way it faces.
+- **Copy link here** — put the address for the current position and view on the
+  clipboard (and in the console), see *Starting somewhere else*.
 
 Dial a look you like, then copy the numbers into the `fog` / `surface` blocks of
 `scene.manifest.mjs` to make them the new defaults.
@@ -78,7 +100,8 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 |------|----------------|
 | `index.html` | Canvas, HUD, crosshair, start overlay, import map — production, no debug markup |
 | `debug.html` | Redirect to `/?debug`, so debug mode has a URL you can type |
-| `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, spawn-finding, targets, input, game loop |
+| `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, targets, input, game loop |
+| `src/spawn.mjs` | Where the player starts: map centre, then the `.blend`'s marker, then `?at=`/`?look=` in the address |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/negatives.mjs` | Negative spaces: convex volumes clipped out of the map's collision and its meshes at load |
@@ -375,7 +398,7 @@ node tests/props.mjs   # props are solid; `_nocol` is not, and `_col` is all tha
 node tests/debug.mjs   # panel + sliders on ?debug, none of it on the production URL
 node tests/sound.mjs   # right voice at the right moment; no phantom thud on flat ground
 node tests/negatives.mjs # a cutter opens a doorway in the picture and the collision alike
-node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, and somewhere you can stand
+node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

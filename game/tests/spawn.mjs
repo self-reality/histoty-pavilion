@@ -12,6 +12,10 @@
 // The fallback is checked too, because it is what every map without a marker
 // gets: no `spawn*` in the layout must leave pickSpawn() in charge rather than
 // dropping the player at the origin.
+//
+// Then the address bar: `?at=` and `?look=` each override only their own
+// layer, a two-number `at` lands on the floor, junk is ignored, and the link
+// the debug panel copies reopens the page on the same pose.
 import { chromium } from 'playwright';
 
 const browser = await chromium.launch({
@@ -105,7 +109,56 @@ const r = await page.evaluate(async () => {
   };
 });
 
+// ---- The address bar ---------------------------------------------------------
+// Open the page at a pose the address names and read back where the player
+// stands; the pose is a floor sample well away from the marker so a spawn that
+// ignored the address would not pass by luck.
+const start = await page.evaluate(() => {
+  const g = window.game;
+  const far = [...g.player.floors].sort((a, b) =>
+    Math.hypot(b.x - g.player.spawn.x, b.z - g.player.spawn.z) - Math.hypot(a.x - g.player.spawn.x, a.z - g.player.spawn.z))[0];
+  return { spawn: g.player.spawn, far };
+});
+const pose = { x: start.far.x, y: start.far.y + 0.15, z: start.far.z, yaw: 137, pitch: -12 };
+const openAt = async (query) => {
+  await page.goto(`http://localhost:5173/${query}`, { waitUntil: 'load' });
+  await page.waitForFunction(() => window.game && window.game.collider, { timeout: 60000 });
+  return page.evaluate(async () => {
+    const { spawnUrl, urlSpawn } = await import('/src/spawn.mjs');
+    const p = window.game.player;
+    // The controller has been running since the map came up, so the feet have
+    // settled onto the floor: the resolved spawn is exact, the feet are near it.
+    return {
+      x: p.spawn.x, y: p.spawn.y, z: p.spawn.z, yaw: p.spawn.yaw, pitch: p.spawn.pitch, name: p.spawn.name,
+      feet: { x: p.pos.x, y: p.pos.y, z: p.pos.z },
+      link: spawnUrl(p),
+      junk: urlSpawn('?at=1,2,x&look=north', window.game.collider),
+      tooSteep: urlSpawn('?look=0,400', window.game.collider).pitch,
+    };
+  });
+};
+const fmt = (v) => v.toFixed(2);
+const settled = (r) => Math.hypot(r.feet.x - r.x, r.feet.z - r.z) < 0.3 && Math.abs(r.feet.y - r.y) < 0.5;
+const full = await openAt(`?at=${fmt(pose.x)},${fmt(pose.y)},${fmt(pose.z)}&look=${pose.yaw},${pose.pitch}&debug`);
+const planOnly = await openAt(`?at=${fmt(pose.x)},${fmt(pose.z)}`);
+const lookOnly = await openAt(`?look=${pose.yaw}`);
+const junk = await openAt('?at=1,2,x&look=north');
+// The copied link reopens the page on the same pose, `debug` and all.
+const reopened = await openAt(full.link.slice(full.link.indexOf('?')));
+
 const near = (a, b, tol) => a !== null && b !== null && Math.abs(a - b) < tol;
+const samePose = (a, b, tol = 0.011) => near(a.x, b.x, tol) && near(a.y, b.y, tol) && near(a.z, b.z, tol);
+const urlFull = samePose(full, pose) && near(full.yaw, pose.yaw, 0.01) && near(full.pitch, pose.pitch, 0.01)
+  && settled(full);
+const urlPlan = near(planOnly.x, pose.x, 0.011) && near(planOnly.z, pose.z, 0.011) && near(planOnly.y, pose.y, 0.02)
+  && near(planOnly.yaw, start.spawn.yaw, 1e-6) && settled(planOnly);   // bearing untouched
+const urlLook = samePose(lookOnly, start.spawn) && near(lookOnly.yaw, pose.yaw, 0.01) && lookOnly.pitch === 0;
+const urlJunk = samePose(junk, start.spawn) && near(junk.yaw, start.spawn.yaw, 1e-6) && junk.junk === null
+  && junk.tooSteep === 89 && junk.name === start.spawn.name;
+// The link is where the feet came to rest, which is where the next page's
+// feet come to rest too — within a settle of each other.
+const urlLink = /[?&]debug(&|$)/.test(full.link) && samePose(reopened.feet, full.feet, 0.3)
+  && near(reopened.yaw, full.yaw, 0.06) && near(reopened.pitch, full.pitch, 0.06);
 const namingBad = r.naming.filter((n) => n.got !== n.want);
 
 // The marker the layout carries is the one the game started from — name and
@@ -132,14 +185,20 @@ console.log(`  bearings             ${r.yaws.map((y) => `${y.yaw}°->${y.got.toF
 console.log(`  without a marker     ${r.fellBack.noMarkers === null && r.fellBack.otherMarkers === null ? 'null' : 'SOMETHING'}, pickSpawn @ ${r.fellBack.fallback.x.toFixed(2)}, ${r.fellBack.fallback.y.toFixed(2)}, ${r.fellBack.fallback.z.toFixed(2)}`);
 console.log(`  standing room        rested ${r.drift.toFixed(2)} m from the spawn, grounded ${r.rest.grounded}`);
 console.log(`  naming convention    ${r.naming.length - namingBad.length}/${r.naming.length} correct`);
+console.log(`  ?at=x,y,z&look=y,p   ${fmt(full.x)}, ${fmt(full.y)}, ${fmt(full.z)} facing ${full.yaw.toFixed(1)}° pitched ${full.pitch.toFixed(1)}° (${full.name})`);
+console.log(`  ?at=x,z              dropped to ${fmt(planOnly.y)} m (floor sample ${fmt(pose.y)}), still facing ${planOnly.yaw.toFixed(1)}°`);
+console.log(`  ?look=yaw            ${lookOnly.name}: stayed at ${fmt(lookOnly.x)}, ${fmt(lookOnly.z)}, turned to ${lookOnly.yaw.toFixed(1)}°`);
+console.log(`  junk in the address  ${junk.name ?? '(marker)'} @ ${fmt(junk.x)}, ${fmt(junk.z)}; pitch 400 -> ${junk.tooSteep}`);
+console.log(`  copied link          ${full.link.slice(full.link.indexOf('?'))} -> reopened ${urlLink ? 'on the same pose' : 'ELSEWHERE'}`);
 for (const n of namingBad) console.log(`     WRONG "${n.name}": got ${n.got}, want ${n.want}`);
 if (errs.length) console.log('  page errors:', errs.slice(0, 3));
 
 const ok = !namingBad.length && usedMarker && heightIsAHint && voidKeepsItsHeight
-  && bearings && fellBack && standable && !errs.length;
+  && bearings && fellBack && standable && urlFull && urlPlan && urlLook && urlJunk && urlLink && !errs.length;
 if (!ok) {
   console.log(`\n  usedMarker=${usedMarker} heightIsAHint=${heightIsAHint} voidKeepsItsHeight=${voidKeepsItsHeight}`
-    + ` bearings=${bearings} fellBack=${fellBack} standable=${standable}`);
+    + ` bearings=${bearings} fellBack=${fellBack} standable=${standable}`
+    + ` urlFull=${urlFull} urlPlan=${urlPlan} urlLook=${urlLook} urlJunk=${urlJunk} urlLink=${urlLink}`);
 }
 console.log(ok ? '\nSPAWN: PASS' : '\nSPAWN: FAIL');
 await browser.close();

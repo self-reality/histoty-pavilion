@@ -1,5 +1,6 @@
 import * as pc from 'playcanvas';
 import { FOG_TYPES, FOG_TYPE_NAMES, fogTypeName } from './atmosphere.mjs';
+import { placeAtSpawn, spawnUrl } from './spawn.mjs';
 
 const { Color, Entity } = pc;
 
@@ -291,7 +292,16 @@ export class DebugTools {
     // Actions.
     section(bodyWrap, 'Actions');
     const row = el('div', 'dbg-row', bodyWrap);
-    button(row, 'Teleport spawn', () => this.player.teleport(this.spawn.x, this.spawn.y, this.spawn.z));
+    button(row, 'Teleport spawn', () => placeAtSpawn(this.player, this.spawn));
+    // The address that opens the page where you stand, looking where you look
+    // (see spawn.mjs). Logged as well as copied, for a page without a clipboard.
+    const link = button(row, 'Copy link here', async () => {
+      const url = spawnUrl(this.player);
+      console.log(`[spawn] ${url}`);
+      try { await navigator.clipboard.writeText(url); link.textContent = 'Copied'; }
+      catch { link.textContent = 'In console'; }
+      setTimeout(() => { link.textContent = 'Copy link here'; }, 1200);
+    });
 
     // Rig sections are appended here as props land — they can't be built up
     // front because the GLBs load well after the panel does.

@@ -13,8 +13,9 @@ import { TriangleCollider } from '../src/collision.mjs';
 import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { isDebugMode } from '../src/debugmode.mjs';
-import { TargetManager, extractTriangles, findFloors, pickSpawn, markerSpawn, isNonColliding,
+import { TargetManager, extractTriangles, findFloors, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
+import { resolveSpawn, placeAtSpawn } from '../src/spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
 import { collectVolumes, carve, carveRender } from '../src/negatives.mjs';
@@ -200,18 +201,18 @@ function boot() {
     collider = new TriangleCollider(tris, 2.0);
 
     const floors = findFloors(collider);
-    // Where you start is authored in the .blend like everything else, and only
-    // falls back to the map's own middle when nothing says otherwise. The
-    // marker is read against the bare map — props land after this — so a spawn
-    // stood in front of one still finds the floor rather than the prop's roof.
-    const spawn = markerSpawn(scene.markers, collider) ?? pickSpawn(floors, collider.bounds);
-    console.log(`[spawn] ${spawn.name ? `marker ${spawn.name}` : 'nearest floor to the map centre'}`
+    // Where you start is authored in the .blend like everything else, falls
+    // back to the map's own middle when nothing says otherwise, and yields to
+    // the address bar over both (see ../src/spawn.mjs). The marker is read
+    // against the bare map — props land after this — so a spawn stood in
+    // front of one still finds the floor rather than the prop's roof.
+    const spawn = resolveSpawn({ markers: scene.markers, floors, collider });
+    console.log(`[spawn] ${spawn.name ?? 'nearest floor to the map centre'}`
       + ` @ ${spawn.x.toFixed(2)}, ${spawn.y.toFixed(2)}, ${spawn.z.toFixed(2)}`
-      + (spawn.yaw === undefined ? '' : ` facing ${spawn.yaw.toFixed(0)}\u00b0`));
+      + ` facing ${spawn.yaw.toFixed(0)}\u00b0` + (spawn.pitch ? `, pitched ${spawn.pitch.toFixed(0)}\u00b0` : ''));
 
     player = new Player(playerRoot, cameraEntity, collider, {});
-    player.teleport(spawn.x, spawn.y, spawn.z);
-    if (spawn.yaw !== undefined) player.yaw = spawn.yaw;
+    placeAtSpawn(player, spawn);
     player.spawn = spawn;
     player.floors = floors;
 
@@ -499,7 +500,7 @@ app.on('update', (dt) => {
 
   // Respawn if the player falls out of the world.
   if (player.pos.y < collider.bounds.miny - 20 && player.spawn) {
-    player.teleport(player.spawn.x, player.spawn.y, player.spawn.z);
+    placeAtSpawn(player, player.spawn);
   }
 
   if (weapon) weapon.update(d);

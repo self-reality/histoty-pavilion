@@ -22,7 +22,8 @@ import { Weapon } from './weapon.mjs';
 // panel — the code is merely present, never built.
 import { DebugTools, togglePanel, removePanel } from './debug.mjs';
 import { isDebugMode } from './debugmode.mjs';
-import { TargetManager, extractTriangles, findFloors, pickSpawn } from './world.mjs';
+import { TargetManager, extractTriangles, findFloors } from './world.mjs';
+import { resolveSpawn, placeAtSpawn } from './spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook, EDITOR_FOG, EDITOR_SURFACE } from './atmosphere.mjs';
 import { injectUI } from './ui.mjs';
 import { SoundBank } from './audio.mjs';
@@ -321,10 +322,12 @@ export class Game extends Script {
     this.collider = new TriangleCollider(tris, 2.0);
 
     const floors = findFloors(this.collider);
-    const spawn = pickSpawn(floors, this.collider.bounds);
+    // No layout here, so no marker: the map's middle, unless the launch URL
+    // carries `at=` / `look=` (see spawn.mjs).
+    const spawn = resolveSpawn({ markers: [], floors, collider: this.collider });
 
     this.player = new Player(this.playerRoot, this.camera, this.collider, {});
-    this.player.teleport(spawn.x, spawn.y, spawn.z);
+    placeAtSpawn(this.player, spawn);
     this.player.spawn = spawn;
     this.player.floors = floors;
 
@@ -463,7 +466,7 @@ export class Game extends Script {
     if (this.debug) this.debug.updateReadout();
 
     if (this.player.pos.y < this.collider.bounds.miny - 20 && this.player.spawn) {
-      this.player.teleport(this.player.spawn.x, this.player.spawn.y, this.player.spawn.z);
+      placeAtSpawn(this.player, this.player.spawn);
     }
 
     if (this.weapon) this.weapon.update(d);
