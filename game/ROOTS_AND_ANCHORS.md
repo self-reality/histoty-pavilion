@@ -199,11 +199,13 @@ to budget, refraction removed from the Venus) and the game is missing it. That
 one is probably worth pulling across deliberately, on its own, with a look at it
 in game afterwards.
 
-### Nothing on the pavilion side ever runs the contract
+### The pavilion now runs the contract too
 
-The kit ships the check — `node test/contract.mjs <file.glb>` — and the pavilion
-never calls it. A GLB dropped into `game/assets/` is accepted unchallenged, which
-is how a two-root cistern got in before the rule existed.
+The kit ships the check — `node test/contract.mjs <file.glb>` — and until now the
+pavilion never called it, so a GLB dropped into `game/assets/` was accepted
+unchallenged. That is how a two-root cistern got in before the rule existed.
+
+    npm run assets:check
 
 Run over everything in `assets/` today, every prop passes and exactly one file
 fails:
@@ -218,15 +220,18 @@ picture_innocent_full_hd_2.glb  contract ok
 tent_military.glb               contract ok
 ```
 
-**That failure is correct and must be skipped, not fixed.** `de_dust2.glb` is the
-map, not a prop: it arrives through `manifest.map`, gets its own transform in
+**That failure is correct and is skipped, not fixed.** `de_dust2.glb` is the map,
+not a prop: it arrives through `manifest.map`, gets its own transform in
 `standalone/main.mjs`, and lives in the `REF` collection, which adoption never
 looks at. "One prop, one root" is a rule about props, and the map is not one. A
-check that reports it every run is a check people learn to ignore, so exclude it:
+check that cries wolf every run is a check people learn to ignore, so the script
+leaves it out — and that exclusion is the one thing to revisit if the map ever
+becomes something adoption handles.
 
-```json
-"assets:check": "node ../../singularity-development-kit/test/contract.mjs $(ls assets/*.glb | grep -v de_dust2)"
-```
+The kit is found at `../../singularity-development-kit`, overridable with `KIT=`,
+in the same spirit as `${BLENDER:-…}` in the scene commands. It exits non-zero on
+a real contract failure, so it can go in front of a deploy; it says so plainly if
+the sibling repo is not there.
 
-Worth doing at some point. Not urgent, because the exporter no longer trusts the
-shape of what it is given — which is the more durable half of the fix.
+This is the belt to the exporter's braces. The more durable half is that the
+exporter no longer trusts the shape of what it is given.
