@@ -155,10 +155,10 @@ def find_source_glb(payload_names):
     return f'./assets/{hits[0]}', None
 
 
-def importer_rotation(glb_path, root_name=None):
-    """What the glTF importer puts on the payload's root, measured not assumed.
+def importer_rotation(glb_path, node_name=None):
+    """What the glTF importer puts *above* this node, measured not assumed.
 
-    Import the file, read the root, throw the copy away — including the meshes
+    Import the file, read the node, throw the copy away — including the meshes
     and materials it dragged in, so the probe leaves no .001 junk behind.
 
     "The root" is not always the first parentless object: a glTF may open with
@@ -168,21 +168,34 @@ def importer_rotation(glb_path, root_name=None):
     lamp, so the -90° the real root carries never came out of the anchor and
     the game applied it a second time, laying the character flat on the floor.
 
-    So match the payload's own root by name when the caller knows it, and
-    otherwise take the largest hierarchy, which is the payload by construction.
+    Nor is the thing being adopted always a root. Delete a payload's root Empty
+    in Blender and its children are left loose at the top level, each adopted
+    on its own — and a rotation the file keeps *below* the root is then part of
+    what the scene object carries. cisterna.glb is exactly that shape: an
+    unrotated `cisterna_root` over two meshes that each hold the +90° X of the
+    Y-up conversion. Measuring the root read identity, so that +90° stayed on
+    the anchor and the game applied it twice, standing the cistern on its head.
+
+    So measure the *same node* the caller is adopting, in world space — which
+    is the importer's rotation for a root, and the importer's rotation composed
+    with whatever the file stacks above it for anything deeper. Fall back to
+    the largest hierarchy, which is the payload by construction.
     """
     before_objs = set(bpy.data.objects)
     before_data = set(bpy.data.meshes) | set(bpy.data.materials) | set(bpy.data.images)
     bpy.ops.import_scene.gltf(filepath=glb_path)
     added = [o for o in bpy.data.objects if o not in before_objs]
     roots = [o for o in added if o.parent is None]
-    root = None
-    if root_name:
-        want = DEDUP_SUFFIX.sub('', root_name)
-        root = next((o for o in roots if DEDUP_SUFFIX.sub('', o.name) == want), None)
-    if root is None:
-        root = max(roots, key=lambda o: len(o.children_recursive), default=None)
-    rotation = root.matrix_world.copy() if root else Matrix.Identity(4)
+    node = None
+    if node_name:
+        want = DEDUP_SUFFIX.sub('', node_name)
+        hits = [o for o in added if DEDUP_SUFFIX.sub('', o.name) == want]
+        # A root by that name wins: `Sketchfab_model` names the wrapper in one
+        # file and could name a mesh inside the next.
+        node = next((o for o in hits if o.parent is None), hits[0] if hits else None)
+    if node is None:
+        node = max(roots, key=lambda o: len(o.children_recursive), default=None)
+    rotation = node.matrix_world.copy() if node else Matrix.Identity(4)
     rotation.translation = (0, 0, 0)
 
     for obj in added:
@@ -280,25 +293,58 @@ def loose_roots():
     return list(dict.fromkeys(roots))  # an object can be linked to both
 
 
-def adopt(root, scene_coll):
+def placement_key(glb, matrix):
+    """What makes two loose roots the same placement: same file, same anchor.
+
+    Rounded well inside the 1e-5 the drift check below allows, so sharing an
+    anchor can never be what trips it.
+    """
+    return (glb, tuple(round(v, 6) for row in matrix for v in row))
+
+
+def adopt(root, scene_coll, built):
     payload = [root] + list(root.children_recursive)
     glb, why = find_source_glb({o.name for o in payload})
     if glb is None:
-        return None, f'{root.name}: {why}'
+        return None, None, f'{root.name}: {why}'
 
     placement = root.matrix_world.copy()
     rotation = importer_rotation(os.path.join(GAME_DIR, glb), root.name)
+    matrix = placement @ rotation.inverted()  # your move only
+
+    # One anchor per placement. A payload whose root Empty was deleted arrives
+    # as several loose roots — cisterna.glb as `cisterna` and `cisterna_col` —
+    # and adopting each of them built a second anchor on top of the first, so
+    # the game loaded the whole GLB twice at one spot. Two roots that resolve
+    # to the same file *and* the same anchor are one prop, however many pieces
+    # the .blend has it in. Genuine reuse of a GLB survives untouched: two
+    # crates placed apart differ in the transform, so they key apart.
+    anchor = built.get(placement_key(glb, matrix))
+    if anchor is not None:
+        attach(payload, root, anchor, rotation, placement, scene_coll)
+        return None, (root.name, anchor.name), None
 
     name = existing_name_for(glb) or unique_name(anchor_base(glb))
+    if name in bpy.data.objects:
+        # The name is spoken for and Blender would quietly hand back `name.001`
+        # — a prop that no longer answers to what the layout calls it.
+        name = unique_name(anchor_base(glb))
     anchor = bpy.data.objects.new(name, None)
     anchor.empty_display_type = 'ARROWS'
     anchor.empty_display_size = 1.5
     scene_coll.objects.link(anchor)
     anchor['glb'] = glb
-    anchor.matrix_world = placement @ rotation.inverted()  # your move only
+    anchor.matrix_world = matrix
     if anchor.rotation_mode != 'QUATERNION':
         anchor.rotation_mode = 'QUATERNION'
+    built[placement_key(glb, matrix)] = anchor
 
+    attach(payload, root, anchor, rotation, placement, scene_coll)
+    return (name, glb), None, None
+
+
+def attach(payload, root, anchor, rotation, placement, scene_coll):
+    """Hang a payload off an anchor without moving a millimetre of it."""
     root.matrix_basis = rotation          # importer's rotation stays with the payload
     root.parent = anchor
     root.matrix_parent_inverse = Matrix.Identity(4)
@@ -313,12 +359,11 @@ def adopt(root, scene_coll):
     drift = max(abs(a - b) for ra, rb in zip(placement, root.matrix_world)
                 for a, b in zip(ra, rb))
     if drift > 1e-5:
-        raise SystemExit(f'{name}: payload moved by {drift:.3e} — aborting, nothing saved')
-    return (name, glb), None
+        raise SystemExit(f'{anchor.name}: payload moved by {drift:.3e} — aborting, nothing saved')
 
 
 def adopt_loose():
-    """Anchor every hand-imported hierarchy. Returns (done, failed).
+    """Anchor every hand-imported hierarchy. Returns (done, merged, failed).
 
     Both paths adopt; only the GUI *saves*. Headless anchors in memory and
     leaves the .blend exactly as it found it — which is what makes it safe to
@@ -331,10 +376,10 @@ def adopt_loose():
     """
     roots = loose_roots()
     if not roots:
-        return [], []
+        return [], [], []
     if not bpy.data.filepath:
-        return [], ['save the .blend before importing props — its path is how '
-                    'the tools find game/']
+        return [], [], ['save the .blend before importing props — its path is how '
+                        'the tools find game/']
 
     scene_coll = bpy.data.collections.get(SCENE_COLLECTION)
     if scene_coll is None:
@@ -342,15 +387,26 @@ def adopt_loose():
         bpy.context.scene.collection.children.link(scene_coll)
         print(f'[export] created "{SCENE_COLLECTION}" collection')
 
-    done, failed = [], []
-    for root in roots:
-        result, problem = adopt(root, scene_coll)
-        (failed if problem else done).append(problem or result)
+    # Anchors the .blend already carries count as built: a GUI export saves the
+    # ones it makes, so the orphaned half of a payload adopted in a previous
+    # run has somewhere to go rather than starting a twin beside it.
+    built = {placement_key(o['glb'], o.matrix_world): o
+             for o in scene_coll.objects if o.parent is None and 'glb' in o}
 
-    if done and not bpy.app.background:
+    done, merged, failed = [], [], []
+    for root in roots:
+        result, reuse, problem = adopt(root, scene_coll, built)
+        if problem:
+            failed.append(problem)
+        elif reuse:
+            merged.append(reuse)
+        else:
+            done.append(result)
+
+    if (done or merged) and not bpy.app.background:
         bpy.ops.wm.save_mainfile()
         print(f'[export] saved {bpy.data.filepath}')
-    return done, failed
+    return done, merged, failed
 
 
 # --- exporting the layout ---------------------------------------------------
@@ -475,7 +531,7 @@ def main():
     args = script_args()
     out_path = os.path.abspath(args[args.index('--out') + 1]) if '--out' in args else DEFAULT_OUT
 
-    adopted, adopt_failures = adopt_loose()
+    adopted, merged, adopt_failures = adopt_loose()
 
     collection = bpy.data.collections.get(SCENE_COLLECTION)
     if collection is None:
@@ -515,10 +571,13 @@ def main():
         print(f'[export] WARNING {w}')
     for name, glb in adopted:
         print(f'[export] adopted {name:<20} <- {glb}')
-    if adopted and bpy.app.background:
+    for piece, name in merged:
+        print(f'[export] merged  {piece:<20} -> {name} (same GLB, same placement)')
+    if (adopted or merged) and bpy.app.background:
         # Say it, or the .blend and the layout disagree with nobody the wiser.
-        print(f'[export] NOTE  the anchor{"s" if len(adopted) > 1 else ""} above '
-              f'{"are" if len(adopted) > 1 else "is"} in the layout but not saved '
+        plural = len(adopted) + len(merged) > 1
+        print(f'[export] NOTE  the anchor{"s" if plural else ""} above '
+              f'{"are" if plural else "is"} in the layout but not saved '
               'to the .blend — the prop ships now; export from Blender (or '
               '`npm run scene:import -- --force`) to make it permanent there')
     for p in props:
@@ -535,6 +594,7 @@ def main():
     print(f'[export] wrote {summary}')
 
     lines = [f'adopted {name} <- {glb}' for name, glb in adopted] \
+        + [f'merged {piece} -> {name}' for piece, name in merged] \
         + ([preview] if preview else []) + [summary]
     notify(lines, warnings + adopt_failures)
 
