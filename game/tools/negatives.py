@@ -75,17 +75,44 @@ def _half_extents(points):
 
 # --- reading a cutter -------------------------------------------------------
 
+def infer_shape(obj):
+    """Which primitive a cutter is, read off the mesh instead of asked for.
+
+    A cube and a cylinder are not remotely alike in vertex and face count, so
+    making the author declare which one they just added is a step that exists
+    only to be forgotten. The `neg` custom property stays available as an
+    override; nothing needs to set it.
+
+    The one ambiguity is a four-sided cylinder, which has a cube's 8 vertices
+    and 6 faces and reads as a cube — correctly, since it is one, give or take
+    the 45 degrees you can put back with a rotation.
+    """
+    verts, faces = len(obj.data.vertices), len(obj.data.polygons)
+    if verts == 8 and faces == 6:
+        return 'box'
+    sides = sides_of(obj)
+    if verts == 2 * sides and faces == sides + 2:
+        return 'cylinder'
+    return None
+
+
 def shape_of(obj):
-    """The shape a cutter object claims, defaulting to the commonest one."""
-    return str(obj.get(SHAPE_KEY, 'box')).strip().lower()
+    """The shape a cutter is, by declaration if it has one and by its mesh if not."""
+    declared = obj.get(SHAPE_KEY)
+    if declared is not None:
+        return str(declared).strip().lower()
+    return infer_shape(obj) or 'box'
 
 
 def sides_of(obj):
     """A cylinder's side count, read off the mesh rather than assumed.
 
     Exported so the game builds the same prism the viewport booleaned with. Side
-    faces are the ones whose normal is perpendicular to the local Z axis, which
-    separates them from the two caps whatever the ring's resolution.
+    faces are the ones whose normal is perpendicular to the local Z axis — the
+    axis Blender's own cylinder stands on — which separates them from the two
+    caps whatever the ring's resolution. (The game's unit cylinder stands on Y,
+    because that is where the axis conversion puts Blender's Z. Same shape, two
+    spaces; see src/negatives.mjs.)
     """
     sides = sum(1 for p in obj.data.polygons if abs(p.normal.z) < 0.5)
     return sides if sides >= 3 else DEFAULT_SIDES
@@ -139,8 +166,8 @@ def make_cutter(name, shape, collection, sides=DEFAULT_SIDES):
     mesh.validate()
     mesh.update()
     obj = bpy.data.objects.new(name, mesh)
-    if shape != 'box':
-        obj[SHAPE_KEY] = shape
+    # No `neg` property: a rebuilt cutter should be indistinguishable from one
+    # you added by hand, and shape_of() reads both the same way.
     style_cutter(obj)
     collection.objects.link(obj)
     return obj

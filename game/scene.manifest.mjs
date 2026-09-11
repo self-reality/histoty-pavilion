@@ -99,7 +99,9 @@ export const manifest = {
   //   { name: 'neg_door_01', shape: 'box', pos: [x, y, z], euler: [...], scale: [...] }
   //
   // `shape` is 'box' or 'cylinder' (add `sides`), sized like the Blender
-  // primitive: a cube is 2 m across at scale 1. See src/negatives.mjs.
+  // primitive: a cube is 2 m across at scale 1, and a cylinder is radius 1,
+  // 2 m tall, standing on Y — so an entry with no rotation is upright, which
+  // is what Blender exports for an upright cutter. See src/negatives.mjs.
   negatives: [],
 
   // ---- Articulated props: named nodes of a placed GLB, driven at runtime ----

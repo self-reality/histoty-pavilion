@@ -162,9 +162,11 @@ wall, a frame prop fills it. Naming them as a pair is worth the keystrokes.
    collection is not a detail here, the way it is for a prop: `NEG` is what
    makes it a cutter rather than a stray mesh nobody ships.
 2. Name it `neg_something_01`.
-3. For a cylinder, add a custom property `neg` = `cylinder` (a cube needs
-   nothing; `box` is the default).
-4. Move and scale it into the wall. Save, `npm run scene:export`.
+3. Move and scale it into the wall. Save, `npm run scene:export`.
+
+Which primitive it is comes off the mesh — a cube has eight vertices and six
+faces, a cylinder does not — so there is nothing to declare. (A `neg` custom
+property still overrides that if you ever need it to.)
 
 Exporting from inside Blender (Scripting ▸ Run Script) re-points the Boolean
 modifiers at whatever the cutter now overlaps, so drag a doorway two walls to
@@ -194,7 +196,8 @@ tall opening cut 2 m deep through the wall.
   deleting the level. Use rotation.
 - **Convex only.** One cutter is one convex volume; an L-shaped hole is two
   cutters. A cylinder is the flat-sided prism Blender draws, not the circle it
-  stands for, and both sides agree on that down to the ring's phase.
+  stands for, and both sides agree on that down to the ring's phase — its side
+  count is counted off the mesh and written into the entry.
 - **The map only.** Props are placed after the carve and keep all their
   geometry. A cutter over a crate does nothing to the crate.
 - **No cap.** The hole has no walls, floor or jamb — cut a cylinder through the

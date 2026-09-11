@@ -51,9 +51,15 @@ const r = await page.evaluate(async () => {
   // A cylinder is the prism Blender draws, not the circle it stands for — so
   // the hole it leaves in a 10 x 10 floor is the inscribed polygon's, and that
   // is the number the viewport's boolean agrees with.
+  //
+  // Note the absence of a rotation. That is the point of this check as much as
+  // the area is: Blender's cylinder stands on Blender's Z, which arrives here
+  // as PlayCanvas Y, so an unrotated cutter has to come out upright. One laid
+  // along the wrong axis still cuts a hole — a 2 x 2 rectangle, 96.0 m2 — and
+  // looks plausible right up until you notice the well is square.
   const floor = [tri(V(-5, 0, -5), V(5, 0, -5), V(5, 0, 5)), tri(V(-5, 0, -5), V(5, 0, 5), V(-5, 0, 5))];
   const sides = 64;
-  const well = collectVolumes([{ name: 'neg_well', shape: 'cylinder', sides, pos: [0, 0, 0], euler: [90, 0, 0] }]);
+  const well = collectVolumes([{ name: 'neg_well', shape: 'cylinder', sides, pos: [0, 0, 0] }]);
   const wellArea = { after: area(carve(floor, well)), want: 100 - sides * 0.5 * Math.sin(2 * Math.PI / sides) };
 
   // 2) The refusals. A mirrored cutter is the dangerous one: its faces turn

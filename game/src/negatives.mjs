@@ -54,26 +54,37 @@ const BOX = {
   ],
 };
 
-// A prism on the local Z axis, inscribed in the unit circle — the same flat
-// sides Blender's cylinder has, so the planes here and the mesh you booleaned
-// against in the viewport enclose the same volume. Only the ring's phase can
-// differ, which at the default 32 sides moves a wall by half a degree of arc.
+// A prism inscribed in the unit circle — the same flat sides Blender's cylinder
+// has, so the planes here and the mesh you booleaned against in the viewport
+// enclose the same volume. Only the ring's phase can differ, which at the
+// default 32 sides moves a wall by half a degree of arc.
+//
+// It stands on the local Y axis, and that is not a free choice: Blender's
+// cylinder stands on Blender's Z, the axis conversion sends Blender Z to
+// PlayCanvas Y, and an unrotated cutter therefore has to be upright here or a
+// well exported from Blender arrives lying on its side. The cube next door
+// hides this — it is symmetric under the same swap — which is exactly why it
+// went unnoticed until a cylinder made the round trip. tests/negatives.mjs
+// pins it by cutting a horizontal floor with an unrotated cylinder and
+// measuring the hole: only an upright one leaves a circle.
 function cylinderShape(sides) {
   const verts = [];
-  for (const z of [-1, 1]) {
+  for (const y of [-1, 1]) {
     for (let i = 0; i < sides; i++) {
       const a = (i / sides) * Math.PI * 2;
-      verts.push(Math.cos(a), Math.sin(a), z);
+      verts.push(Math.cos(a), y, Math.sin(a));
     }
   }
+  // The ring runs clockwise seen from +Y, so the bottom cap is the ring as it
+  // stands, the top is its reverse, and the sides climb before they step round.
   const faces = [];
   for (let i = 0; i < sides; i++) {
     const j = (i + 1) % sides;
-    faces.push([i, j, sides + j, sides + i]);
+    faces.push([i, sides + i, sides + j, j]);
   }
   const ring = [...Array(sides).keys()];
-  faces.push([...ring].reverse());              // -Z cap
-  faces.push(ring.map((i) => sides + i));       // +Z cap
+  faces.push(ring);                                       // -Y cap
+  faces.push(ring.map((i) => sides + i).reverse());        // +Y cap
   return { verts, faces };
 }
 
