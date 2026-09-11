@@ -6,7 +6,7 @@
 // sync to the Editor as a script asset and safe to import from the standalone
 // bootstrap. Keep it that way — DOM/HUD lives in ui.mjs, app lifecycle in the
 // two entry points.
-import { Vec3, Color, Entity, StandardMaterial } from 'playcanvas';
+import { Vec3, Quat, Color, Entity, StandardMaterial } from 'playcanvas';
 
 // ---- Materials -------------------------------------------------------------
 export function standard(r, g, b, emissive) {
@@ -300,4 +300,62 @@ export function pickSpawn(samples, bounds) {
   }
   best = best || samples[0];
   return { x: best.x, y: best.y + 0.15, z: best.z };
+}
+
+// ---- The authored spawn ----------------------------------------------------
+// A marker is a childless Empty in the .blend — a name and a transform, no
+// geometry (see BLENDER_SCENE.md). `spawn` is the first convention the game
+// reads back: stand the Empty where the player should start, point its arrows
+// where they should look, and the export carries both numbers to here.
+const SPAWN_MARKER = /^spawn(?:[._-]|$)/i;
+
+// How far above the marker the floor probe starts, and how far below it the
+// probe will follow the ground down. Waist-high up, one storey down: an Empty
+// dropped roughly into place still lands you on the floor beneath it, and one
+// stood on a balcony does not spawn you in the street under it.
+const PROBE_UP = 1;
+const PROBE_DOWN = 4;
+
+const _down = new Vec3(0, -1, 0);
+const _fwd = new Vec3();
+
+/**
+ * Where the .blend says the player starts — { x, y, z, yaw, name } — or null
+ * when the layout carries no spawn marker, which is the caller's cue to fall
+ * back to pickSpawn().
+ *
+ * The marker's height is a hint, not the answer: it is dropped onto whatever
+ * floor is under it, so the Empty can sit at eye height (where you can see it
+ * in the viewport) or a few centimetres proud of the ground and the player
+ * still stands on the floor. Its rotation is read as a look direction, so the
+ * spawn is a pose rather than a point — which is the whole difference between
+ * arriving somewhere and arriving facing the thing you came to see.
+ */
+export function markerSpawn(markers, collider) {
+  const found = (markers ?? []).filter((m) => SPAWN_MARKER.test(m.name ?? ''));
+  if (!found.length) return null;
+  if (found.length > 1) {
+    console.warn(`[spawn] ${found.length} spawn markers in the layout; using ${found[0].name}`);
+  }
+  const marker = found[0];
+  const [x, y, z] = marker.pos ?? [0, 0, 0];
+  const hit = collider.raycast(new Vec3(x, y + PROBE_UP, z), _down, PROBE_UP + PROBE_DOWN);
+  const floor = hit && hit.normal.y > 0.6 ? hit.point.y + 0.15 : y;
+  return { x, y: floor, z, yaw: markerYaw(marker), name: marker.name };
+}
+
+// Player.yaw is degrees about Y with 0 looking down -Z, so read the marker the
+// same way the player is read: turn its rotation into a forward vector and
+// take the compass bearing of that. A marker tilted off horizontal still gives
+// the right bearing — the tilt is simply dropped, which is all a player who
+// cannot roll could use anyway.
+function markerYaw(marker) {
+  if (marker.rot) {
+    // Quaternion over euler, the same precedence a prop placement gets.
+    const q = new Quat(marker.rot[0], marker.rot[1], marker.rot[2], marker.rot[3]);
+    q.transformVector(Vec3.FORWARD, _fwd);
+    if (_fwd.x || _fwd.z) return Math.atan2(-_fwd.x, -_fwd.z) * 180 / Math.PI;
+    return 0;                                  // pointed at the sky or the floor
+  }
+  return marker.euler ? marker.euler[1] : 0;
 }

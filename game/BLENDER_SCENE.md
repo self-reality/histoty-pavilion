@@ -60,9 +60,11 @@ never exported. It is there so you can see where the ground is.
 - An Empty with a **`glb` custom property** is a *prop*: the game loads that GLB
   and puts it at the Empty's transform.
 - A **childless** Empty without one is a *marker*: exported as a transform under
-  `markers`, for the game to do something with later (`spawn_*`, `painting_*`).
-  Nothing consumes markers yet. (Childless is what separates a marker from a
-  loose import whose root happens to be an Empty — see Gotchas.)
+  `markers` — a place in the level rather than a thing in it. `spawn_*` is the
+  one the game reads (see "Moving the spawn"); other names (`painting_*`, …)
+  are carried and ignored until something wants them. (Childless is what
+  separates a marker from a loose import whose root happens to be an Empty —
+  see Gotchas.)
 
 **`NEG`** — negative spaces: cutters that take geometry *out* of the map. Red
 wireframe primitives, each wired into the `REF` objects it overlaps by a Boolean
@@ -111,6 +113,30 @@ parses each URL once, then instantiates per placement.
 
 Anything else you add as a custom property rides along into `extras` in the
 JSON, so you can invent conventions without touching the exporter.
+
+## Moving the spawn
+
+Where the player starts is a marker, so there is no geometry and no GLB —
+`Add > Empty > Arrows`, name it `spawn_01`, stand it where you want to arrive
+and turn it to face what you want to see. Save, `npm run scene:export`, reload.
+
+- **The green +Y arrow is the way you will be looking.** An unrotated Empty
+  looks down PlayCanvas −Z, which is Blender's +Y; rotate about Blender's Z
+  (the blue axis) to aim it. Pitch and roll are dropped — the player stands up
+  straight no matter how the Empty is tilted.
+- **Height is a hint.** The spawn drops onto whatever floor is under the Empty,
+  searching from a metre above it to four below, so waist-high or a few
+  centimetres proud both land you standing on the ground. Only if that probe
+  finds nothing walkable does the Empty's own height stand.
+- **The floor it finds is the map's**, not a prop's: props load after the
+  player does, so an Empty stood on a crate finds the ground under the crate
+  and the crate shoves you up onto it a moment later. Stand it on the level.
+- Delete the Empty and the spawn goes back to what it always was — the walkable
+  sample nearest the middle of the map.
+
+With no `spawn_*` marker in the .blend the game falls back to `markers` in
+`scene.manifest.mjs`, which is where this one currently lives; an Empty of the
+same name shadows it, the same way Blender shadows a hand-written prop.
 
 ## Adding a picture
 

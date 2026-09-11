@@ -368,6 +368,7 @@ node tests/props.mjs   # props are solid; `_nocol` is not, and `_col` is all tha
 node tests/debug.mjs   # panel + sliders on ?debug, none of it on the production URL
 node tests/sound.mjs   # right voice at the right moment; no phantom thud on flat ground
 node tests/negatives.mjs # a cutter opens a doorway in the picture and the collision alike
+node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, and somewhere you can stand
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

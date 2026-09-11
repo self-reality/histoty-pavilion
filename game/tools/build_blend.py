@@ -94,6 +94,20 @@ def merged_props(manifest, placements):
     return [by_name[k] for k in sorted(by_name)]
 
 
+def merged_markers(manifest, placements):
+    """The same merge as the props, for the transforms that carry no geometry.
+
+    A marker usually has no hand-written half — it is authored in the .blend —
+    but `spawn_01` can start life in the manifest and be dragged into Blender
+    later, and a rebuild has to carry it across or the Empty it should have
+    become is simply missing.
+    """
+    by_name = {entry['name']: entry for entry in manifest.get('markers', [])}
+    for entry in placements.get('markers', []):
+        by_name[entry['name']] = entry
+    return [by_name[k] for k in sorted(by_name)]
+
+
 def reset_scene():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     scene = bpy.context.scene
@@ -225,7 +239,7 @@ def build(manifest, placements, out_path):
         anchor = anchor_for(prop['name'], matrix_of(prop), scene, extras)
         attach(roots, anchor)
 
-    for marker in placements.get('markers', []):
+    for marker in merged_markers(manifest, placements):
         print(f'[build] marker {marker["name"]}')
         anchor_for(marker['name'], matrix_of(marker), scene,
                    dict(marker.get('extras') or {}))

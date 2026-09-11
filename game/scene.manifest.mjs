@@ -104,6 +104,23 @@ export const manifest = {
   // is what Blender exports for an upright cutter. See src/negatives.mjs.
   negatives: [],
 
+  // ---- Markers: a place in the level rather than a thing in it ----
+  // A marker is a name and a transform with no geometry at either end of it —
+  // in Blender, a childless Empty (see BLENDER_SCENE.md). `spawn*` is the one
+  // the game reads: where the player starts, and which way they are looking.
+  //
+  //   { name: 'spawn_01', pos: [x, y, z], euler: [0, yaw, 0] }
+  //
+  // The height is a hint — the spawn drops onto the floor under it — and the
+  // rotation is a look direction, yaw 0 being down -Z. Same escape-hatch terms
+  // as `props` and `negatives`: entries here are shadowed by same-named ones
+  // from Blender, so dropping an Empty in the .blend takes this one's place.
+  markers: [
+    // On the street a few metres off the cisterna's east face, turned to look
+    // at it. Yaw 90 is west, which is where the thing is from here.
+    { name: 'spawn_01', pos: [-40.87, 0.2, -4.56], euler: [0, 90, 0] },
+  ],
+
   // ---- Articulated props: named nodes of a placed GLB, driven at runtime ----
   // Keyed by placement name, so this composes with both prop sources — the
   // Blender-generated placements and the hand-written `props` above — without

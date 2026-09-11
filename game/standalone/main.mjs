@@ -13,7 +13,7 @@ import { TriangleCollider } from '../src/collision.mjs';
 import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { isDebugMode } from '../src/debugmode.mjs';
-import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
+import { TargetManager, extractTriangles, findFloors, pickSpawn, markerSpawn, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
@@ -200,10 +200,18 @@ function boot() {
     collider = new TriangleCollider(tris, 2.0);
 
     const floors = findFloors(collider);
-    const spawn = pickSpawn(floors, collider.bounds);
+    // Where you start is authored in the .blend like everything else, and only
+    // falls back to the map's own middle when nothing says otherwise. The
+    // marker is read against the bare map — props land after this — so a spawn
+    // stood in front of one still finds the floor rather than the prop's roof.
+    const spawn = markerSpawn(scene.markers, collider) ?? pickSpawn(floors, collider.bounds);
+    console.log(`[spawn] ${spawn.name ? `marker ${spawn.name}` : 'nearest floor to the map centre'}`
+      + ` @ ${spawn.x.toFixed(2)}, ${spawn.y.toFixed(2)}, ${spawn.z.toFixed(2)}`
+      + (spawn.yaw === undefined ? '' : ` facing ${spawn.yaw.toFixed(0)}\u00b0`));
 
     player = new Player(playerRoot, cameraEntity, collider, {});
     player.teleport(spawn.x, spawn.y, spawn.z);
+    if (spawn.yaw !== undefined) player.yaw = spawn.yaw;
     player.spawn = spawn;
     player.floors = floors;
 
@@ -276,10 +284,13 @@ function reportNegatives(volumes, before, after, shown) {
 //
 // Props and negatives ride the same file and the same precedence — one is
 // geometry added, the other geometry taken away — so they are fetched together
-// rather than each reaching for the layout on its own.
+// rather than each reaching for the layout on its own. Markers ride along on
+// the same terms: a transform with no geometry at either end of it — where the
+// player starts is one.
 async function loadLayout() {
   const props = new Map(manifest.props.map((p) => [p.name, p]));
   const negatives = new Map((manifest.negatives ?? []).map((n) => [n.name, n]));
+  const markers = new Map((manifest.markers ?? []).map((m) => [m.name, m]));
   if (manifest.placements) {
     try {
       // `no-store`, because this file is rewritten by every `npm run
@@ -294,11 +305,12 @@ async function loadLayout() {
       const data = await res.json();
       for (const prop of data.props ?? []) props.set(prop.name, prop);
       for (const neg of data.negatives ?? []) negatives.set(neg.name, neg);
+      for (const marker of data.markers ?? []) markers.set(marker.name, marker);
     } catch (err) {
       console.warn(`[scene] no Blender placements (${manifest.placements}):`, err.message);
     }
   }
-  return { props: [...props.values()], negatives: [...negatives.values()] };
+  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()] };
 }
 
 // One container asset per URL — a scattered prop placed 50 times downloads and
