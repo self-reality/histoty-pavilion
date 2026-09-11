@@ -4,8 +4,9 @@ Why a prop can come out of Blender standing on its head, what the `*_root` node
 in a GLB is for, and who is responsible for which rotation.
 
 Written after `cisterna_01` shipped pitched onto its face (fixed in `0012f18`).
-The companion doc is [BLENDER_SCENE.md](BLENDER_SCENE.md), which tells you what
-to *do*; this one tells you why it works.
+[BLENDER_SCENE.md](BLENDER_SCENE.md) tells you what to *do*; this one tells you
+why it works. For the g-man skeleton and what a moving character would take, see
+[ANIMATED_PROPS.md](ANIMATED_PROPS.md).
 
 ---
 
@@ -186,20 +187,12 @@ Every GLB in `game/assets/` is an **older build** than the kit's current `dist/`
 | `tent_military.glb` | 1.17 MB, 10 nodes, root `Sketchfab_model` | 1.17 MB, 5 nodes, root `tent_military_root` |
 
 **Do not bulk-resync these.** The g-man row is the trap: the game's copy has two
-skins and a full bone hierarchy, and the kit's current build has none, because
-`build_assets.py` deletes armatures. That is a documented limit, stated in the
-code itself:
-
-> THE LIMIT: this is a builder for static props, and dropping every non-mesh is
-> what makes that assumption load-bearing. An armature arrives, gets deleted
-> here, and the mesh ships in its rest pose with no way to move. If this ever
-> needs to carry skinned or animated assets, this is the pass to reopen.
-
-`scene.manifest.mjs` poses `g-man_01` through `rigs`, which drives named bones.
-Copying `dist/g-man.glb` over `assets/g-man.glb` would silently flatten the
-meditation pose into a rest pose. **If animated characters are ever wanted, that
-armature pass is the change the kit needs** — and it is a real piece of work, not
-a flag.
+skins and 72 bones, the kit's current build has none — `build_assets.py` drops
+every non-mesh — and `scene.manifest.mjs` folds the meditation pose by driving
+those bones by name. Copying `dist/g-man.glb` across would silently flatten it
+into a rest pose. That file, and what a genuinely animated prop would take, is
+worked through in [ANIMATED_PROPS.md](ANIMATED_PROPS.md); the armature pass is
+the one change the kit would need, and it is real work rather than a flag.
 
 The cistern row is the opposite: the kit's build is *newer and better* (decimated
 to budget, refraction removed from the Venus) and the game is missing it. That
