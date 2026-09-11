@@ -182,7 +182,16 @@ def importer_rotation(glb_path, node_name=None):
     the largest hierarchy, which is the payload by construction.
     """
     before_objs = set(bpy.data.objects)
-    before_data = set(bpy.data.meshes) | set(bpy.data.materials) | set(bpy.data.images)
+    # What the importer drags in behind the objects. Removing the objects alone
+    # does not clear it: g-man.glb leaves two orphaned armatures per probe, and
+    # an orphan still owns its name, so the next import in the session comes
+    # back as `gman_high_ARM.001` — junk from a look that was meant to leave no
+    # trace. Actions earn their place ahead of needing it: an imported clip
+    # arrives with a fake user, so unlike everything else here it would survive
+    # a save and grow the .blend once per export.
+    pools = (bpy.data.meshes, bpy.data.materials, bpy.data.images,
+             bpy.data.armatures, bpy.data.actions)
+    before_data = {d for pool in pools for d in pool}
     bpy.ops.import_scene.gltf(filepath=glb_path)
     added = [o for o in bpy.data.objects if o not in before_objs]
     roots = [o for o in added if o.parent is None]
@@ -200,12 +209,10 @@ def importer_rotation(glb_path, node_name=None):
 
     for obj in added:
         bpy.data.objects.remove(obj, do_unlink=True)
-    for collection, pool in ((bpy.data.meshes, before_data),
-                             (bpy.data.materials, before_data),
-                             (bpy.data.images, before_data)):
-        for item in [d for d in collection if d not in pool]:
+    for pool in pools:
+        for item in [d for d in pool if d not in before_data]:
             try:
-                collection.remove(item)
+                pool.remove(item)
             except RuntimeError:
                 pass  # still referenced by something we did not create; leave it
     return rotation
