@@ -91,7 +91,9 @@ Import` happened to drop it — works out which file in `assets/` it came from b
 matching node names, builds the anchor around it, and saves, so the prop is in
 game when the script finishes. It reuses the name a GLB already had in
 `scene.placements.json`, so re-importing a prop you deleted keeps its identity
-and the diff stays to the numbers that changed.
+and the diff stays to the numbers that changed — unless something in the file
+already answers to that name, in which case the new anchor takes the next free
+one instead of a `.001` the layout cannot refer to.
 
 `npm run scene:export` adopts too, and writes the same numbers — what it will
 not do is *save* the `.blend`. That is the part that was never safe from a
@@ -384,7 +386,17 @@ exports: extra collections, lights, viewport layout, notes. Export first.
 - **A prop that shows in Blender but not in game** — you almost certainly moved
   the mesh instead of the Empty, or forgot `npm run scene:export`.
 - **Duplicate names**: Blender silently renames to `crate_01.001`, which exports
-  as a *different* prop. Rename properly.
+  as a *different* prop. Rename properly. Adoption will not hand you one — it
+  takes the next free name instead — but duplicating an anchor with `Shift-D`
+  never goes through adoption, so that copy is yours to rename.
+- **A payload in pieces still adopts as one prop.** Two loose imports that
+  resolve to the same GLB *and* land on the same anchor are one placement, not
+  two; the export says `merged X -> Y` when it happens. That is what puts a
+  payload back together after its root Empty was deleted — `cisterna.glb` comes
+  apart into `cisterna` and `cisterna_col`, which would otherwise be adopted
+  separately and load the whole GLB twice at one spot. Reusing a GLB across the
+  level is untouched: two crates set apart differ in the transform, so they key
+  apart and stay separate props.
 - **Never edit the `.blend` from a second Blender while it is open here.** A
   headless `-b scene/pavilion.blend -P fix.py` writes the file, then your next
   Cmd-S writes this session's scene straight back over it and the change is
