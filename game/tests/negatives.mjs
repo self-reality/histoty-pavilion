@@ -2,12 +2,19 @@
 //
 //   node tests/negatives.mjs    # needs `npm start` running on :5173
 //
-// Four things can go wrong independently of each other: the clipping maths, the
-// carve reaching the collider the player actually consults, a cutter that
-// should have been refused being applied anyway, and — the quiet one — a cutter
-// taking geometry with it that is nowhere near the hole. The last is checked by
-// identity: a triangle the carve did not touch must come out of it as the same
-// object, not as an equal copy.
+// Five things can go wrong independently of each other: the clipping maths, the
+// carve reaching the collider the player actually consults, the same carve
+// reaching the meshes the camera draws, a cutter that should have been refused
+// being applied anyway, and — the quiet one — a cutter taking geometry with it
+// that is nowhere near the hole. The last is checked by identity: a triangle
+// the carve did not touch must come out of it as the same object, not as an
+// equal copy.
+//
+// The two halves are checked against each other rather than each against its
+// own idea of where the hole is: the render carve runs on the live map, the
+// triangles are extracted back out of it, and the same rays are fired at the
+// result. A hole in the picture that is not a hole in the collision — or the
+// reverse — is the failure this is here to catch.
 import { chromium } from 'playwright';
 
 const browser = await chromium.launch({
@@ -20,8 +27,9 @@ await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForFunction(() => window.game && window.game.collider, { timeout: 60000 });
 
 const r = await page.evaluate(async () => {
-  const { volumeFrom, collectVolumes, carve } = await import('/src/negatives.mjs');
+  const { volumeFrom, collectVolumes, carve, carveRender } = await import('/src/negatives.mjs');
   const { TriangleCollider } = await import('/src/collision.mjs');
+  const { extractTriangles } = await import('/src/world.mjs');
   const { Vec3, Mat4 } = await import('playcanvas');
   const g = window.game;
 
@@ -102,8 +110,38 @@ const r = await page.evaluate(async () => {
   const was = new Set(before);
   const untouched = after.filter((t) => was.has(t)).length;
 
+  // 5) The render half, checked through the collider rather than by looking:
+  // carve the live map, pull the triangles back out of the meshes the camera
+  // now draws, and fire the same two rays at those. Agreement between what you
+  // see and what stops you is the whole claim.
+  const mapEntity = g.app.root.findByName('map');
+  const streamsOf = (root) => {
+    const out = [];
+    for (const rc of root.findComponents('render')) {
+      for (const mi of rc.meshInstances) {
+        out.push(mi.mesh.vertexBuffer.getFormat().elements.map((e) => e.name + ':' + e.numComponents).join(','));
+      }
+    }
+    return out;
+  };
+  const streamsBefore = streamsOf(mapEntity);
+  const meshesBefore = new Set();
+  for (const rc of mapEntity.findComponents('render')) for (const mi of rc.meshInstances) meshesBefore.add(mi.mesh);
+
+  const render = carveRender(mapEntity, [volume], g.app.graphicsDevice);
+  const fromMeshes = new TriangleCollider(extractTriangles(mapEntity), 2.0);
+  let swapped = 0;
+  for (const rc of mapEntity.findComponents('render')) {
+    for (const mi of rc.meshInstances) if (!meshesBefore.has(mi.mesh)) swapped++;
+  }
+
   return {
     wallArea, leftInside, wellArea, refused,
+    render: {
+      meshes: render.meshes, swapped, before: render.before, after: render.after,
+      streamsKept: JSON.stringify(streamsBefore) === JSON.stringify(streamsOf(mapEntity)),
+      doorway: shot(fromMeshes, from), control: shot(fromMeshes, aside),
+    },
     mapTris: { before: before.length, after: after.length, untouched, hits: volume.hits },
     doorway: { before: shot(g.collider, from), after: shot(rebuilt, from) },
     control: { before: shot(g.collider, aside), after: shot(rebuilt, aside) },
@@ -134,13 +172,24 @@ console.log(`  cutters refused      mirrored=${!r.refused.mirrored} unknown-shap
 console.log(`  map soup             ${r.mapTris.before.toLocaleString()} -> ${r.mapTris.after.toLocaleString()} tris, ${r.mapTris.untouched.toLocaleString()} of them the same objects; the cutter took ${r.mapTris.hits}`);
 console.log(`  ray at the doorway   ${r.doorway.before} m before, ${r.doorway.after === null ? 'no hit' : r.doorway.after + ' m'} after`);
 console.log(`  ray 2.5 m aside      ${r.control.before} m before, ${r.control.after} m after`);
+console.log(`  render rebuilt       ${r.render.meshes} mesh(es), ${r.render.swapped} swapped on their instances, ${r.render.before} -> ${r.render.after} tris`);
+console.log(`  drawn == collided    ray at the doorway ${r.render.doorway === null ? 'no hit' : r.render.doorway + ' m'}, 2.5 m aside ${r.render.control} m`);
+console.log(`  vertex streams       ${r.render.streamsKept ? 'unchanged' : 'CHANGED — normals or UVs were dropped'}`);
 console.log(`  loader wired         window.game.negatives is ${r.wired ? 'an array' : 'MISSING'}`);
 if (errs.length) console.log('  page errors:', errs.slice(0, 3));
 
-const ok = wallCarved && wellCarved && guarded && doorOpened && wallStands && local && nothingInside && r.wired && !errs.length;
+// The picture must have the same hole in it as the collision does, and must
+// still have the normals and UVs it was drawn with before the carve.
+const drawnMatchesCollided = r.render.meshes > 0 && r.render.swapped === r.render.meshes
+  && r.render.doorway === null && near(r.render.control, r.control.before, 0.01)
+  && r.render.streamsKept;
+
+const ok = wallCarved && wellCarved && guarded && doorOpened && wallStands && local && nothingInside
+  && drawnMatchesCollided && r.wired && !errs.length;
 if (!ok) {
   console.log(`\n  wallCarved=${wallCarved} wellCarved=${wellCarved} guarded=${guarded} doorOpened=${doorOpened}`
-    + ` wallStands=${wallStands} local=${local} nothingInside=${nothingInside} wired=${r.wired}`);
+    + ` wallStands=${wallStands} local=${local} nothingInside=${nothingInside}`
+    + ` drawnMatchesCollided=${drawnMatchesCollided} wired=${r.wired}`);
 }
 console.log(ok ? '\nNEGATIVES: PASS' : '\nNEGATIVES: FAIL');
 await browser.close();

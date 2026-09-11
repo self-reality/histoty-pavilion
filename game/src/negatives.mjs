@@ -12,16 +12,24 @@
 // cutter is the same one-line diff as moving a crate.
 //
 // The map GLB is never touched: nothing is baked, nothing is re-exported. The
-// subtraction happens at load, on the triangle soup extractTriangles() hands
-// over, before TriangleCollider is built — so a carved doorway is a doorway to
-// the capsule, to every raycast, and to the debug normals overlay.
+// subtraction happens at load, twice over the same volumes —
 //
-// It is not yet a doorway to the camera. The render mesh still holds its
-// geometry, so a wall you can walk through still looks solid; carving the
-// render side is the second half of the feature. Until then a negative is
-// paired with a prop that covers the opening — which is the usual arrangement
-// anyway, since a negative only ever removes (see BLENDER_SCENE.md).
-import { Mat4, Quat, Vec3 } from 'playcanvas';
+//   carve()        the triangle soup extractTriangles() hands over, before
+//                  TriangleCollider is built, so the hole is a hole to the
+//                  capsule, to every raycast, to findFloors and to the overlay
+//   carveRender()  the loaded meshes themselves, so it is a hole you can see
+//                  through and the sun shines through it too
+//
+// Both read the geometry the GLB shipped, and they are kept separate rather
+// than the collider being extracted from the carved meshes: collision is then
+// guaranteed by its own pass instead of inheriting whatever the render side
+// managed, and a mesh the render half declines to touch cannot leave an
+// invisible wall standing.
+//
+// What a negative does not do is add. Cut a hole in a floor and there is no
+// shaft under it, only a view of the level's underside — the shaft is a prop
+// placed in the opening (see BLENDER_SCENE.md).
+import { Mat4, Mesh, Quat, SEMANTIC_POSITION, TYPE_FLOAT32, Vec3 } from 'playcanvas';
 
 // ---- Unit shapes -----------------------------------------------------------
 // Local-space geometry of each cutter, sized to match the Blender primitive it
@@ -149,7 +157,7 @@ export function volumeFrom(entry) {
     max.x = Math.max(max.x, v.x); max.y = Math.max(max.y, v.y); max.z = Math.max(max.z, v.z);
   }
 
-  return { name, planes, min, max, hits: 0 };
+  return { name, planes, min, max, box: [min.x, min.y, min.z, max.x, max.y, max.z], hits: 0 };
 }
 
 /** Every entry that made it into a usable volume, in order. */
@@ -163,26 +171,39 @@ export function collectVolumes(entries) {
 }
 
 // ---- Clipping --------------------------------------------------------------
-// A point within ON of a plane counts as on it. Metres, so this is a micron —
-// small enough never to move a wall, large enough that a vertex lying exactly
-// in a cutter's face does not produce a zero-area sliver on both sides of it.
+// One clipper serves both halves of the feature. A vertex here is a plain array
+// of numbers whose first three are its position and whose remainder is carried
+// along, interpolated at every cut — which is what lets the render side keep
+// its normals and UVs while the collider side passes bare positions through the
+// same code. Two implementations of a polygon split is one implementation too
+// many for geometry this fiddly.
+
+// How close to a plane still counts as on it. World metres for the collider;
+// the render side scales it into each mesh's local units, where the map's own
+// coordinates are 40x larger than the game's.
 const ON = 1e-6;
+
+function lerpVertex(a, b, t) {
+  const out = new Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = a[i] + (b[i] - a[i]) * t;
+  return out;
+}
 
 /**
  * Split a convex polygon by one plane: the part in front (outside, `n·p + d >
- * 0`) into `front`, the part behind into `back`. A polygon entirely on one
- * side is passed through untouched rather than rebuilt, which is the common
- * case by far.
+ * 0`) into `front`, the part behind into `back`. A polygon entirely on one side
+ * is passed through by reference rather than rebuilt — the common case, and the
+ * reason an untouched triangle can be recognised again afterwards.
  */
-function splitPolygon(poly, pl, front, back) {
+function splitPolygon(poly, pl, eps, front, back) {
   const n = poly.length;
   const dist = new Array(n);
   let nf = 0, nb = 0;
   for (let i = 0; i < n; i++) {
     const p = poly[i];
-    const d = pl[0] * p.x + pl[1] * p.y + pl[2] * p.z + pl[3];
+    const d = pl[0] * p[0] + pl[1] * p[1] + pl[2] * p[2] + pl[3];
     dist[i] = d;
-    if (d > ON) nf++; else if (d < -ON) nb++;
+    if (d > eps) nf++; else if (d < -eps) nb++;
   }
   if (!nf) { back.push(poly); return; }
   if (!nb) { front.push(poly); return; }
@@ -191,10 +212,10 @@ function splitPolygon(poly, pl, front, back) {
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
     const di = dist[i], dj = dist[j];
-    if (di >= -ON) f.push(poly[i]);
-    if (di <= ON) b.push(poly[i]);
-    if ((di > ON && dj < -ON) || (di < -ON && dj > ON)) {
-      const cut = new Vec3().lerp(poly[i], poly[j], di / (di - dj));
+    if (di >= -eps) f.push(poly[i]);
+    if (di <= eps) b.push(poly[i]);
+    if ((di > eps && dj < -eps) || (di < -eps && dj > eps)) {
+      const cut = lerpVertex(poly[i], poly[j], di / (di - dj));
       f.push(cut); b.push(cut);
     }
   }
@@ -208,41 +229,43 @@ function splitPolygon(poly, pl, front, back) {
  * Plane by plane: whatever falls in front of a face is outside the volume for
  * good — no later face can put it back — so it is banked immediately into
  * `outside` and never touched again. Only the part still behind every face so
- * far carries on. What survives the last face is inside the volume, and that
- * is what the caller throws away.
+ * far carries on. What survives the last face is inside the volume, and that is
+ * what the caller throws away.
  *
  * Banking early is what keeps the fragment count down: a doorway punched
  * through a wall quad comes out as the four pieces around the opening, not as
- * every piece six clipping passes could produce.
+ * everything six clipping passes could produce.
  */
-function subtractVolume(polys, planes, outside) {
+function subtractVolume(polys, planes, eps, outside) {
   let inside = polys;
   for (let k = 0; k < planes.length && inside.length; k++) {
     const next = [];
-    for (const poly of inside) splitPolygon(poly, planes[k], outside, next);
+    for (const poly of inside) splitPolygon(poly, planes[k], eps, outside, next);
     inside = next;
   }
   return inside;
 }
 
-// Triangle AABB vs volume AABB. The whole point of the broadphase: a map
-// triangle nowhere near a cutter costs six comparisons and is passed through
-// by reference, so carving stays proportional to what the cutters touch.
-function overlaps(t, v) {
-  const { a, b, c } = t;
-  if (Math.min(a.x, b.x, c.x) > v.max.x || Math.max(a.x, b.x, c.x) < v.min.x) return false;
-  if (Math.min(a.y, b.y, c.y) > v.max.y || Math.max(a.y, b.y, c.y) < v.min.y) return false;
-  if (Math.min(a.z, b.z, c.z) > v.max.z || Math.max(a.z, b.z, c.z) < v.min.z) return false;
+// Axis-aligned overlap of a triangle against a volume's bounds, both given as
+// flat [minx, miny, minz, maxx, maxy, maxz]. The whole point of the broadphase:
+// geometry nowhere near a cutter costs six comparisons.
+function spanOverlaps(ax, ay, az, bx, by, bz, cx, cy, cz, box) {
+  if (Math.min(ax, bx, cx) > box[3] || Math.max(ax, bx, cx) < box[0]) return false;
+  if (Math.min(ay, by, cy) > box[4] || Math.max(ay, by, cy) < box[1]) return false;
+  if (Math.min(az, bz, cz) > box[5] || Math.max(az, bz, cz) < box[2]) return false;
   return true;
 }
+
+// ---- The collider half -----------------------------------------------------
 
 // Fan-triangulate a convex polygon back into the soup, inheriting everything
 // the source triangle carried. The normal is inherited rather than recomputed:
 // every piece is coplanar with its parent by construction, and a sliver's own
 // cross product is mostly rounding error.
 function fanInto(out, poly, src) {
-  for (let i = 2; i < poly.length; i++) {
-    const a = poly[0], b = poly[i - 1], c = poly[i];
+  const v = poly.map((p) => new Vec3(p[0], p[1], p[2]));
+  for (let i = 2; i < v.length; i++) {
+    const a = v[0], b = v[i - 1], c = v[i];
     _e1.sub2(b, a);
     _e2.sub2(c, a);
     if (_e1.cross(_e1, _e2).length() < 1e-9) continue;   // zero-area sliver
@@ -266,17 +289,225 @@ export function carve(tris, volumes) {
 
   const out = [];
   for (const t of tris) {
-    let polys = null;   // built only once a volume is known to be in range
+    let source = null;   // built only once a volume is known to be in range
+    let polys = null;
     for (const v of volumes) {
-      if (!overlaps(t, v)) continue;
-      polys = polys ?? [[t.a, t.b, t.c]];
+      if (!spanOverlaps(t.a.x, t.a.y, t.a.z, t.b.x, t.b.y, t.b.z, t.c.x, t.c.y, t.c.z, v.box)) continue;
+      if (!source) {
+        source = [[t.a.x, t.a.y, t.a.z], [t.b.x, t.b.y, t.b.z], [t.c.x, t.c.y, t.c.z]];
+        polys = [source];
+      }
       const kept = [];
-      if (subtractVolume(polys, v.planes, kept).length) v.hits++;
+      if (subtractVolume(polys, v.planes, ON, kept).length) v.hits++;
       polys = kept;
       if (!polys.length) break;
     }
-    if (!polys) { out.push(t); continue; }
+    // Either no cutter was in range, or one was and took nothing: both mean the
+    // triangle is the one that went in, so hand back that very object.
+    if (!polys || (polys.length === 1 && polys[0] === source)) { out.push(t); continue; }
     for (const poly of polys) fanInto(out, poly, t);
   }
   return out;
+}
+
+// ---- The render half -------------------------------------------------------
+
+/**
+ * One world-space volume expressed in a mesh's own coordinates.
+ *
+ * Planes are moved rather than vertices: a plane `P` satisfying `P·(x,1) = 0`
+ * for world points becomes `Mᵀ P` for local ones, which is three multiplies per
+ * face against a transform per vertex — and, more to the point, it leaves the
+ * normals and UVs alone. They are attributes of the surface, not of the space.
+ */
+function localise(volume, world, inverse) {
+  const m = world.data;
+  const planes = volume.planes.map((p) => {
+    const o = [0, 1, 2, 3].map((i) => m[4 * i] * p[0] + m[4 * i + 1] * p[1]
+      + m[4 * i + 2] * p[2] + m[4 * i + 3] * p[3]);
+    const len = Math.hypot(o[0], o[1], o[2]) || 1;
+    return [o[0] / len, o[1] / len, o[2] / len, o[3] / len];
+  });
+
+  // The world bounds through the inverse: conservative (an OBB's AABB), which
+  // is all a broadphase has to be.
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  const corner = new Vec3();
+  for (let i = 0; i < 8; i++) {
+    corner.set(i & 1 ? volume.max.x : volume.min.x,
+      i & 2 ? volume.max.y : volume.min.y,
+      i & 4 ? volume.max.z : volume.min.z);
+    inverse.transformPoint(corner, corner);
+    for (let a = 0; a < 3; a++) {
+      const c = a === 0 ? corner.x : a === 1 ? corner.y : corner.z;
+      if (c < lo[a]) lo[a] = c;
+      if (c > hi[a]) hi[a] = c;
+    }
+  }
+  return { planes, box: [...lo, ...hi] };
+}
+
+// Every vertex stream the mesh holds, packed one vertex at a time with POSITION
+// first so the clipper can read it without being told where it is. Float32 only
+// — which is what the glTF loader produces for this map, and a mesh that is not
+// gets left alone rather than quietly mangled.
+function packVertices(mesh) {
+  const vb = mesh.vertexBuffer;
+  const format = vb.getFormat();
+  if (format.elements.some((e) => e.dataType !== TYPE_FLOAT32)) return null;
+
+  const elements = [...format.elements].sort(
+    (a, b) => (a.name === SEMANTIC_POSITION ? -1 : 0) + (b.name === SEMANTIC_POSITION ? 1 : 0));
+  const stride = elements.reduce((n, e) => n + e.numComponents, 0);
+  const count = vb.getNumVertices();
+  const src = new Float32Array(vb.lock());
+  const verts = new Float32Array(count * stride);
+
+  let at = 0;
+  for (const e of elements) {
+    const base = e.offset / 4, step = e.stride / 4;
+    for (let i = 0; i < count; i++) {
+      for (let c = 0; c < e.numComponents; c++) verts[i * stride + at + c] = src[base + i * step + c];
+    }
+    at += e.numComponents;
+  }
+  return { elements, stride, count, verts };
+}
+
+function buildMesh(device, elements, stride, packed, indices) {
+  const mesh = new Mesh(device);
+  const count = packed.length / stride;
+  let at = 0;
+  for (const e of elements) {
+    const n = e.numComponents;
+    const data = new Float32Array(count * n);
+    for (let i = 0; i < count; i++) {
+      for (let c = 0; c < n; c++) data[i * n + c] = packed[i * stride + at + c];
+    }
+    // setPositions rather than setVertexStream for the one stream that decides
+    // the bounding box, or the mesh keeps the bounds of the shape it replaced.
+    if (e.name === SEMANTIC_POSITION) mesh.setPositions(data, n);
+    else mesh.setVertexStream(e.name, data, n);
+    at += n;
+  }
+  mesh.setIndices(indices);
+  mesh.update();
+  return mesh;
+}
+
+/**
+ * Carve one mesh instance, returning a replacement Mesh or null if the cutters
+ * left it alone.
+ *
+ * Vertices the carve did not touch are copied once and re-indexed, so a wall
+ * with a doorway in it keeps the vertex buffer it had plus the handful the
+ * opening needed — not a fresh copy of every corner in the level.
+ */
+function carveMesh(instance, volumes, device) {
+  const mesh = instance.mesh;
+  if (!mesh || !mesh.vertexBuffer) return null;
+
+  const world = instance.node.getWorldTransform();
+  const bounds = instance.aabb;
+  const near = volumes.filter((v) => {
+    const lo = bounds.getMin(), hi = bounds.getMax();
+    return v.min.x <= hi.x && v.max.x >= lo.x && v.min.y <= hi.y
+      && v.max.y >= lo.y && v.min.z <= hi.z && v.max.z >= lo.z;
+  });
+  if (!near.length) return null;
+
+  const packed = packVertices(mesh);
+  if (!packed) return null;                       // not float32 — leave it be
+  const { elements, stride, count, verts } = packed;
+
+  const indices = [];
+  mesh.getIndices(indices);
+  if (!indices.length) return null;
+
+  const inverse = new Mat4().copy(world).invert();
+  const local = near.map((v) => localise(v, world, inverse));
+  // ON is world metres; local coordinates are not. The map lives at 0.025, so
+  // a micron out there is forty microns in here.
+  const scale = world.getScale();
+  const eps = ON / Math.max(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z), 1e-9);
+
+  const out = [];
+  const idx = [];
+  const remap = new Int32Array(count).fill(-1);
+  const keep = (i) => {
+    if (remap[i] < 0) {
+      remap[i] = out.length / stride;
+      for (let c = 0; c < stride; c++) out.push(verts[i * stride + c]);
+    }
+    return remap[i];
+  };
+  const add = (v) => {
+    const n = out.length / stride;
+    for (let c = 0; c < stride; c++) out.push(v[c]);
+    return n;
+  };
+  const vertexAt = (i) => Array.from(verts.subarray(i * stride, i * stride + stride));
+
+  let cut = 0;
+  for (let t = 0; t < indices.length; t += 3) {
+    const i0 = indices[t], i1 = indices[t + 1], i2 = indices[t + 2];
+    const p0 = i0 * stride, p1 = i1 * stride, p2 = i2 * stride;
+
+    let source = null, polys = null;
+    for (const v of local) {
+      if (!spanOverlaps(verts[p0], verts[p0 + 1], verts[p0 + 2],
+        verts[p1], verts[p1 + 1], verts[p1 + 2],
+        verts[p2], verts[p2 + 1], verts[p2 + 2], v.box)) continue;
+      if (!source) {
+        source = [vertexAt(i0), vertexAt(i1), vertexAt(i2)];
+        polys = [source];
+      }
+      const kept = [];
+      subtractVolume(polys, v.planes, eps, kept);
+      polys = kept;
+      if (!polys.length) break;
+    }
+
+    if (!polys || (polys.length === 1 && polys[0] === source)) {
+      idx.push(keep(i0), keep(i1), keep(i2));
+      continue;
+    }
+    cut++;
+    for (const poly of polys) {
+      const ids = poly.map(add);
+      for (let i = 2; i < ids.length; i++) idx.push(ids[0], ids[i - 1], ids[i]);
+    }
+  }
+  if (!cut) return null;
+  return buildMesh(device, elements, stride, out, idx);
+}
+
+/**
+ * Carve a loaded render hierarchy in place, so the holes are visible as well as
+ * walkable.
+ *
+ * The mesh is swapped on the instance rather than the instance replaced on the
+ * component: a render component's meshInstances setter destroys what was there,
+ * and what was there is carrying the material atmosphere.js already adopted,
+ * the node, the layers and the shadow flags. Only the geometry changed.
+ *
+ * Nothing is written back to the container asset, so the GLB in memory stays
+ * the GLB on disk and a second instantiation of it comes up uncarved.
+ */
+export function carveRender(rootEntity, volumes, device) {
+  const stats = { meshes: 0, before: 0, after: 0 };
+  if (!volumes || !volumes.length) return stats;
+
+  for (const rc of rootEntity.findComponents('render')) {
+    for (const instance of rc.meshInstances) {
+      const before = instance.mesh?.primitive?.[0]?.count ?? 0;
+      const carved = carveMesh(instance, volumes, device);
+      if (!carved) continue;
+      instance.mesh = carved;
+      stats.meshes++;
+      stats.before += before / 3;
+      stats.after += (carved.primitive[0].count ?? 0) / 3;
+    }
+  }
+  return stats;
 }

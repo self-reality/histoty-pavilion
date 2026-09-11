@@ -141,9 +141,10 @@ collider nothing. The wall behind it is what stops you.
 ## Negative spaces
 
 A prop adds geometry at a transform. A negative takes it away: put a cutter in
-the level and the map's triangles are clipped out of its volume before the
-collider is built, so a doorway is a doorway to the player, to every raycast and
-to the debug normals overlay.
+the level and the map's triangles are clipped out of its volume at load — out of
+the soup the collider is built from, and out of the meshes the camera draws. So
+a doorway is a doorway you can walk through, see through, shoot through and cast
+shadows through.
 
 The map GLB is never touched. Nothing is baked and nothing is re-exported —
 `assets/de_dust2.glb` is the pristine rip it always was, and what ships is the
@@ -196,10 +197,9 @@ tall opening cut 2 m deep through the wall.
   stands for, and both sides agree on that down to the ring's phase.
 - **The map only.** Props are placed after the carve and keep all their
   geometry. A cutter over a crate does nothing to the crate.
-- **It is not yet visible.** This is the collision half: the wall you can walk
-  through still *looks* solid, because the render mesh has not been clipped. Put
-  the frame prop in the hole and the pairing above covers it; carving the render
-  side is the other half of the feature.
+- **No cap.** The hole has no walls, floor or jamb — cut a cylinder through the
+  floor and you look straight down at the underside of the level. That is the
+  shaft prop's job, not the cutter's.
 
 A cutter that carves nothing says so in the console at boot — that is the one
 failure mode with no other symptom, and it usually means the volume has been

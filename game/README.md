@@ -81,7 +81,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, spawn-finding, targets, input, game loop |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
-| `src/negatives.mjs` | Negative spaces: convex volumes clipped out of the map's triangles at load |
+| `src/negatives.mjs` | Negative spaces: convex volumes clipped out of the map's collision and its meshes at load |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
@@ -367,7 +367,7 @@ node tests/raycast.mjs # grid broadphase vs. a full triangle sweep, must agree e
 node tests/props.mjs   # props are solid; `_nocol` is not, and `_col` is all that is
 node tests/debug.mjs   # panel + sliders on ?debug, none of it on the production URL
 node tests/sound.mjs   # right voice at the right moment; no phantom thud on flat ground
-node tests/negatives.mjs # a cutter opens a doorway, leaves the wall beside it standing
+node tests/negatives.mjs # a cutter opens a doorway in the picture and the collision alike
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

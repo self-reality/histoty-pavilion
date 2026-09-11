@@ -17,7 +17,7 @@ import { TargetManager, extractTriangles, findFloors, pickSpawn, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
-import { collectVolumes, carve } from '../src/negatives.mjs';
+import { collectVolumes, carve, carveRender } from '../src/negatives.mjs';
 import { SoundBank } from '../src/audio.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -188,9 +188,14 @@ function boot() {
     // soup — a carved doorway has to be a doorway to the spawn finder and the
     // target scatter too, not only to the player (see ../src/negatives.mjs).
     const negatives = collectVolumes(scene.negatives);
-    const carved = extractTriangles(renderRoot);
-    const tris = carve(carved, negatives);
-    reportNegatives(negatives, carved.length, tris.length);
+    const raw = extractTriangles(renderRoot);
+    const tris = carve(raw, negatives);
+    // The same volumes out of the render mesh, so it is a hole you can see
+    // through as well as walk through. After the soup is taken, not before, so
+    // that both carves read the geometry the GLB shipped and each can report
+    // what it removed rather than the second one finding the work already done.
+    const shown = carveRender(renderRoot, negatives, app.graphicsDevice);
+    reportNegatives(negatives, raw.length, tris.length, shown);
 
     collider = new TriangleCollider(tris, 2.0);
 
@@ -248,11 +253,13 @@ function boot() {
 // A cutter that removed nothing is the failure mode worth printing: the entry
 // is in the layout, the export said nothing, and the doorway simply is not
 // there. Usually it has been left somewhere the map has no geometry.
-function reportNegatives(volumes, before, after) {
+function reportNegatives(volumes, before, after, shown) {
   if (!volumes.length) return;
   const cut = volumes.filter((v) => v.hits);
   console.log(`[negatives] ${cut.length}/${volumes.length} carved the map: `
-    + `${before.toLocaleString()} -> ${after.toLocaleString()} tris`);
+    + `collision ${before.toLocaleString()} -> ${after.toLocaleString()} tris, `
+    + `render ${shown.meshes} mesh${shown.meshes === 1 ? '' : 'es'} rebuilt `
+    + `(${shown.before.toLocaleString()} -> ${shown.after.toLocaleString()} tris)`);
   for (const v of volumes) {
     if (v.hits) console.log(`[negatives] ${v.name} cut ${v.hits} triangle${v.hits > 1 ? 's' : ''}`);
     else console.warn(`[negatives] ${v.name} cut NOTHING — is it inside the map?`);
