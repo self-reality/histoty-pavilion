@@ -15,7 +15,7 @@ import { Weapon } from '../src/weapon.mjs';
 import { isDebugMode } from '../src/debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors, isNonColliding,
          propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
-import { resolveSpawn, placeAtSpawn } from '../src/spawn.mjs';
+import { resolveSpawn, placeAtSpawn, FallRescue } from '../src/spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
 import { collectVolumes, carve, carveRender } from '../src/negatives.mjs';
@@ -156,6 +156,7 @@ let targets = null;
 let collider = null;
 let debug = null;
 let audio = null;
+let rescue = null;
 let started = false;
 
 // ---- Boot ----
@@ -215,6 +216,7 @@ function boot() {
     placeAtSpawn(player, spawn);
     player.spawn = spawn;
     player.floors = floors;
+    rescue = new FallRescue(player, collider);
 
     targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
 
@@ -241,7 +243,7 @@ function boot() {
     }
 
     // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, weapon, targets, collider, debug, audio, negatives, surface, camera: cameraEntity, root: playerRoot };
+    window.game = { app, player, rescue, weapon, targets, collider, debug, audio, negatives, surface, camera: cameraEntity, root: playerRoot };
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
@@ -498,10 +500,8 @@ app.on('update', (dt) => {
 
   if (debug) debug.updateReadout();
 
-  // Respawn if the player falls out of the world.
-  if (player.pos.y < collider.bounds.miny - 20 && player.spawn) {
-    placeAtSpawn(player, player.spawn);
-  }
+  // Fell out of the world: back onto the last floor stood on (see ../src/spawn.mjs).
+  rescue.update();
 
   if (weapon) weapon.update(d);
   if (targets) targets.update(d);

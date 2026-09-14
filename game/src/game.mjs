@@ -23,7 +23,7 @@ import { Weapon } from './weapon.mjs';
 import { DebugTools, togglePanel, removePanel } from './debug.mjs';
 import { isDebugMode } from './debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors } from './world.mjs';
-import { resolveSpawn, placeAtSpawn } from './spawn.mjs';
+import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook, EDITOR_FOG, EDITOR_SURFACE } from './atmosphere.mjs';
 import { injectUI } from './ui.mjs';
 import { SoundBank } from './audio.mjs';
@@ -330,6 +330,7 @@ export class Game extends Script {
     placeAtSpawn(this.player, spawn);
     this.player.spawn = spawn;
     this.player.floors = floors;
+    this.rescue = new FallRescue(this.player, this.collider);
 
     this.targets = new TargetManager(app, this.collider, floors.length ? floors : [spawn], this.addScore);
 
@@ -358,7 +359,7 @@ export class Game extends Script {
     // Debug handle (parity with the standalone build; used by automated checks).
     window.game = {
       app, player: this.player, weapon: this.weapon, targets: this.targets,
-      collider: this.collider, debug: this.debug, audio: this.audio,
+      rescue: this.rescue, collider: this.collider, debug: this.debug, audio: this.audio,
       surface: this.surface, camera: this.camera, root: this.playerRoot,
     };
 
@@ -465,9 +466,7 @@ export class Game extends Script {
 
     if (this.debug) this.debug.updateReadout();
 
-    if (this.player.pos.y < this.collider.bounds.miny - 20 && this.player.spawn) {
-      placeAtSpawn(this.player, this.player.spawn);
-    }
+    this.rescue.update();
 
     if (this.weapon) this.weapon.update(d);
     if (this.targets) this.targets.update(d);

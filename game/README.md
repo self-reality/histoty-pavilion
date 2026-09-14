@@ -399,6 +399,7 @@ node tests/debug.mjs   # panel + sliders on ?debug, none of it on the production
 node tests/sound.mjs   # right voice at the right moment; no phantom thud on flat ground
 node tests/negatives.mjs # a cutter opens a doorway in the picture and the collision alike
 node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
+node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

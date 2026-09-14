@@ -70,6 +70,48 @@ export function placeAtSpawn(player, spawn) {
 }
 
 /**
+ * Falling out of the map puts you back on the last floor you stood on, not at
+ * the spawn a long walk away. The "save" is simply every grounded frame whose
+ * centre has floor under it — no timer, so it is never seconds stale and never
+ * a point in mid-jump. The centre check matters: ground-glue can hold the
+ * capsule over a crack by its rim, and that is exactly the spot you fall from.
+ *
+ * If the spot you are put back on does not hold — you fall again without
+ * standing anywhere in between — the next fall goes to the spawn instead, so
+ * a bad spot can never become a loop.
+ */
+export class FallRescue {
+  constructor(player, collider, { depth = 20 } = {}) {
+    this.player = player;
+    this.collider = collider;
+    this.depth = depth;           // metres below the lowest triangle that count as out
+    this.safe = new Vec3();
+    this.hasSafe = false;
+    this.used = false;            // put back here already, and not stood since
+  }
+
+  update() {
+    const p = this.player;
+    if (p.grounded) {
+      const r = p.radius;
+      const hit = this.collider.groundBelow(p.pos.x, p.pos.z, p.pos.y + r, r + 0.25);
+      if (hit && Math.abs(hit.ny) > 0.5) {
+        this.safe.copy(p.pos);
+        this.hasSafe = true;
+        this.used = false;
+      }
+    }
+    if (p.pos.y >= this.collider.bounds.miny - this.depth) return;
+    if (this.hasSafe && !this.used) {
+      p.teleport(this.safe.x, this.safe.y, this.safe.z);   // keeps the view where it was
+      this.used = true;
+    } else if (p.spawn) {
+      placeAtSpawn(p, p.spawn);
+    }
+  }
+}
+
+/**
  * The address that opens the page where the player stands now, looking the
  * way they look. Every other parameter (`debug`, the Editor's) is kept.
  */
