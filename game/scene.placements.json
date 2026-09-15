@@ -20,6 +20,134 @@
       "glb": "./assets/g-man.glb"
     },
     {
+      "name": "picture_01_teether_01",
+      "pos": [-49.90623, 0.45511, 3.09112],
+      "rot": [0.0, -1.0, 0.0, 0.0],
+      "euler": [0.0, -180.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_01_teether.glb"
+    },
+    {
+      "name": "picture_02_paperclip_holder_01",
+      "pos": [-51.1086, 0.45511, 3.05083],
+      "rot": [0.0, -1.0, 0.0, 0.0],
+      "euler": [0.0, -180.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_02_paperclip_holder.glb"
+    },
+    {
+      "name": "picture_03_pet_bed_01",
+      "pos": [-47.83809, 0.45511, 1.37617],
+      "rot": [0.03084, -0.70643, 0.03084, 0.70643],
+      "euler": [5.0, -90.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_03_pet_bed.glb"
+    },
+    {
+      "name": "picture_04_leather_chair_01",
+      "pos": [-47.83809, 0.45511, 0.1738],
+      "rot": [0.03084, -0.70643, 0.03084, 0.70643],
+      "euler": [5.0, -90.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_04_leather_chair.glb"
+    },
+    {
+      "name": "picture_05_archetype_01",
+      "pos": [-48.71439, 0.45511, 3.11643],
+      "rot": [0.0, -1.0, 0.0, 0.0],
+      "euler": [0.0, -180.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_05_archetype.glb"
+    },
+    {
+      "name": "picture_06_fountain_redux_01",
+      "pos": [-47.83809, 0.45511, -1.01804],
+      "rot": [0.03084, -0.70643, 0.03084, 0.70643],
+      "euler": [5.0, -90.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_06_fountain_redux.glb"
+    },
+    {
+      "name": "picture_07_quartz_candle_holder_01",
+      "pos": [-48.46703, 0.45511, -12.36924],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_07_quartz_candle_holder.glb"
+    },
+    {
+      "name": "picture_08_herb_soap_01",
+      "pos": [-51.74264, 0.45511, -5.99382],
+      "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
+      "euler": [-175.0, 90.0, 0.0],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_08_herb_soap.glb"
+    },
+    {
+      "name": "picture_09_lucky_iron_fish_01",
+      "pos": [-51.75307, 0.45511, -2.64497],
+      "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
+      "euler": [-175.0, 90.0, 0.0],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_09_lucky_iron_fish.glb"
+    },
+    {
+      "name": "picture_10_interlinked_01",
+      "pos": [-51.81169, 0.45511, -1.45313],
+      "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
+      "euler": [-175.0, 90.0, 0.0],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_10_interlinked.glb"
+    },
+    {
+      "name": "picture_11_offshore_platform_01",
+      "pos": [-51.81169, 0.45511, -0.25076],
+      "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
+      "euler": [-175.0, 90.0, 0.0],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_11_offshore_platform.glb"
+    },
+    {
+      "name": "picture_12_primitive_object_01",
+      "pos": [-49.6694, 0.45511, -12.40952],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_12_primitive_object.glb"
+    },
+    {
+      "name": "picture_13_plastic_tube_cap_01",
+      "pos": [-50.86124, 0.45511, -12.43484],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [0.7, 0.7, 0.7],
+      "glb": "./assets/picture_13_plastic_tube_cap.glb"
+    },
+    {
+      "name": "picture_14_specimen_01",
+      "pos": [-51.64428, 0.45511, -11.51197],
+      "rot": [-0.70568, 0.04491, 0.70568, 0.04491],
+      "euler": [-172.7169, 90.0, 0.0],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_14_specimen.glb"
+    },
+    {
+      "name": "picture_15_asteroid_700_bedfordshire_01",
+      "pos": [-47.00122, 1.14161, -0.63454],
+      "rot": [0.70635, -0.00041, -0.70782, 0.00732],
+      "euler": [78.9601, 89.362, -100.4805],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_15_asteroid_700_bedfordshire.glb"
+    },
+    {
+      "name": "picture_16_bedfordshire_txt_01",
+      "pos": [-47.00122, 1.14161, -1.84792],
+      "rot": [0.70635, -0.00041, -0.70782, 0.00732],
+      "euler": [78.9601, 89.362, -100.4805],
+      "scale": [-0.7, -0.7, -0.7],
+      "glb": "./assets/picture_16_bedfordshire_txt.glb"
+    },
+    {
       "name": "picture_data_full_hd_01",
       "pos": [4.20102, 1.80104, -12.0],
       "rot": [0.0, 0.0, 0.0, 1.0],
