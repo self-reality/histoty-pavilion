@@ -12,6 +12,15 @@
       "glb": "./assets/cisterna.glb"
     },
     {
+      "name": "g-man-dance_01",
+      "pos": [-43.46228, 0.0, -5.81613],
+      "rot": [0.0, 0.70711, 0.0, 0.70711],
+      "euler": [0.0, 90.0, 0.0],
+      "scale": [0.03846, 0.03846, 0.03846],
+      "glb": "./assets/g-man-dance/g-man-dance.glb",
+      "script": "./assets/g-man-dance/g-man-dance.script.json"
+    },
+    {
       "name": "g-man_01",
       "pos": [6.76929, 0.4, -11.75884],
       "rot": [0.0, 0.0, 0.0, 1.0],
