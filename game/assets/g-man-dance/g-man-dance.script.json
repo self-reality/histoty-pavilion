@@ -34,7 +34,7 @@
   ],
   "play": {
     "clip": "keep_it_gangsta_3",
-    "loop": false,
+    "loop": true,
     "speed": 1
   }
 }
