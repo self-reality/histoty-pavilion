@@ -1,184 +1,184 @@
 # Animated props
 
-What it would take to put a *moving* character in the pavilion, written while
-working out how to add a second, animated g-man beside the one meditating in
-the tent.
+How a *moving* character gets into the pavilion, and which side does what.
+Written first as a plan, when the only g-man was the one meditating in the
+tent; now the record of how the dancing one beside him works.
 
-The short version: **the placing half is ready and the animating half does not
-exist yet.** Placing a copy of a prop is a five-minute job through the pipeline
-we already have. Making that copy move is three separate pieces of work, one of
-which is in the sibling asset kit and blocks the other two.
+The short version: **an animated character is a prop that ships as a folder** —
+the object, a script saying what it does, and the clips the script plays. It is
+produced elsewhere, copied into `assets/`, placed in Blender like any prop, and
+the runtime does the rest. Nothing is built here.
 
-## Where it stands
-
-| Piece | State |
-|---|---|
-| Placing a second copy of a GLB | **Ready** — Blender anchor + `scene:export`, see BLENDER_SCENE.md |
-| One skeleton per copy | **Ready** — `instantiateRenderEntity()` builds per-node entities |
-| A skeleton to animate | **Ready but fragile** — the shipped GLB has one; the kit would strip it |
-| Animation clips in the asset | **Missing** — zero clips, and the kit can't carry them |
-| Playing a clip at runtime | **Missing** — `src/rig.mjs` is write-once pose only |
-
-## The blocker: the asset kit deletes armatures
-
-`singularity-development-kit/tools/build_assets.py`, `keep_meshes_only()` at
-line 261, drops every non-mesh object on import. Its own docstring says so at
-line 286:
-
-> THE LIMIT: this is a builder for static props, and dropping every non-mesh is
-> what makes that assumption load-bearing. An armature arrives, gets deleted
-> here, and the mesh ships in its rest pose with no way to move. If this ever
-> needs to carry skinned or animated assets, this is the pass to reopen.
-
-Which means **the skeleton the meditation pose depends on is a fossil.** It
-survived an older build of the kit and nothing regenerates it today:
-
-| file | skins | nodes named `ValveBiped` | clips |
-|---|---|---|---|
-| `game/assets/g-man.glb` — tracked, shipped | 2 | 72 | 0 |
-| `singularity-development-kit/dist/g-man.glb` — rebuilt 2026-09-08 | 0 | 0 | 0 |
-
-Copy the kit's current `dist/g-man.glb` over `game/assets/g-man.glb` and
-`g-man_01`'s cross-legged sit dies quietly: `src/rig.mjs` logs `no node matched`
-for all thirteen bone patterns and the figure stands up in its rest pose. **Do
-not refresh that GLB from the kit until the armature pass is reopened.**
-
-What is holding the fossil in place is only the build cache. `digest()`
-(line 233) is the source bytes plus the settings that shaped them — *not* the
-version of the tool doing the shaping — so an unchanged `source/g-man.glb` with
-unchanged settings is skipped rather than rebuilt. The asset is one `--force`
-away from losing its bones.
-
-Two further things to fix in that same pass, both of which would break a rig
-even after armatures survive:
-
-- **`set_ground_origin()` (line 556) collects `MESH` objects only**, sets each
-  one's origin to a shared cursor and then zeroes its location. Do that to a
-  skinned mesh while its armature stays put and the deformation desyncs. A
-  rigged asset either skips this or moves the armature with it.
-- **The glTF export call (line 951) passes no `export_animations`.** Blender's
-  default for that operator is `True`, so clips *would* come through once there
-  is an armature to hang them on — but the kit's `npm run check` has no notion
-  of a clip, so nothing would notice if they stopped.
-
-Contract section 6 of `ASSET_CONTRACT.md` ("Behaviour, and why it is not here
-yet") is the deliberate version of this gap: the current answer is *data, not
-code* — a prop ships its rig and the consumer drives it from a table. Clips are
-data, so they fit that policy; the builder simply hasn't been taught to carry
-them.
-
-## The other gaps
-
-**No clips exist.** Both `assets/g-man.glb` and `assets/source/g-man.glb` report
-`animations: 0`. What is there is a rig with nothing to play. The mesh is not
-the problem — the cache records `trisBefore 9433, trisAfter 9433`, so g-man was
-never decimated.
-
-**Nothing in the game can play a clip.** `src/rig.mjs` writes bone rotations
-once at spawn and holds them; its header is explicit that there is no anim
-component and no clips, and that *"a driver that ticks would slot in beside it
-without changing the lookup or the authoring format."* The engine side is fine:
-`lib/playcanvas.mjs` contains `AnimComponentSystem`, and `standalone/main.mjs:68`
-constructs a full `pc.Application`, which registers the whole component list —
-so `addComponent('anim')` is available and this is wiring, not an engine swap.
-
-Three things that will bite during that wiring:
-
-- **Pose and animation are mutually exclusive on the same placement.** An anim
-  component rewrites bone rotations every frame, so the animated copy must not
-  get a `rigs` entry (`scene.manifest.mjs:135`) — and it wants neither the
-  `hide: ['briefcase_reference*']` nor the `offset: [0, -0.93, 0]`, both of which
-  are consequences of sitting rather than properties of the model.
-- **Collision freezes at load.** `addPropCollision()` (`standalone/main.mjs:390`)
-  bakes world-space triangles into the static collider once, from the posed mesh.
-  An animated prop's collision would be stuck on frame one. Give it
-  `solid: false` — a Blender custom property rides through to `extras` and
-  `propIsSolid()` (line 382) reads it — or a `_col` capsule stand-in.
-- **The Editor build has no props at all.** `src/game.mjs` reads no placements
-  and calls no `loadProp`. Animation lands in the standalone build only.
-
-## Steps, in order
-
-1. **Reopen the armature pass in the kit.** Keep armatures, skins and clips
-   instead of dropping every non-mesh; skip or extend `set_ground_origin` for
-   rigged assets; add a contract assertion that bone count and clip count
-   survive, or the next regression is as quiet as the current one. Probably an
-   `animated: true` per-asset setting so static props keep today's behaviour.
-2. **Get clips onto the rig.** See below.
-3. **Wire playback.** An `anims: { '<placement>': { clip, loop } }` block in
-   `scene.manifest.mjs`, keyed by placement name exactly as `rigs` is, read in
-   `loadProp` (`standalone/main.mjs:333`). One gotcha: put the anim component on
-   the entity returned by `instantiateRenderEntity()`, not on the outer
-   `prop.name` wrapper, or the glTF track's node paths won't resolve.
-4. **Place the copy.** Minutes — see the next section.
-
-Steps 1 and 3 are the real work. Step 2 is as long as the animation is good.
-
-## Where clips could come from
-
-- **Valve's originals.** Decompile `gman.mdl` with Crowbar to `.smd` and import
-  onto the existing skeleton with Blender Source Tools. The bone names already
-  match `ValveBiped.Bip01_*`, so the authored pose and the clips would address
-  the same joints. Highest fidelity, and the only route that gets his actual
-  mannerisms.
-- **Hand-keyed in Blender.** The rig is already there and the debug panel's Rig
-  sliders already dial poses that paste back into the manifest — an idle sway or
-  a breath is an afternoon.
-- **Mixamo.** Works, but it re-rigs with its own skeleton, so the ValveBiped
-  names and the existing pose entry would no longer apply to that copy.
-- **A procedural driver.** No asset work at all: extend `rig.mjs` with the
-  ticking driver its header anticipates and drive a few joints from a sine.
-  Enough for breathing or a slow head turn, not for anything with weight. This
-  is the one route that needs neither step 1 nor step 2.
-
-## Placing the copy
-
-The general rules now live in BLENDER_SCENE.md — "Adding a new prop", and the
-Duplicate names and payload-merge entries under Gotchas. What follows is only
-what is specific to making a *second* g-man.
-
-**Duplicate the anchor, don't re-import.** `Shift-D` on the `g-man_01` Empty
-takes its payload with it, and the duplicate already owns the `glb` custom
-property — so `loose_roots()` skips it and `adopt()` never runs. It arrives as
-`g-man_01.001`; **rename it to `g-man_02`**, then export. One pass, readable
-name.
-
-**The rename is not optional.** `collect()` in `tools/export_scene.py` reads
-`obj.name` verbatim and nothing validates it: `DEDUP_SUFFIX` is used only for
-matching node names, never for checking an anchor's. Skip the rename and the
-layout gets a placement literally called `g-man_01.001`, with no warning line.
-Adoption *does* protect against this — it takes the next free name instead — but
-duplicating an anchor bypasses adoption, which is exactly what makes it
-convenient.
-
-**Re-importing instead gets you `g-man_01_02`.** Not `g-man_02`, and not a
-`.001`. `anchor_base('g-man.glb')` returns `stem.split('_')[0] + '_01'`, and
-`g-man` has a hyphen where that split wants an underscore, so the base is the
-whole of `g-man_01`; `unique_name` then appends, giving `g-man_01_02`. Unique
-and stable, just ugly — and it is the name in *both* adoption orders, so it does
-not indicate anything went wrong.
-
-**Anchor `g-man_01` permanently before adding anything.** Its payload is still
-loose in `scene/pavilion.blend` (`Sketchfab_model.001`), and headless export
-adopts in memory without saving — only the in-Blender run writes the anchor back
-to the file. While no anchor named `g-man_01` exists as a saved object, adoption
-order decides which payload claims that name, and because `manifest.rigs` is
-keyed by placement name, a bad draw moves the meditation pose onto the new copy
-and stands the original up. So: run one in-Blender export **now**, with nothing
-new added, and commit it. That same run also merges `cisterna_col` permanently
-under `cisterna_01`, so it is worth doing on its own account.
-
-```bash
-npm run scene:edit
-# Scripting workspace > Open > tools/export_scene.py > Run Script (Alt-P)
+```
+assets/g-man-dance/
+  g-man-dance.glb                ← the OBJECT: the rig, under one root node named g-man-dance_root
+  g-man-dance.script.json        ← the SCRIPT: which clip plays, how, and what to hang where first
+  keep_it_gangsta_3.dance.json   ← a clip, retargeted to that rig
 ```
 
-**Keep the copy's transform away from the original's.** Anchors are keyed by
-`(glb, anchor matrix)`, so a second g-man at exactly `g-man_01`'s transform
-merges into one prop rather than becoming two. The export prints `merged X -> Y`
-when it happens, so it is visible, but placing them apart avoids the question.
+## Who does what
+
+| side | repo | does |
+|---|---|---|
+| **producer** | `motion-capture-4` (`/Volumes/Smartbuy/Projects/motion-capture-4`) | tracks a video, retargets it to the rig, writes the folder above |
+| **standard** | `singularity-development-kit` | `ASSET_CONTRACT.md` section 6, "Scripts"; `npm run check <folder>/` |
+| **consumer** | this repo | `tools/export_scene.py` writes the script's path into the placement; `src/script.mjs` plays it |
+
+The same arrangement every other asset has: the kit builds props, the
+frames-for-artwork app builds pictures, the sound-design repo builds the sound
+bank, and each ships something finished and self-describing that this side
+places without knowing who made it. The motion-capture tool is the fourth
+producer, and what it produces is the first asset with a *script*.
+
+## An object and its script
+
+A prop has always been two things: the object (the GLB) and what it does. For
+the meditating g-man the second half lives here, as the `rigs` entry in
+`scene.manifest.mjs` — a pose the pavilion dials onto a model it was handed. An
+animated character carries its own: the script beside the GLB says what the
+object does anywhere it stands, and the pavilion's `rigs` entry, if it has one,
+says what *this* copy does *here* — applied on top, the way placements shadow
+hand-written props.
+
+The script is data, never code. Its vocabulary is the contract:
+
+| field | means |
+|---|---|
+| `object` | the GLB beside it, its root node's name, what it was made from, its sha256 |
+| `solid` | the asset's own answer to collision — `false` for anything that moves |
+| `rig.root` … `rig.right_thigh` | which bones the runtime reads the character's own axes off |
+| `rig.attach` | hang `node` off `to` at load, keeping its bind world transform |
+| `clips` | every clip in the folder: name, file, duration, bpm, loop, sha256 |
+| `play` | `{ clip, loop, speed }` — what plays from the moment the prop lands |
+| `pose` / `hide` / `offset` / `move` | a static pose, in exactly the terms a `rigs` entry uses |
+
+A clip is a shared `times` array and, per bone pattern, a flat `xyzw`
+quaternion per key: a **delta on the bind pose**, composed as `delta × bind`,
+in the parent's frame, with every node a pattern hits taking the same delta —
+`Spine*` is four bones on g-man and the exporter has already divided by four.
+`root.t` is the pelvis's travel in the character's own axes (right, up, behind)
+and `root.q` its turn. The producer's `PAVILION_EXPORT.md` is the format's home;
+the summary above is what this side needs to play one.
+
+A `rigs` pose is composed the *other* way, `bind × delta`, so a hand-dialled
+euler triple reads as "bend this joint in its own axes". Same words, opposite
+order, one whole bind rotation apart — which is why `src/rig.mjs` and
+`src/script.mjs` never share that line.
+
+## What the runtime does
+
+`standalone/main.mjs` fetches the script alongside the GLB (`loadProp`), and
+once both are in, `PropScript` in `src/script.mjs` runs the script in a fixed
+order:
+
+1. **Capture the bind pose** — every node's local rotation and position, before
+   anything moves. Every delta is a delta on this.
+2. **Attach** what the script says. g-man's head is a second skeleton whose
+   armature is a *sibling* of the body's, not a child of its spine, so bending
+   the body would leave the head hanging in space. `rig.attach` names the
+   armature (`gman_high_ARM.001`) and the bone to hang it off
+   (`ValveBiped.Bip01_Spine4_gman_high_ARM`); the loader reparents it with its
+   bind world transform preserved, measured against the host's *bind*, never a
+   pose. The producer measured that trap and wrote it down; this side does what
+   the entry says, by exact name, and nothing more.
+3. **The script's own pose**, if it has one — a `PropRig`, write-once, same as a
+   `rigs` entry.
+4. **Bind the clip.** `ClipPlayer` matches every pattern, keeps each node's
+   captured bind rotation, reads the character's axes off the pelvis, spine top
+   and thighs, and from then on is ticked from the game loop on the same clamped
+   step as the player: slerp between the two neighbouring keys, `delta × bind`
+   onto every matched node, the pelvis's travel turned through its parent's
+   frame. A clip that does not loop holds its last key.
+
+Then the manifest's `rigs` entry for the placement, if any, goes on top — with
+a warning if a clip is also playing, since the clip rewrites its bones every
+frame and the pose only survives on bones the clip leaves alone.
+
+**Collision is the one thing a moving prop must not have.** `addPropCollision`
+bakes world-space triangles into the static collider once, from whatever pose
+the mesh is in at load; a dancer would leave a statue of his first frame
+standing in the room. The script says `solid: false`, `propIsSolid` reads it
+after the placement's own word (an anchor's `solid` custom property still
+wins), and the log line says where the answer came from. An animated prop that
+must block ships a `_col` stand-in the clip does not move.
+
+`tests/anim.mjs` places the dancer from the test, through the same `loadProp`,
+and checks all of it: the clip ticks, the head rides Spine4 at its bind
+distance, the pelvis walks, nothing joins the collider, and the clock holds at
+the end of a one-off clip.
+
+## Placing one
+
+Copy the folder in, import the GLB *inside* it, export from Blender. The steps
+are in BLENDER_SCENE.md under "Adding an animated prop"; what matters here is
+what the export writes:
+
+```json
+{ "name": "g-man-dance_01",
+  "glb": "./assets/g-man-dance/g-man-dance.glb",
+  "script": "./assets/g-man-dance/g-man-dance.script.json",
+  "pos": [...], "rot": [...], "scale": [...] }
+```
+
+`script` is found on disk at export time — `<stem>.script.json` beside
+`<stem>.glb` — and never stored on the anchor, so the `.blend` carries one
+property per prop and a script added to an asset later is picked up by the next
+export. A hand-written entry in `manifest.props` takes the same `script` field.
+
+## Two g-men, two files
+
+`g-man_01` sits in the tent, posed by the `rigs` entry; `g-man-dance_01` dances
+beside him. They are the same model and deliberately **not** the same file:
+
+| placement | file | root node | driven by |
+|---|---|---|---|
+| `g-man_01` | `assets/g-man.glb` | `Sketchfab_model` | `rigs['g-man_01']` in the manifest |
+| `g-man-dance_01` | `assets/g-man-dance/g-man-dance.glb` | `g-man-dance_root` | its script |
+
+The copy costs ~1 MB of download and buys an unambiguous scene. Adoption in
+`tools/export_scene.py` works out which file a hand-imported payload came from
+by node names, and a copy with the same names would match both; the producer
+wraps its copy in one extra root node named for the asset, and the exporter
+prefers the file with nothing left over. So re-importing either g-man lands on
+its own file, and the `rigs` pose can never migrate onto the dancer.
+
+The object in the folder is `rigs/g-man.glb` from the motion-capture repo,
+which is byte-identical to `assets/g-man.glb` here — the same fossil. **Neither
+may be refreshed from the kit's `dist/`**: `build_assets.py` drops every
+non-mesh on import, so its `g-man.glb` has no armature, and a copy would turn
+either figure into a statue in its rest pose without a single error. Reopening
+that armature pass in the kit is still the step that would let a rigged asset
+be *built* rather than copied; until then the producer copies the rig it
+retargeted against, and the kit's `npm run check` holds the copy to the same
+contract as everything else.
+
+## What is still true
+
+- **The Editor build has no props.** `src/game.mjs` reads no placements and
+  calls no `loadProp`; animation lands in the standalone build only.
+- **Pose and clip on the same bone: the clip wins**, every frame. Give a dancer
+  a `rigs` entry only for bones the clip does not touch, and expect the warning.
+- **The kit's build drops armatures.** See above; the object is copied, not
+  built.
+- **`hide` still applies.** The dancer carries his briefcase, because it is
+  weighted to his right hand and the script does not hide it; a script may.
+
+## Where clips come from
+
+- **The motion-capture tool** — the route that exists. A phone video of a
+  performer, tracked with MediaPipe, camera motion undone, retargeted onto the
+  rig's own bind pose, previewed on the rig beside the video, exported as the
+  folder above. `keep_it_gangsta_3` is 22.6 s of that.
+- **Valve's originals**, decompiled from `gman.mdl` and imported onto the same
+  skeleton — the bone names already match. Highest fidelity, and the only route
+  to his actual mannerisms; it would need a producer that writes the clip
+  format, which is a glTF-channels-to-JSON walk.
+- **Hand-keyed in Blender**, same producer gap.
+- **Procedural** — extend `rig.mjs` with a ticking driver and drive a few
+  joints from a sine. Breathing, a slow head turn; nothing with weight.
 
 ---
 
-Background: `0012f18`, `c744a5f` and `59c7ca7` are the export-side fixes and
-docs that established the naming and merge behaviour above.
+Background: `0012f18`, `c744a5f` and `59c7ca7` established the export-side
+naming and merge behaviour; the script convention landed across all three repos
+on 2026-09-15.

@@ -9,6 +9,7 @@ source of truth — it reads and writes two git-tracked files:
 | `scene.placements.json` | yes | `scene:export` | where every prop sits |
 | `scene/pavilion.blend` | **no** (gitignored) | Blender | 10 MB of imported GLB, rebuildable |
 | `assets/*.glb` | yes | your modeller | the actual geometry |
+| `assets/<name>/` | yes | a producer | an object *and its script* — an animated character |
 
 The `.blend` is a working file. It embeds copies of the prop GLBs purely so you
 can see what you are placing; nothing in it ships. Delete it whenever you like
@@ -153,6 +154,49 @@ README.md), set its height, and save the download into `game/assets/`.
 
 Then import and place it exactly like a crate — the in-Blender export handles
 the anchor for you.
+
+## Adding an animated prop
+
+An animated character is a prop that arrives as a **folder** — the object, a
+script saying what it does, and the clips it plays — built by the motion-capture
+tool (see ANIMATED_PROPS.md). The steps are the prop steps, with the file one
+level down:
+
+1. Copy the whole folder into `game/assets/`: `assets/g-man-dance/` holding
+   `g-man-dance.glb`, `g-man-dance.script.json` and the `.dance.json` clips.
+2. `File > Import > glTF 2.0` — **the GLB inside the folder**,
+   `assets/g-man-dance/g-man-dance.glb`.
+3. Put it where you want it, and run the exporter from inside Blender.
+
+Adoption finds the folder's GLB by its node names like any other, and the
+placement it writes carries a second path beside `glb`:
+
+```json
+"glb": "./assets/g-man-dance/g-man-dance.glb",
+"script": "./assets/g-man-dance/g-man-dance.script.json"
+```
+
+`script` is found on disk at export time, not stored on the anchor — the
+`.blend` knows the object, the export knows what it does. Copy a new version of
+the folder in and the next export picks it up with nothing to edit.
+
+Three things the script decides so you do not have to:
+
+- **It is not solid.** Collision is baked once at load, from the pose the mesh
+  is in then, and a dancer would leave a statue of his first frame standing in
+  the room. The script says `solid: false`; a `solid` custom property on the
+  anchor still wins if you disagree.
+- **It needs no `rigs` entry.** The script carries the clip; a pose in
+  `scene.manifest.mjs` for the same placement would be overwritten every frame
+  on every bone the clip drives, and the game says so.
+- **A walking clip walks.** The pelvis track carries the performer's travel, so
+  the character leaves the spot you placed him on and comes back when the clip
+  loops — or stays where he ended if it does not. Give him room.
+
+The same model can stand twice, once posed and once dancing — `g-man_01` and
+`g-man-dance_01` — because the folder's GLB is a copy with one extra root node
+named for the asset, so re-importing either lands on its own file. See "Two
+g-men, two files" in ANIMATED_PROPS.md.
 
 Two things that make hanging them painless:
 

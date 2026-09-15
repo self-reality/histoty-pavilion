@@ -8,7 +8,7 @@
     "scene:import": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b -P tools/build_blend.py --",
     "scene:export": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" -b scene/pavilion.blend -P tools/export_scene.py --",
     "scene:edit": "\"${BLENDER:-/Applications/Blender.app/Contents/MacOS/Blender}\" scene/pavilion.blend",
-    "assets:check": "KIT=\"${KIT:-../../singularity-development-kit}\"; test -f \"$KIT/test/contract.mjs\" || { echo \"assets:check needs the asset kit beside this repo — no $KIT/test/contract.mjs (set KIT=/path/to/singularity-development-kit if it lives elsewhere)\"; exit 1; }; node \"$KIT/test/contract.mjs\" $(ls assets/*.glb | grep -v de_dust2)",
+    "assets:check": "KIT=\"${KIT:-../../singularity-development-kit}\"; test -f \"$KIT/test/contract.mjs\" || { echo \"assets:check needs the asset kit beside this repo — no $KIT/test/contract.mjs (set KIT=/path/to/singularity-development-kit if it lives elsewhere)\"; exit 1; }; node \"$KIT/test/contract.mjs\" $(ls assets/*.glb assets/*/*.glb assets/*/*.script.json 2>/dev/null | grep -v 'de_dust2\\|assets/source/')",
     "sync:watch": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync watch",
     "sync:push": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync push",
     "sync:pull": "PLAYCANVAS_USE_CWD_AS_TARGET=1 pcsync pull",

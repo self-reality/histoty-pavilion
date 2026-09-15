@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "generator": "motion-capture-4",
+  "skeleton": "ValveBiped",
+  "object": {
+    "file": "g-man-dance.glb",
+    "root": "g-man-dance_root",
+    "source": "rigs/g-man.glb",
+    "sha256": "a3cd7469e4160083ca2c17537f795fbd96138eee741f53564ff13658a187737c"
+  },
+  "solid": false,
+  "rig": {
+    "root": "ValveBiped.Bip01_Pelvis*",
+    "spine": "ValveBiped.Bip01_Spine*",
+    "neck": "ValveBiped.Bip01_Neck1*",
+    "left_thigh": "ValveBiped.Bip01_L_Thigh*",
+    "right_thigh": "ValveBiped.Bip01_R_Thigh*",
+    "attach": [
+      {
+        "node": "gman_high_ARM.001",
+        "to": "ValveBiped.Bip01_Spine4_gman_high_ARM"
+      }
+    ]
+  },
+  "clips": [
+    {
+      "name": "keep_it_gangsta_3",
+      "file": "keep_it_gangsta_3.dance.json",
+      "duration": 22.6333,
+      "bpm": 112,
+      "loop": false,
+      "sha256": "532502f8c8bf578943bed1e8308652fed0ccc905d9421cb1cc21fa4c9da4fce9"
+    }
+  ],
+  "play": {
+    "clip": "keep_it_gangsta_3",
+    "loop": false,
+    "speed": 1
+  }
+}

@@ -15,6 +15,12 @@ handful of numbers per prop instead of a re-baked binary.
   anchor WITHOUT one                   -> markers[]    (transform only)
   cutter in the NEG collection         -> negatives[]  (subtracted from the map)
 
+A prop entry also carries `script` when the asset ships one beside its GLB —
+`assets/<name>/<name>.script.json` next to `assets/<name>/<name>.glb`, the
+folder an animated character arrives as (see ANIMATED_PROPS.md). Found on disk
+at export time, never stored on the anchor: the .blend knows the object, the
+export knows what it does.
+
 A negative is the mirror of a prop and exports on the same terms — a name, a
 shape and a transform, no geometry. See tools/negatives.py.
 
@@ -130,29 +136,75 @@ def base_names(names):
     return {DEDUP_SUFFIX.sub('', n) for n in names}
 
 
+SCRIPT_SUFFIX = '.script.json'
+
+
+def asset_glbs():
+    """Every GLB an anchor may point at, as `./assets/...` paths.
+
+    A bare `assets/<name>.glb` is a static prop. A folder is an asset with a
+    script — an object and what it does, shipped together — and counts only
+    when it holds one, which is what keeps `assets/source/` (raw downloads,
+    untracked) and `assets/sounds/` out of the running. One level down: that
+    is the convention, and a deeper search would be guessing.
+    """
+    assets_dir = os.path.join(GAME_DIR, 'assets')
+    found = []
+    for entry in sorted(os.listdir(assets_dir)):
+        path = os.path.join(assets_dir, entry)
+        if entry.startswith('.'):
+            continue
+        if os.path.isfile(path) and entry.lower().endswith('.glb'):
+            found.append(f'./assets/{entry}')
+        elif os.path.isdir(path):
+            inside = sorted(os.listdir(path))
+            if not any(f.endswith(SCRIPT_SUFFIX) for f in inside):
+                continue
+            found += [f'./assets/{entry}/{f}' for f in inside
+                      if not f.startswith('.') and f.lower().endswith('.glb')
+                      and os.path.isfile(os.path.join(path, f))]
+    return found
+
+
+def script_beside(glb):
+    """The asset's script, if its GLB ships one: `<stem>.script.json` beside `<stem>.glb`.
+
+    Found at export time rather than stored on the anchor, so the .blend carries
+    one property per prop and a script added to an asset later is picked up by
+    the next export without touching the scene.
+    """
+    stem, _ = os.path.splitext(glb)
+    rel = stem + SCRIPT_SUFFIX
+    return rel if os.path.isfile(os.path.join(GAME_DIR, rel)) else None
+
+
 def find_source_glb(payload_names):
     """Which asset did this hierarchy come from? Match on node names.
 
-    Unambiguous in practice: two GLBs sharing every node name are the same
-    export. Returns (relative path, None) or (None, reason).
+    A payload's names are a subset of its file's. Two files can both contain
+    them: an animated asset's object is a copy of the rig it was retargeted
+    against — `g-man-dance/g-man-dance.glb` is `g-man.glb` under one extra root
+    node — so the plain g-man's payload matches both. The file with nothing
+    left over is the one it came from, and only a tie on that is ambiguous.
+    Returns (relative path, None) or (None, reason).
     """
     assets_dir = os.path.join(GAME_DIR, 'assets')
     if not os.path.isdir(assets_dir):
         return None, f'no {assets_dir}'
     wanted = base_names(payload_names)
     hits = []
-    for entry in sorted(os.listdir(assets_dir)):
-        if not entry.lower().endswith('.glb'):
-            continue
-        names = glb_node_names(os.path.join(assets_dir, entry))
-        if names and wanted <= base_names(names):
-            hits.append(entry)
+    for rel in asset_glbs():
+        names = base_names(glb_node_names(os.path.join(GAME_DIR, rel)))
+        if names and wanted <= names:
+            hits.append((len(names - wanted), rel))
     if not hits:
         return None, ('no .glb in assets/ contains these node names — is the file '
                       'in game/assets/? (see BLENDER_SCENE.md, "Adding a new prop")')
-    if len(hits) > 1:
-        return None, f'ambiguous, matches {hits} — set the `glb` property by hand'
-    return f'./assets/{hits[0]}', None
+    hits.sort()
+    if len(hits) > 1 and hits[0][0] == hits[1][0]:
+        return None, (f'ambiguous, matches {[rel for _, rel in hits if _ == hits[0][0]]} — '
+                      'set the `glb` property by hand')
+    return hits[0][1], None
 
 
 def importer_rotation(glb_path, node_name=None):
@@ -511,6 +563,9 @@ def collect(collection):
                             'survive the glTF round-trip, use rotation instead')
         if 'glb' in obj:
             entry['glb'] = obj['glb']
+            script = script_beside(obj['glb'])
+            if script:
+                entry['script'] = script
             if not obj.children:
                 warnings.append(f'{obj.name}: no geometry parented under it — exports '
                                 'fine, but nobody in Blender can see what they are placing')
@@ -588,7 +643,8 @@ def main():
               'to the .blend — the prop ships now; export from Blender (or '
               '`npm run scene:import -- --force`) to make it permanent there')
     for p in props:
-        print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}')
+        print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}'
+              + (f' + {os.path.basename(p["script"])}' if 'script' in p else ''))
     for m in markers:
         print(f'[export] marker {m["name"]:<20} pos {m["pos"]}')
     for c in cutters:

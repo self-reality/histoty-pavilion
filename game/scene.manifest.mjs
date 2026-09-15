@@ -82,7 +82,10 @@ export const manifest = {
 
   // ---- Hand-placed props: imported GLBs placed in the world ----
   // Escape hatch for props not authored in Blender. Same shape as a placements
-  // entry: { name, glb, pos, euler|rot, scale } in PlayCanvas space.
+  // entry: { name, glb, script?, pos, euler|rot, scale } in PlayCanvas space.
+  // `script` is the asset's own script when it ships one beside its GLB — an
+  // animated character does (see ANIMATED_PROPS.md); the exporter fills it in
+  // for Blender-placed props.
   //
   // tent_01 used to live here (grabbed from the Editor scene, see
   // EXPORT_TENT.md); it now lives in scene/pavilion.blend and comes back
@@ -126,6 +129,12 @@ export const manifest = {
   // Blender-generated placements and the hand-written `props` above — without
   // the exporter learning what a bone is. The .blend says where the prop is;
   // this says how it is folded. See src/rig.mjs for the axis convention.
+  //
+  // This is the pavilion's half of "an object and its script": what THIS copy
+  // does HERE. An asset that ships its own script (assets/<name>/<name>.script.json)
+  // says what it does anywhere, in the same pose vocabulary plus clips, and an
+  // entry here goes on top of that. A placement whose script plays a clip wants
+  // no entry here — the clip rewrites its bones every frame. See src/script.mjs.
   //
   // Angles are DELTAS on the bind pose in degrees, in each bone's own frame.
   // On a ValveBiped rig +X runs down the bone, so Z is the hinge (hip flex,

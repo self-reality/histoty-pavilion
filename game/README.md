@@ -108,6 +108,8 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
+| `src/rig.mjs` | Static poses: a placed prop's bones folded once, from `rigs` in the manifest |
+| `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
@@ -156,7 +158,8 @@ ANIMATED_PROPS.md.
 
 That kit holds the pipeline, the budgets, a browser viewer that shows what the
 collider actually gets, and `ASSET_CONTRACT.md` — the standard every `.glb` in
-`assets/` keeps. Check one from anywhere:
+`assets/` keeps. Check one from anywhere, or everything here with
+`npm run assets:check`:
 
 ```bash
 node ../../singularity-development-kit/test/contract.mjs assets/tent_military.glb
@@ -249,6 +252,32 @@ WYSIWYG Blender placement, one-line diffs in `scene.placements.json`, per-URL
 container dedup (hang the same picture twice, download it once), the collision
 opt-outs, and the `tests/perf.mjs` budget. The runtime path would have cost a
 code path in *both* entry points, a new authoring convention, and its own test.
+
+### Animated characters
+
+An animated character is a prop that arrives as a **folder** rather than a file:
+the object, a *script* saying what it does, and the clips the script plays.
+Like every other asset it is **not built here** — it comes out of the
+**motion-capture-4** tool (`/Volumes/Smartbuy/Projects/motion-capture-4`), where
+a phone video of a performer is tracked, its camera motion undone, and the
+motion retargeted onto the rig's own bind pose:
+
+```
+input/keep-it-gangsta-3.mov          ← a video of somebody dancing
+        ↓  motion-capture-4: Pavilion export
+output/pavilion/g-man-dance/         ← g-man-dance.glb + g-man-dance.script.json + the clip
+        ↓  cp -R
+assets/g-man-dance/                  ← place the GLB inside it in Blender like any prop
+```
+
+The script is data, in a vocabulary the kit's `ASSET_CONTRACT.md` (section 6,
+"Scripts") fixes: which clip plays and how, what the loader has to hang where
+first (g-man's head is a second skeleton), and that the prop is not solid —
+collision is baked once at load, and a dancer would leave a statue of his first
+frame in the room. `tools/export_scene.py` writes the script's path into the
+placement beside the GLB's; `src/script.mjs` reads it and ticks the clip onto
+the bones. ANIMATED_PROPS.md is the whole story, BLENDER_SCENE.md the placing
+steps, and `tests/anim.mjs` the proof.
 
 ### Sound
 
@@ -400,6 +429,7 @@ node tests/sound.mjs   # right voice at the right moment; no phantom thud on fla
 node tests/negatives.mjs # a cutter opens a doorway in the picture and the collision alike
 node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
+node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

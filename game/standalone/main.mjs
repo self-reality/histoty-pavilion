@@ -18,6 +18,7 @@ import { TargetManager, extractTriangles, findFloors, isNonColliding,
 import { resolveSpawn, placeAtSpawn, FallRescue } from '../src/spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
+import { loadScript, PropScript } from '../src/script.mjs';
 import { collectVolumes, carve, carveRender } from '../src/negatives.mjs';
 import { SoundBank } from '../src/audio.mjs';
 
@@ -158,6 +159,8 @@ let debug = null;
 let audio = null;
 let rescue = null;
 let started = false;
+// Props whose script ticks — a clip playing — in placement order. See ../src/script.mjs.
+const scripted = [];
 
 // ---- Boot ----
 function boot() {
@@ -243,7 +246,10 @@ function boot() {
     }
 
     // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, rescue, weapon, targets, collider, debug, audio, negatives, surface, camera: cameraEntity, root: playerRoot };
+    window.game = { app, player, rescue, weapon, targets, collider, debug, audio, negatives, surface, camera: cameraEntity, root: playerRoot,
+                    // Place a prop by hand from the console or a test — the same
+                    // entry the layout goes through — and see what is animating.
+                    loadProp, scripted };
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
@@ -333,9 +339,32 @@ function loadContainer(url) {
 
 // Place one authored prop. Kept in world space (child of root) so its numbers
 // match what the exporter wrote / what was grabbed from the Editor scene.
+//
+// A prop is an object and, optionally, its script: `glb` names the one, `script`
+// the other, and the scene exporter writes both paths when the asset ships a
+// script beside its GLB (an animated character does — see ANIMATED_PROPS.md).
+// The script is fetched alongside the GLB rather than after it, so the two
+// downloads overlap instead of queueing; a script that fails is reported and
+// the object still lands, as a statue.
 function loadProp(prop) {
   const asset = loadContainer(prop.glb);
-  asset.ready(() => {
+  const script = prop.script
+    ? loadScript(prop.script).catch((err) => {
+      console.error(`[prop ${prop.name}] script ${prop.script} failed to load: ${err.message}`);
+      return null;
+    })
+    : Promise.resolve(null);
+  asset.ready(() => script.then((loaded) => placeProp(prop, asset, loaded)).catch((err) => {
+    // Same reason boot() does this: inside a promise chain a throw is a silent
+    // rejection, and a prop that failed to place should fail the smoke test.
+    console.error(`[prop ${prop.name}] failed to place:`, err);
+    setTimeout(() => { throw err; });
+  }));
+  return asset;
+}
+
+function placeProp(prop, asset, loaded) {
+  {
     const root = new Entity(prop.name);
     root.addChild(asset.resource.instantiateRenderEntity());
     const [px, py, pz] = prop.pos ?? [0, 0, 0];
@@ -350,14 +379,29 @@ function loadProp(prop) {
     const [sx, sy, sz] = prop.scale ?? [1, 1, 1];
     root.setLocalScale(sx, sy, sz);
     app.root.addChild(root);
+    // The asset's own script first — what the object does wherever it stands:
+    // its bind pose captured, anything it says to hang hung, its own pose, and
+    // its clip bound. Then the manifest's per-placement pose on top, the way
+    // placements shadow hand-written props.
+    const script = loaded ? new PropScript(root, loaded, prop.name) : null;
+    if (script) {
+      for (const w of script.warnings) console.warn(`[script ${prop.name}] ${w}`);
+      if (script.player) scripted.push(script);
+      if (script.rig) debug?.addRig(script.rig);
+    }
     // Fold the rig before the hierarchy syncs: the pose moves the prop root
     // (its seat offset), and that has to be settled before collision bakes
     // world-space triangles out of it.
     const rig = rigForProp(root, prop, manifest.rigs);
+    if (rig && script?.player) {
+      console.warn(`[rig ${prop.name}] a pose in scene.manifest.mjs and a clip from ${prop.script} `
+        + 'both drive this prop — the clip rewrites its bones every frame, so the pose only '
+        + 'holds on bones the clip leaves alone');
+    }
     if (rig) debug?.addRig(rig);
     root.syncHierarchy();          // world transforms must be final before we
                                    // bake collision triangles out of them
-    const solid = addPropCollision(prop, root, rig);
+    const solid = addPropCollision(prop, root, rig, script);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
     // Scale is in the line because "is my Blender edit actually in this tab?" is
@@ -367,9 +411,10 @@ function loadProp(prop) {
       + ` scale ${sx === sy && sy === sz ? sx : `${sx},${sy},${sz}`}${solid}`
       + (proxies ? ` (${proxies} collision proxy mesh hidden)` : '')
       + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
-      + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : ''));
-  });
-  return asset;
+      + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : '')
+      + (script ? ` (script: ${script.describe()})` : ''));
+    return script;
+  }
 }
 
 /**
@@ -381,21 +426,32 @@ function loadProp(prop) {
  * into `extras`). Opt out one mesh inside an otherwise-solid prop with a
  * `_nocol` name suffix; see isNonColliding in ../src/world.mjs. A prop shipping
  * a `_col` proxy collides with that instead of its visual mesh entirely.
+ *
+ * An asset's script may answer too — an animated one says `solid: false`,
+ * because collision is baked once at load and a dancer would leave a statue
+ * of his first frame standing in the room. The placement's own word wins
+ * over the script's: the asset says what it is, the pavilion says what this
+ * copy is here.
  */
-function propIsSolid(prop) {
-  const flag = prop.solid ?? prop.extras?.solid;
+function propIsSolid(prop, script) {
+  const flag = prop.solid ?? prop.extras?.solid ?? script?.solid;
   if (flag === undefined || flag === null) return true;
   return !(flag === false || flag === 0 || flag === 'false');
 }
 
 // Fold a placed prop's geometry into the collider. Props land after the map, so
 // this joins a collider that is already live and already being queried.
-function addPropCollision(prop, root, rig) {
+function addPropCollision(prop, root, rig, script) {
   if (!collider) return ' (no collider yet)';
-  if (!propIsSolid(prop)) return ' — walk-through (solid: false)';
+  if (!propIsSolid(prop, script)) {
+    const own = prop.solid ?? prop.extras?.solid;
+    return ` — walk-through (solid: false${own === undefined || own === null ? ', from its script' : ''})`;
+  }
   // A rig that hid geometry vetoes it here too, so nothing the pose removed is
   // left standing as an invisible obstacle.
-  const tris = propCollisionTriangles(root, rig ? { collides: (n) => rig.collides(n) } : {});
+  const tris = propCollisionTriangles(root, {
+    collides: (n) => (!rig || rig.collides(n)) && (!script || script.collides(n)),
+  });
   if (!tris.length) return ' — no collidable meshes';
   // Provenance: raycast() hands back the triangle it hit, so tagging makes
   // "what did I just shoot / bump into?" answerable in the console and lets
@@ -505,6 +561,10 @@ app.on('update', (dt) => {
 
   if (weapon) weapon.update(d);
   if (targets) targets.update(d);
+
+  // Clips tick on the same clamped step as the controller, so a tab switch
+  // does not fast-forward a dance any more than it fast-forwards a fall.
+  for (const s of scripted) s.update(d);
 
   if (hitmarkerTimer > 0) {
     hitmarkerTimer -= d;
