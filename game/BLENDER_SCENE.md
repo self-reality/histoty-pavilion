@@ -193,10 +193,10 @@ Three things the script decides so you do not have to:
   the character leaves the spot you placed him on and comes back when the clip
   loops — or stays where he ended if it does not. Give him room.
 
-The same model can stand twice, once posed and once dancing — `g-man_01` and
-`g-man-dance_01` — because the folder's GLB is a copy with one extra root node
-named for the asset, so re-importing either lands on its own file. See "Two
-g-men, two files" in ANIMATED_PROPS.md.
+The same model can stand twice, once posed and once dancing — `g-man-sit_01` and
+`g-man-dance_01` — because each folder's GLB is a copy with one extra root node
+named for the asset, so re-importing either lands on its own folder. See "Two
+g-men, two folders" in ANIMATED_PROPS.md.
 
 Two things that make hanging them painless:
 

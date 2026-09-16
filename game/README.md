@@ -108,7 +108,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
-| `src/rig.mjs` | Static poses: a placed prop's bones folded once, from `rigs` in the manifest |
+| `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's script or from `rigs` in the manifest |
 | `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
@@ -149,12 +149,13 @@ game/assets/statue.glb          ← tracked here, place it in Blender like any p
 cp ../../singularity-development-kit/dist/statue.glb assets/
 ```
 
-**One asset is an exception today: do not refresh `g-man.glb` this way.** The
-kit's build drops every non-mesh object on import, so its `dist/g-man.glb` has
-no armature, while the copy tracked here still carries the 72-bone skeleton that
-`src/rig.mjs` folds into the meditation pose. Copying over it swaps a rigged
-character for a statue in its rest pose, and nothing fails loudly. See
-ANIMATED_PROPS.md.
+**Two assets are an exception today: do not refresh `g-man-sit/g-man-sit.glb`
+or `g-man-dance/g-man-dance.glb` this way.** The kit's build drops every
+non-mesh object on import, so its `dist/g-man.glb` has no armature, while the
+copies tracked here still carry the 72-bone skeleton that `src/script.mjs`
+folds into the meditation pose and drives through the dance. Copying over
+either swaps a rigged character for a statue in its rest pose, and nothing
+fails loudly. See ANIMATED_PROPS.md.
 
 That kit holds the pipeline, the budgets, a browser viewer that shows what the
 collider actually gets, and `ASSET_CONTRACT.md` — the standard every `.glb` in

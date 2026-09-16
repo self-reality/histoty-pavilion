@@ -7,7 +7,7 @@
       "name": "cisterna_01",
       "pos": [-48.86749, -1.5911, -4.56084],
       "rot": [0.0, 0.70736, 0.0, 0.70685],
-      "euler": [0.0011, 90.0418, 0.0011],
+      "euler": [0.0095, 90.0413, 0.0095],
       "scale": [0.76184, 0.76184, 0.76184],
       "glb": "./assets/cisterna.glb"
     },
@@ -21,26 +21,27 @@
       "script": "./assets/g-man-dance/g-man-dance.script.json"
     },
     {
-      "name": "g-man_01",
+      "name": "g-man-sit_01",
       "pos": [6.76929, 0.4, -11.75884],
       "rot": [0.0, 0.0, 0.0, 1.0],
       "euler": [0.0, 0.0, 0.0],
       "scale": [0.02978, 0.02978, 0.02978],
-      "glb": "./assets/g-man.glb"
+      "glb": "./assets/g-man-sit/g-man-sit.glb",
+      "script": "./assets/g-man-sit/g-man-sit.script.json"
     },
     {
       "name": "picture_01_teether_01",
       "pos": [-49.90623, 0.45511, 3.09112],
-      "rot": [0.0, -1.0, 0.0, 0.0],
-      "euler": [0.0, -180.0, 0.0],
+      "rot": [0.0, 1.0, 0.0, 0.0],
+      "euler": [0.0, 180.0, 0.0],
       "scale": [0.7, 0.7, 0.7],
       "glb": "./assets/picture_01_teether.glb"
     },
     {
       "name": "picture_02_paperclip_holder_01",
       "pos": [-51.1086, 0.45511, 3.05083],
-      "rot": [0.0, -1.0, 0.0, 0.0],
-      "euler": [0.0, -180.0, 0.0],
+      "rot": [0.0, 1.0, 0.0, 0.0],
+      "euler": [0.0, 180.0, 0.0],
       "scale": [0.7, 0.7, 0.7],
       "glb": "./assets/picture_02_paperclip_holder.glb"
     },
@@ -48,7 +49,7 @@
       "name": "picture_03_pet_bed_01",
       "pos": [-47.83809, 0.45511, 1.37617],
       "rot": [0.03084, -0.70643, 0.03084, 0.70643],
-      "euler": [5.0, -90.0, 0.0],
+      "euler": [4.9994, -90.0, 0.0],
       "scale": [0.7, 0.7, 0.7],
       "glb": "./assets/picture_03_pet_bed.glb"
     },
@@ -56,15 +57,15 @@
       "name": "picture_04_leather_chair_01",
       "pos": [-47.83809, 0.45511, 0.1738],
       "rot": [0.03084, -0.70643, 0.03084, 0.70643],
-      "euler": [5.0, -90.0, 0.0],
+      "euler": [4.9994, -90.0, 0.0],
       "scale": [0.7, 0.7, 0.7],
       "glb": "./assets/picture_04_leather_chair.glb"
     },
     {
       "name": "picture_05_archetype_01",
       "pos": [-48.71439, 0.45511, 3.11643],
-      "rot": [0.0, -1.0, 0.0, 0.0],
-      "euler": [0.0, -180.0, 0.0],
+      "rot": [0.0, 1.0, 0.0, 0.0],
+      "euler": [0.0, 180.0, 0.0],
       "scale": [0.7, 0.7, 0.7],
       "glb": "./assets/picture_05_archetype.glb"
     },
@@ -72,7 +73,7 @@
       "name": "picture_06_fountain_redux_01",
       "pos": [-47.83809, 0.45511, -1.01804],
       "rot": [0.03084, -0.70643, 0.03084, 0.70643],
-      "euler": [5.0, -90.0, 0.0],
+      "euler": [4.9994, -90.0, 0.0],
       "scale": [0.7, 0.7, 0.7],
       "glb": "./assets/picture_06_fountain_redux.glb"
     },
@@ -88,7 +89,7 @@
       "name": "picture_08_herb_soap_01",
       "pos": [-51.74264, 0.45511, -5.99382],
       "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
-      "euler": [-175.0, 90.0, 0.0],
+      "euler": [-175.0006, 90.0, 0.0],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_08_herb_soap.glb"
     },
@@ -96,7 +97,7 @@
       "name": "picture_09_lucky_iron_fish_01",
       "pos": [-51.75307, 0.45511, -2.64497],
       "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
-      "euler": [-175.0, 90.0, 0.0],
+      "euler": [-175.0006, 90.0, 0.0],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_09_lucky_iron_fish.glb"
     },
@@ -104,7 +105,7 @@
       "name": "picture_10_interlinked_01",
       "pos": [-51.81169, 0.45511, -1.45313],
       "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
-      "euler": [-175.0, 90.0, 0.0],
+      "euler": [-175.0006, 90.0, 0.0],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_10_interlinked.glb"
     },
@@ -112,7 +113,7 @@
       "name": "picture_11_offshore_platform_01",
       "pos": [-51.81169, 0.45511, -0.25076],
       "rot": [-0.70643, 0.03084, 0.70643, 0.03084],
-      "euler": [-175.0, 90.0, 0.0],
+      "euler": [-175.0006, 90.0, 0.0],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_11_offshore_platform.glb"
     },
@@ -136,7 +137,7 @@
       "name": "picture_14_specimen_01",
       "pos": [-51.64428, 0.45511, -11.51197],
       "rot": [-0.70568, 0.04491, 0.70568, 0.04491],
-      "euler": [-172.7169, 90.0, 0.0],
+      "euler": [-172.7171, 90.0, 0.0],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_14_specimen.glb"
     },
@@ -144,7 +145,7 @@
       "name": "picture_15_asteroid_700_bedfordshire_01",
       "pos": [-47.00122, 1.14161, -0.63454],
       "rot": [0.70635, -0.00041, -0.70782, 0.00732],
-      "euler": [78.9601, 89.362, -100.4805],
+      "euler": [78.9533, 89.3624, -100.4869],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_15_asteroid_700_bedfordshire.glb"
     },
@@ -152,7 +153,7 @@
       "name": "picture_16_bedfordshire_txt_01",
       "pos": [-47.00122, 1.14161, -1.84792],
       "rot": [0.70635, -0.00041, -0.70782, 0.00732],
-      "euler": [78.9601, 89.362, -100.4805],
+      "euler": [78.9533, 89.3624, -100.4869],
       "scale": [-0.7, -0.7, -0.7],
       "glb": "./assets/picture_16_bedfordshire_txt.glb"
     },
@@ -184,12 +185,20 @@
       "name": "tent_01",
       "pos": [14.92287, 0.0, 3.72979],
       "rot": [0.0, -0.99565, 0.0, 0.09322],
-      "euler": [0.0, -169.302, 0.0],
+      "euler": [0.0, -169.3023, 0.0],
       "scale": [1.1, 1.1, 1.1],
       "glb": "./assets/tent_military.glb"
     }
   ],
-  "markers": [],
+  "markers": [
+    {
+      "name": "spawn_01",
+      "pos": [-40.87, 0.2, -4.56],
+      "rot": [0.0, 0.70711, 0.0, 0.70711],
+      "euler": [0.0, 90.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+    }
+  ],
   "negatives": [
     {
       "name": "neg_door_01",

@@ -1,44 +1,64 @@
 # Animated props
 
-How a *moving* character gets into the pavilion, and which side does what.
-Written first as a plan, when the only g-man was the one meditating in the
-tent; now the record of how the dancing one beside him works.
+How a character gets into the pavilion, and which side does what. Written first
+as a plan, when the only g-man was the one meditating in the tent; now the
+record of how both of them work.
 
-The short version: **an animated character is a prop that ships as a folder** —
-the object, a script saying what it does, and the clips the script plays. It is
-produced elsewhere, copied into `assets/`, placed in Blender like any prop, and
-the runtime does the rest. Nothing is built here.
+The short version: **a character is a prop that ships as a folder** — the
+object, a script saying what it does, and any clips the script plays. It is
+copied into `assets/`, placed in Blender like any prop, and the runtime does the
+rest. Nothing is built here.
+
+A script does not have to animate. The dancer's plays a clip; the meditator's
+holds a single pose. Same folder shape, same loader, same contract.
 
 ```
 assets/g-man-dance/
   g-man-dance.glb                ← the OBJECT: the rig, under one root node named g-man-dance_root
   g-man-dance.script.json        ← the SCRIPT: which clip plays, how, and what to hang where first
   keep_it_gangsta_3.dance.json   ← a clip, retargeted to that rig
+
+assets/g-man-sit/
+  g-man-sit.glb                  ← the same rig, under a root node named g-man-sit_root
+  g-man-sit.script.json          ← the SCRIPT: one pose, held; no clips
 ```
 
 ## Who does what
 
 | side | repo | does |
 |---|---|---|
-| **producer** | `motion-capture-4` (`/Volumes/Smartbuy/Projects/motion-capture-4`) | tracks a video, retargets it to the rig, writes the folder above |
+| **producer** | `motion-capture-4` (`/Volumes/Smartbuy/Projects/motion-capture-4`) | tracks a video, retargets it to the rig, writes an animated folder |
 | **standard** | `singularity-development-kit` | `ASSET_CONTRACT.md` section 6, "Scripts"; `npm run check <folder>/` |
-| **consumer** | this repo | `tools/export_scene.py` writes the script's path into the placement; `src/script.mjs` plays it |
+| **consumer** | this repo | `tools/export_scene.py` writes the script's path into the placement; `src/script.mjs` runs it |
 
 The same arrangement every other asset has: the kit builds props, the
 frames-for-artwork app builds pictures, the sound-design repo builds the sound
 bank, and each ships something finished and self-describing that this side
 places without knowing who made it. The motion-capture tool is the fourth
-producer, and what it produces is the first asset with a *script*.
+producer, and what it produced is the first asset with a *script*.
+
+**`g-man-sit` is the exception, and it is worth knowing why.** No producer owns
+a *static* pose: the kit physically cannot build a rigged asset today
+(`build_assets.py` drops every non-mesh on import, so its g-man has no
+armature), and the motion-capture tool makes clips, not poses. The pose was also
+dialled here, on the debug panel. So the pavilion authored this one folder, and
+`npm run assets:check` holds it to the contract exactly as if it had arrived
+from somewhere else. The standard governs what a script contains, not who typed
+it. If the kit's armature pass ever reopens, this asset is the one to move.
 
 ## An object and its script
 
-A prop has always been two things: the object (the GLB) and what it does. For
-the meditating g-man the second half lives here, as the `rigs` entry in
-`scene.manifest.mjs` — a pose the pavilion dials onto a model it was handed. An
-animated character carries its own: the script beside the GLB says what the
-object does anywhere it stands, and the pavilion's `rigs` entry, if it has one,
-says what *this* copy does *here* — applied on top, the way placements shadow
-hand-written props.
+A prop has always been two things: the object (the GLB) and what it does. Both
+g-men now carry their own second half: the script beside the GLB says what the
+object does anywhere it stands — a clip for the dancer, a pose for the
+meditator — and the pavilion's `rigs` entry, if it has one, says what *this*
+copy does *here*, applied on top, the way placements shadow hand-written props.
+
+The meditation pose used to be that `rigs` entry, dialled onto a model the
+pavilion was handed. It moved into the asset: the same eleven bones and the same
+numbers, now travelling with the model instead of waiting in the level that
+happened to place it first. `rigs` is empty today and stays for what an asset
+cannot know — the same character folded differently for one spot in one level.
 
 The script is data, never code. Its vocabulary is the contract:
 
@@ -125,25 +145,26 @@ what the export writes:
 property per prop and a script added to an asset later is picked up by the next
 export. A hand-written entry in `manifest.props` takes the same `script` field.
 
-## Two g-men, two files
+## Two g-men, two folders
 
-`g-man_01` sits in the tent, posed by the `rigs` entry; `g-man-dance_01` dances
-beside him. They are the same model and deliberately **not** the same file:
+`g-man-sit_01` sits in the tent; `g-man-dance_01` dances beside him. They are
+the same model, they arrive the same way, and they are deliberately **not** the
+same file:
 
-| placement | file | root node | driven by |
+| placement | folder | root node | its script says |
 |---|---|---|---|
-| `g-man_01` | `assets/g-man.glb` | `Sketchfab_model` | `rigs['g-man_01']` in the manifest |
-| `g-man-dance_01` | `assets/g-man-dance/g-man-dance.glb` | `g-man-dance_root` | its script |
+| `g-man-sit_01` | `assets/g-man-sit/` | `g-man-sit_root` | a pose — sukhasana, briefcase hidden, solid |
+| `g-man-dance_01` | `assets/g-man-dance/` | `g-man-dance_root` | a clip — `keep_it_gangsta_3`, looped, not solid |
 
 The copy costs ~1 MB of download and buys an unambiguous scene. Adoption in
 `tools/export_scene.py` works out which file a hand-imported payload came from
-by node names, and a copy with the same names would match both; the producer
-wraps its copy in one extra root node named for the asset, and the exporter
+by node names, and two copies carrying the same names would match both; each
+wraps its payload in one extra root node named for the asset, and the exporter
 prefers the file with nothing left over. So re-importing either g-man lands on
-its own file, and the `rigs` pose can never migrate onto the dancer.
+its own folder, and neither script can migrate onto the other.
 
-The object in the folder is `rigs/g-man.glb` from the motion-capture repo,
-which is byte-identical to `assets/g-man.glb` here — the same fossil. **Neither
+Both objects are `rigs/g-man.glb` from the motion-capture repo — the same
+fossil, each under its own root. **Neither
 may be refreshed from the kit's `dist/`**: `build_assets.py` drops every
 non-mesh on import, so its `g-man.glb` has no armature, and a copy would turn
 either figure into a statue in its rest pose without a single error. Reopening
@@ -160,8 +181,10 @@ contract as everything else.
   a `rigs` entry only for bones the clip does not touch, and expect the warning.
 - **The kit's build drops armatures.** See above; the object is copied, not
   built.
-- **`hide` still applies.** The dancer carries his briefcase, because it is
-  weighted to his right hand and the script does not hide it; a script may.
+- **`hide` still applies.** The briefcase is rigidly weighted to g-man's right
+  hand. The dancer carries it, because his script does not hide it; the
+  meditator's does, since a man with both palms on his knees has nowhere to put
+  it.
 
 ## Where clips come from
 

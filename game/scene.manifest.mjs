@@ -141,55 +141,17 @@ export const manifest = {
   // knee, ankle), Y swings sideways (hip abduction), X twists. Every number
   // here was dialled on the debug panel's Rig sliders (/?debug) and pasted back with
   // its Copy button — the same loop `fog` and `surface` use.
-  rigs: {
-    // Sukhasana — simple cross-legged. Hips flex forward and abduct so the
-    // thighs lie open and near-horizontal; knees fold hard so the shins come
-    // back and cross at the ankles; arms come off the body so they rest on the
-    // knees instead of intersecting them.
-    'g-man_01': {
-      pose: {
-        // The big X twist on the thighs is external hip rotation, and it is not
-        // decoration: without it the knee hinge stays in a vertical plane and
-        // folding the calf drives the shin down through the floor instead of
-        // back along it. That rotation is the whole trick of a cross-legged sit.
-        //
-        // The two legs are near-mirrors but not exact — the right is 5° more
-        // twisted and 11° less flexed, which is what tucks its shin BEHIND the
-        // left instead of through it. Mirroring the left exactly puts both
-        // ankles in the same 5 cm of space.
-        'ValveBiped.Bip01_L_Thigh*':    [-77.5, -40, -72.5],
-        'ValveBiped.Bip01_L_Calf*':     [0, 0, 135],
-        'ValveBiped.Bip01_L_Foot*':     [0, 0, 30],
-        'ValveBiped.Bip01_R_Thigh*':    [82.5, 35, -61.5],
-        'ValveBiped.Bip01_R_Calf*':     [0, 0, 141],
-        'ValveBiped.Bip01_R_Foot*':     [0, 0, 30],
-        // Arms come in off the body and the elbows bend, so the hands land on
-        // the knees rather than passing through the thighs. Both forearms carry
-        // a big twist about their own length — that is what rolls the palms
-        // over onto the knees instead of leaving them edge-on, and it is the
-        // difference between sitting and merely being folded up.
-        //
-        // The two sides are near-mirrors, which is what a mirror looks like on
-        // this rig: X and Y flip, Z keeps. Dialled by hand, so they are close to
-        // that rather than exactly it.
-        'ValveBiped.Bip01_L_UpperArm*': [0, 20, -25],
-        'ValveBiped.Bip01_L_Forearm*':  [74.5, 0, -38.5],
-        'ValveBiped.Bip01_R_UpperArm*': [0, -20, -21.5],
-        'ValveBiped.Bip01_R_Forearm*':  [-63.5, -7.5, -39],
-        'ValveBiped.Bip01_Spine1*':     [0, 0, 4],
-      },
-      // The briefcase is rigidly weighted to his right hand, so with both arms
-      // resting on the knees it would sit in his lap. He is meditating, not
-      // doing paperwork — drop it from the camera, the shadow pass and the
-      // collider alike.
-      hide: ['briefcase_reference*'],
-      // Metres. Sitting puts the hips ~1 m below where standing left them, and
-      // that metre is the pose's, not the layout's — move him in the .blend and
-      // it still holds. Applied to the prop root, so it is world metres and
-      // independent of the model's own 0.03 scale.
-      offset: [0, -0.93, 0],
-    },
-  },
+  //
+  // EMPTY, and that is the point. The meditating g-man's sukhasana used to live
+  // here as `g-man_01`; it now ships with the asset, in
+  // assets/g-man-sit/g-man-sit.script.json, so both g-men arrive the same way —
+  // an object and its script — and the pose travels with the model instead of
+  // being re-dialled by whoever places it next. See ANIMATED_PROPS.md.
+  //
+  // What still belongs here is what the asset cannot know: a second copy of the
+  // same character folded differently for one spot in one level. Dial it on the
+  // debug panel, hit Copy, paste it in — the mechanism is unchanged.
+  rigs: {},
 
   // ---- Wall paintings (name -> image), filled later ----
   paintings: [],

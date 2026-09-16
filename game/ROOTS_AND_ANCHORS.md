@@ -70,13 +70,21 @@ measured, by importing each shipped asset into an empty Blender scene:
 | file | payload root | root's rotation | first child's rotation |
 |---|---|---|---|
 | `tent_military.glb` | `Sketchfab_model` | **−90° X** | +90° X (cancels it) |
-| `g-man.glb` | `Sketchfab_model` | **−90° X** | +90° X (cancels it) |
 | `cisterna.glb` | `cisterna_root` | **none** | **+90° X** |
+| `g-man-sit/g-man-sit.glb` | `g-man-sit_root` | **none** | −90° X (`Sketchfab_model`) |
+| `g-man-dance/g-man-dance.glb` | `g-man-dance_root` | **none** | −90° X (`Sketchfab_model`) |
 
-Both shapes are legitimate, and both files are correct. Sketchfab wraps its
-downloads in a root that carries the conversion; the asset kit's `*_root` is a
-bare Empty at the origin with no transform at all, so the conversion stays down
-on the meshes.
+All three shapes are legitimate, and all these files are correct. Sketchfab
+wraps its downloads in a root that carries the conversion; the asset kit's
+`*_root` is a bare Empty at the origin with no transform at all, so the
+conversion stays down on the meshes.
+
+The two g-men are the third shape, and they are the Sketchfab one with a bare
+`*_root` put over it: the conversion is still on `Sketchfab_model`, now one
+level down. Wrapping changes *which node* the rotation hangs under without
+changing the net result — measured, not assumed, and the export round-trip
+proves it: `g-man-sit_01` came back at the same `pos`/`rot`/`scale` its
+unwrapped predecessor had.
 
 So there is no constant to subtract. **The conversion has to be measured, per
 file, on the node you are actually looking at.** `importer_rotation()` in
@@ -165,9 +173,9 @@ problem precisely. All three current builds satisfy it:
 And the three GLBs the game actually ships all pass the kit's own check today:
 
 ```
-node test/contract.mjs …/game/assets/cisterna.glb       → contract ok
-node test/contract.mjs …/game/assets/g-man.glb          → contract ok
-node test/contract.mjs …/game/assets/tent_military.glb  → contract ok
+node test/contract.mjs …/game/assets/cisterna.glb                 → contract ok
+node test/contract.mjs …/game/assets/g-man-sit/g-man-sit.glb      → contract ok
+node test/contract.mjs …/game/assets/tent_military.glb            → contract ok
 ```
 
 So the kit needs no code change on account of the cistern. The pavilion-side
@@ -183,13 +191,13 @@ Every GLB in `game/assets/` is an **older build** than the kit's current `dist/`
 | asset | game/assets | kit/dist |
 |---|---|---|
 | `cisterna.glb` | 6.73 MB, 3 nodes, root `cisterna_root` | 11.83 MB, 9 nodes — adds `Toilet*`, `Venus` |
-| `g-man.glb` | 0.95 MB, 167 nodes, **2 skins**, root `Sketchfab_model` | 0.79 MB, 10 nodes, **0 skins**, root `g-man_root` |
+| `g-man-sit.glb` | 0.95 MB, 168 nodes, **2 skins**, root `g-man-sit_root` | 0.79 MB, 10 nodes, **0 skins**, root `g-man_root` |
 | `tent_military.glb` | 1.17 MB, 10 nodes, root `Sketchfab_model` | 1.17 MB, 5 nodes, root `tent_military_root` |
 
-**Do not bulk-resync these.** The g-man row is the trap: the game's copy has two
-skins and 72 bones, the kit's current build has none — `build_assets.py` drops
-every non-mesh — and `scene.manifest.mjs` folds the meditation pose by driving
-those bones by name. Copying `dist/g-man.glb` across would silently flatten it
+**Do not bulk-resync these.** The g-man row is the trap: the game's copies have
+two skins and 72 bones, the kit's current build has none — `build_assets.py`
+drops every non-mesh — and each g-man's own script folds or drives those bones
+by name. Copying `dist/g-man.glb` across would silently flatten either one
 into a rest pose. That file, and what a genuinely animated prop would take, is
 worked through in [ANIMATED_PROPS.md](ANIMATED_PROPS.md); the armature pass is
 the one change the kit would need, and it is real work rather than a flag.
@@ -213,7 +221,8 @@ fails:
 ```
 cisterna.glb                    contract ok
 de_dust2.glb                    ERROR  39 top-level nodes …adopted as 39 props
-g-man.glb                       contract ok
+g-man-dance.script.json         contract ok
+g-man-sit.script.json           contract ok
 picture_data_full_hd.glb        contract ok
 picture_fragile_fullhd.glb      contract ok
 picture_innocent_full_hd_2.glb  contract ok
