@@ -22,14 +22,6 @@
       }
     ]
   },
-  "notes": [
-    "Sukhasana — simple cross-legged. Angles are deltas on the bind pose, in each bone's own frame; on a ValveBiped rig +X runs down the bone, so Z is the hinge (hip flex, knee, ankle), Y swings sideways (hip abduction), X twists.",
-    "The big X twist on the thighs is external hip rotation, and it is not decoration: without it the knee hinge stays in a vertical plane and folding the calf drives the shin down through the floor instead of back along it. That rotation is the whole trick of a cross-legged sit.",
-    "The two legs are near-mirrors but not exact — the right is 5 deg more twisted and 11 deg less flexed, which is what tucks its shin BEHIND the left instead of through it. Mirroring the left exactly puts both ankles in the same 5 cm of space.",
-    "Both forearms carry a big twist about their own length: that is what rolls the palms over onto the knees instead of leaving them edge-on, and it is the difference between sitting and merely being folded up.",
-    "hide: the briefcase is rigidly weighted to his right hand, so with both arms resting on the knees it would sit in his lap. He is meditating, not doing paperwork.",
-    "offset: metres, applied to the prop root. Sitting puts the hips ~1 m below where standing left them, and that metre is the pose's, not the layout's — move him in the .blend and it still holds."
-  ],
   "pose": {
     "ValveBiped.Bip01_L_Thigh*": [-77.5, -40, -72.5],
     "ValveBiped.Bip01_L_Calf*": [0, 0, 135],

@@ -145,6 +145,37 @@ what the export writes:
 property per prop and a script added to an asset later is picked up by the next
 export. A hand-written entry in `manifest.props` takes the same `script` field.
 
+## The sit pose, and why those numbers
+
+`g-man-sit.script.json` holds eleven bone triples, and four of them are not
+obvious. They were dialled on the debug panel's Rig sliders (`/?debug`) and
+pasted back with its Copy button — the same loop `fog` and `surface` use — so
+this is the record of what the sliders were actually solving.
+
+Angles are deltas on the bind pose, in each bone's own frame. On a ValveBiped
+rig +X runs down the bone, so **Z is the hinge** (hip flex, knee, ankle), **Y
+swings sideways** (hip abduction), **X twists**.
+
+- **The big X twist on the thighs is external hip rotation, and it is not
+  decoration.** Without it the knee hinge stays in a vertical plane, and folding
+  the calf drives the shin down *through the floor* instead of back along it.
+  That rotation is the whole trick of a cross-legged sit.
+- **The legs are near-mirrors but deliberately not exact.** The right is 5° more
+  twisted and 11° less flexed, which is what tucks its shin *behind* the left
+  instead of through it. Mirroring the left exactly puts both ankles in the same
+  5 cm of space.
+- **Both forearms carry a big twist about their own length.** That is what rolls
+  the palms over onto the knees instead of leaving them edge-on — the difference
+  between sitting and merely being folded up.
+- **`offset` is metres on the prop root, and it belongs to the pose.** Sitting
+  puts the hips ~1 m below where standing left them. That metre is the pose's,
+  not the layout's, so it travels with the asset: move him in the `.blend` and it
+  still holds.
+
+`hide` drops the briefcase. It is rigidly weighted to his right hand, so with
+both palms on his knees it would sit in his lap — and he is meditating, not
+doing paperwork.
+
 ## Two g-men, two folders
 
 `g-man-sit_01` sits in the tent; `g-man-dance_01` dances beside him. They are
