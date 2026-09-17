@@ -223,7 +223,7 @@ function boot() {
 
     targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
 
-    // The whole bank is 176 KB, so it loads up front rather than streaming —
+    // The whole bank is 172 KB, so it loads up front rather than streaming —
     // the first footstep must not be the one that stalls. It is not gated on
     // below: "Ready" means the map is walkable, and the audio lands long
     // before anyone finishes reading the controls and clicks Play (which is

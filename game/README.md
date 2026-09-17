@@ -284,14 +284,17 @@ steps, and `tests/anim.mjs` the proof.
 
 Twenty-one files — footsteps, jumps, landings and the AK — wired by
 `src/audio.mjs`. Like the GLBs, **they are not built here**. They arrive
-finished from the sibling **sound-design** repo, where none of them is a
-recording: every one is synthesised from parameters, so re-shaping a sound is
-an edit to a number there rather than a hunt for a new sample.
+finished from the sibling **sound-design** repo. The gun and the landings are
+synthesised from parameters there; the footsteps and the jump are two
+recordings (`samples/step.wav`, `samples/jump.wav`) that the same build trims,
+levels and turns into takes. Either way, re-shaping a sound is an edit to a
+number in that repo, and a new recording is a file dropped into its `samples/`
+— never a `.wav` left in `assets/sounds/`, which only ever holds what ships.
 
 ```
 sound-design: npm run build       # config -> dist/, deterministic
         ↓  cp dist/*.ogg dist/sounds.manifest.json
-game/assets/sounds/               ← tracked here, 176 KB for the lot
+game/assets/sounds/               ← tracked here, 172 KB for the lot
 ```
 
 The `.ogg`s ship and the `.wav` masters stay behind. What crosses the boundary
