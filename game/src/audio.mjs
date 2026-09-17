@@ -84,7 +84,12 @@ const WEAPON_VOICES = {
  * `step_walk -> [4 assets]`, alongside the flat list for teardown.
  */
 async function loadBank(app, dir) {
-  const res = await fetch(`${dir}sounds.manifest.json`);
+  // `no-cache`, for the reason script.mjs gives: the bank changes when it is
+  // copied in again, so a revalidated copy is the right fit and costs a 304.
+  // Without it the browser is free to invent a freshness lifetime — a tenth of
+  // the file's age, so a bank that sat untouched for a week is "fresh" for
+  // seventeen hours — and Cmd-Shift-R does not reach a fetch issued from script.
+  const res = await fetch(`${dir}sounds.manifest.json`, { cache: 'no-cache' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
 
@@ -97,7 +102,15 @@ async function loadBank(app, dir) {
     const file = (entry.files ?? []).find((f) => f.endsWith('.ogg'));
     if (!file) continue;
 
-    const asset = new Asset(`sound:${stem}`, 'audio', { url: dir + file });
+    // The files themselves go through the engine's loader, which takes no
+    // `cache` option — so the freshness goes in the URL instead. The manifest
+    // carries a hash of every take's audio, and a re-rendered take is therefore
+    // a URL the browser has never seen, while the twenty that did not change
+    // keep theirs and stay cached. It is what made a re-rendered landing play
+    // as the old one for a whole session: land_1.ogg was never asked for again.
+    // (The engine reads the extension from before the `?`, so .ogg still is one.)
+    const version = entry.sha256 ? `?v=${entry.sha256.slice(0, 12)}` : '';
+    const asset = new Asset(`sound:${stem}`, 'audio', { url: dir + file + version });
     asset.on('error', (err) => console.error(`[sound] ${file} failed to load:`, err));
     app.assets.add(asset);
     app.assets.load(asset);
