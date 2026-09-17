@@ -334,7 +334,7 @@ export class Game extends Script {
 
     this.targets = new TargetManager(app, this.collider, floors.length ? floors : [spawn], this.addScore);
 
-    // The whole bank is 172 KB, so it loads up front rather than streaming —
+    // The whole bank is ~170 KB, so it loads up front rather than streaming —
     // the first footstep must not be the one that stalls. "Ready" below is not
     // gated on it: it means the map is walkable, and the audio lands long
     // before anyone clicks Play (which is also the gesture that unlocks the

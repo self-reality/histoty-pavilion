@@ -91,8 +91,8 @@ async function loadBank(app, dir) {
   const voices = new Map();
   const assets = [];
   for (const [stem, entry] of Object.entries(data.sounds ?? {})) {
-    // Each entry lists its .wav master and its .ogg. Only the .ogg ships (172 KB
-    // for the bank against 777 KB), so an entry without one is a master we were
+    // Each entry lists its .wav master and its .ogg. Only the .ogg ships (~170 KB
+    // for the bank against ~750 KB), so an entry without one is a master we were
     // not given and cannot play.
     const file = (entry.files ?? []).find((f) => f.endsWith('.ogg'));
     if (!file) continue;
@@ -203,7 +203,7 @@ export class SoundBank {
    * Not the same thing as `ready`, and deliberately not what `play()` waits
    * on: a slot whose asset is still decoding starts the moment it lands, so
    * the bank is usable before this fills up. In practice it always does fill
-   * up first — 172 KB decodes while the map is still building collision, and
+   * up first — ~170 KB decodes while the map is still building collision, and
    * the player cannot take a step until they click Play. It is here as an
    * honest "is the bank warm" signal for the console and for tests/sound.mjs.
    */

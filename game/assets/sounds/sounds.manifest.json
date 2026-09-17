@@ -245,11 +245,11 @@
         "land_1.wav",
         "land_1.ogg"
       ],
-      "seconds": 0.3945,
+      "seconds": 0.3008,
       "peakDbfs": -10.0,
-      "rmsDbfs": -29.22,
+      "rmsDbfs": -25.85,
       "seed": 9466151425055786594,
-      "sha256": "0129ef4389e6a2bb6d0f84d5f16f2ca56c73a9b69a0327d0a29158b44b57fdfa"
+      "sha256": "56d3a47dbd15d1a174b47e8c3987e14a06e33d2a12a4b49ef1ebca809e2c4e16"
     },
     "land_2": {
       "sound": "land",
@@ -258,11 +258,11 @@
         "land_2.wav",
         "land_2.ogg"
       ],
-      "seconds": 0.4073,
+      "seconds": 0.3085,
       "peakDbfs": -10.0,
-      "rmsDbfs": -30.09,
+      "rmsDbfs": -24.55,
       "seed": 14205194080481146504,
-      "sha256": "01fb65f32f3d38a724ded19eeaf7729ae42ef5bc08a6d8c6f789b862227a4ae5"
+      "sha256": "4cb42baf9218a319e124fb53e4b546dd9f61146ebfcf2649c1cd289499e54a4f"
     },
     "land_hard": {
       "sound": "land_hard",
@@ -271,11 +271,11 @@
         "land_hard.wav",
         "land_hard.ogg"
       ],
-      "seconds": 0.4378,
+      "seconds": 0.3325,
       "peakDbfs": -10.0,
-      "rmsDbfs": -29.48,
+      "rmsDbfs": -25.44,
       "seed": 3109399806219132369,
-      "sha256": "7d260b1bedf7fc633ececb4c69961f380a5e94c595d3a4f834bbfeeba040fa62"
+      "sha256": "b966cad1e1f2a9d403ada20e8616d1c66c16e1c70109fac9a702dbf295dc4585"
     }
   }
 }
