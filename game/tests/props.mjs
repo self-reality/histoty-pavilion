@@ -210,7 +210,7 @@ const r = await page.evaluate(async () => {
     starts,
     naming,
     colliderTris: g.collider.tris.length,
-    // Attributed per prop by standalone/main.mjs, which stamps every triangle
+    // Attributed per prop by src/main.mjs, which stamps every triangle
     // it adds with the name of the prop it came from. Asking what the *tent*
     // put in the collider keeps the claim below about the tent rather than
     // about whatever else happens to be placed in the scene.

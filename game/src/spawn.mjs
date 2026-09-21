@@ -113,7 +113,7 @@ export class FallRescue {
 
 /**
  * The address that opens the page where the player stands now, looking the
- * way they look. Every other parameter (`debug`, the Editor's) is kept.
+ * way they look. Every other parameter (`debug`, `placements`) is kept.
  */
 export function spawnUrl(player, href = location.href) {
   const url = new URL(href);

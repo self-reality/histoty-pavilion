@@ -41,8 +41,7 @@ exporting over the real one.
 Numbers that don't parse are ignored rather than sending you to the origin. In
 debug mode the **Copy link here** button writes the address for where you are
 standing and looking, so a place found on foot becomes a link that opens on it.
-The Editor build reads the same parameters off its launch URL. `src/spawn.mjs`
-owns the whole resolution (map centre → marker → address).
+`src/spawn.mjs` owns the whole resolution (map centre → marker → address).
 
 ### Controls
 
@@ -72,8 +71,7 @@ http://localhost:5173/debug.html
 ```
 
 There is one page, not two: `debug.html` is a four-line redirect, and the flag is
-read by `src/debugmode.mjs`. The Editor build reads the same flag — append
-`&debug` to the launch URL. `tests/debug.mjs` asserts both halves, so a slider
+read by `src/debugmode.mjs`. `tests/debug.mjs` asserts both halves, so a slider
 that leaks back into production fails the build rather than shipping.
 
 In debug mode, `` ` `` toggles the panel and `V` cycles the view mode. What's in it:
@@ -107,9 +105,9 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 |------|----------------|
 | `index.html` | Canvas, HUD, crosshair, start overlay, import map — production, no debug markup |
 | `debug.html` | Redirect to `/?debug`, so debug mode has a URL you can type |
-| `standalone/main.mjs` | Engine bootstrap, GLB load, lighting, targets, input, game loop |
+| `src/main.mjs` | Engine bootstrap, GLB load, lighting, targets, input, game loop |
 | `src/spawn.mjs` | Where the player starts: map centre, then the `.blend`'s marker, then `?at=`/`?look=` in the address |
-| `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
+| `src/atmosphere.mjs` | Distance fog + the map's PBR surface response |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/negatives.mjs` | Negative spaces: closed volumes of any shape — the level's, and the ones placed assets carry — cut out of the map's collision and its meshes at load |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
@@ -119,7 +117,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose, the actions a player can set off |
 | `src/actions.mjs` | The E: which props are in reach, which one you are looking at, the hint over each, and the trigger |
 | `src/areas.mjs` | Action areas: volumes of any shape — carried by an asset, or drawn in Blender for one copy of it — that say where a prop's E is on offer |
-| `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
+| `src/debugmode.mjs` | The one rule for what counts as a debug URL |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
 **No physics engine / WASM** — collision is a custom sphere-discretised capsule vs. the
@@ -368,11 +366,8 @@ wrong:
 
 `weapon.mjs` emits `fire` / `reload` / `dryfire` through an `onEvent` callback
 and knows nothing about a sound bank; the event-to-voice table is the whole
-coupling, and it lives in `audio.mjs`. The Editor build points at the bank with
-a **Sounds (directory URL)** attribute for the same reason it points at the map
-with one — the alternative is 21 hand-assigned audio assets kept in step with a
-bank that is re-rendered upstream. Clear it and the game runs silent, as it
-does if the files were never copied in.
+coupling, and it lives in `audio.mjs`. The game runs silent if the files were
+never copied in.
 
 ### Packages
 
@@ -394,7 +389,7 @@ hole known before the collision is built — and props stream in afterwards, a
 megabyte at a time. So the kit copies each asset's volumes out of its GLB into
 the script beside it (`npm run pack`, which its build runs), and this side
 fetches the scripts of every placed prop with the layout: a few KB each, always
-in long before the map is. `packagedNegatives()` in `standalone/main.mjs` puts
+in long before the map is. `packagedNegatives()` in `src/main.mjs` puts
 each where its prop will stand, and they join the level's own cutters in one
 carve.
 
@@ -473,11 +468,9 @@ holds `singularitymuseum.com`. Note the apex already points at a *different*
 Pages site, so leave its `A` records alone.
 
 Pages already gets the hosting details right for us: `.mjs` is served as
-`text/javascript`, `.glb` as `model/gltf-binary`, everything with
-`Access-Control-Allow-Origin: *` — which is what lets the Editor build pull the
-textured map straight off this deploy (see `mapUrl` in `src/game.mjs`). It
-gzips the engine to 770 KB but does **not** offer brotli, so the 0.5 MB figure
-above needs a different host to collect.
+`text/javascript` and `.glb` as `model/gltf-binary`. It gzips the engine to
+770 KB but does **not** offer brotli, so the 0.5 MB figure above needs a
+different host to collect.
 
 ## Tests
 
@@ -522,12 +515,12 @@ Most feel knobs live at the top of their modules:
 
 - Movement: `Player` constructor opts in `src/main.mjs` (`walkSpeed`, `runSpeed`, `gravity`,
   `jumpSpeed`, `stepHeight`).
-- Map scale / orientation: `MAP_SCALE`, `MAP_EULER` in `src/main.mjs`.
+- Map scale / orientation: the `map` block in `scene.manifest.mjs`.
 - Weapon: stats block in `src/weapon.mjs` (`fireInterval`, `magSize`, `range`, `reloadTime`).
 - Sound triggers: the constants at the top of `src/audio.mjs` (`STRIDE`, `RUN_SPEED`,
   `LAND_MIN`, `LAND_HARD`, `JITTER_DB`). How the sounds themselves are *made* is not
   tunable here — that is `sounds.config.json` in the sound-design repo.
-- Lighting: `sun` / `fill` / ambient in `standalone/main.mjs`.
+- Lighting: `sun` / `fill` / ambient in `src/main.mjs`.
 - Fog + map surface: the `fog` / `surface` blocks in `scene.manifest.mjs`, applied by
   `src/atmosphere.mjs`. Note that `surface.roughness` is authored as **roughness**, not
   as PlayCanvas's `gloss` — glTF-imported materials carry `glossInvert = true`, so

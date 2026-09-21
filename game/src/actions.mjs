@@ -14,7 +14,7 @@
 //                      view: you press E at what you are looking at
 //   the hint           an E and the action's label over every prop in reach, the
 //                      one the key would act on lit and the rest dimmed
-//   the key            E — bound in standalone/main.mjs, which calls trigger()
+//   the key            E — bound in main.mjs, which calls trigger()
 //
 // The default reach is measured from the prop's bounds, not its origin, and to
 // the player's whole standing height, not their eyes. An origin is wherever the

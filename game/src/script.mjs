@@ -50,7 +50,7 @@ const { Quat, Vec3, Mat4 } = pc;
 export const SCRIPT_VERSION = 1;
 
 // One fetch per script URL, shared by every placement of the asset — the same
-// dedup the container cache in standalone/main.mjs does for the GLB.
+// dedup the container cache in main.mjs does for the GLB.
 const loaded = new Map();
 const fetched = new Map();
 

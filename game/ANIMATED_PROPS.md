@@ -155,7 +155,7 @@ and of two dancers the one you look at is the one that dances.
 
 ## What the runtime does
 
-`standalone/main.mjs` fetches the script alongside the GLB (`loadProp`), and
+`src/main.mjs` fetches the script alongside the GLB (`loadProp`), and
 once both are in, `PropScript` in `src/script.mjs` runs the script in a fixed
 order:
 
@@ -279,9 +279,6 @@ contract as everything else.
 
 ## What is still true
 
-- **The Editor build has no props.** `src/game.mjs` reads no placements and
-  calls no `loadProp`; animation — and with it actions, areas and the E — lands
-  in the standalone build only.
 - **One key, one action at a time.** A prop offers the first action its script
   lists, unless the area you are standing in names another. Nothing chains,
   nothing waits on another prop, and an action cannot hold its last key — a

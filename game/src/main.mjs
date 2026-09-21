@@ -1,35 +1,32 @@
-// Standalone / engine-only entry point.
+// Entry point: index.html loads this module and nothing else.
 //
-// This is the original code-first build: it creates its own pc.Application and
-// drives everything by hand, served straight from index.html (no Editor). It is
-// deliberately kept OUT of ../src (the Editor-synced folder) so the PlayCanvas
-// Editor never tries to parse a file that news up a second Application.
-//
-// Shared world logic (targets, triangle extraction, floor/spawn finding) lives
-// in ../src/world.mjs and is reused by the Editor build (../src/game.mjs).
+// It creates the pc.Application and drives everything by hand — map, layout,
+// lights, input, the game loop — out of the modules beside it. A second entry
+// point for the PlayCanvas Editor shared those modules until September 2026;
+// see BLENDER_MIGRATION.md for why it went.
 import * as pc from 'playcanvas';
 import { manifest } from '../scene.manifest.mjs';
-import { TriangleCollider } from '../src/collision.mjs';
-import { Player } from '../src/player.mjs';
-import { Weapon } from '../src/weapon.mjs';
-import { isDebugMode } from '../src/debugmode.mjs';
+import { TriangleCollider } from './collision.mjs';
+import { Player } from './player.mjs';
+import { Weapon } from './weapon.mjs';
+import { isDebugMode } from './debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors, isNonColliding,
-         propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient } from '../src/world.mjs';
-import { resolveSpawn, placeAtSpawn, FallRescue } from '../src/spawn.mjs';
-import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
-import { rigForProp } from '../src/rig.mjs';
-import { loadScript, loadScriptJson, PropScript } from '../src/script.mjs';
-import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from '../src/negatives.mjs';
-import { Actions } from '../src/actions.mjs';
-import { SoundBank } from '../src/audio.mjs';
+         propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient } from './world.mjs';
+import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
+import { applyFog, disableFogOn, SurfaceLook } from './atmosphere.mjs';
+import { rigForProp } from './rig.mjs';
+import { loadScript, loadScriptJson, PropScript } from './script.mjs';
+import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './negatives.mjs';
+import { Actions } from './actions.mjs';
+import { SoundBank } from './audio.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
-// ---- Debug mode (see ../src/debugmode.mjs) ----
+// ---- Debug mode (see ./debugmode.mjs) ----
 // Dynamic, not a static import: on the production URL the tweak panel is not
 // merely hidden, its module is never requested. `debug` stays null everywhere
 // below, which every call site already tolerates.
-const { DebugTools, togglePanel } = isDebugMode() ? await import('../src/debug.mjs') : {};
+const { DebugTools, togglePanel } = isDebugMode() ? await import('./debug.mjs') : {};
 
 // Marks the page for the stripped-down pause overlay (see the body.debug rules
 // in index.html): no dimming over the scene you are tweaking, a small corner
@@ -163,7 +160,7 @@ let rescue = null;
 let actions = null;
 let started = false;
 // Props whose script ticks — a clip playing, or an action that may be set off —
-// in placement order. See ../src/script.mjs.
+// in placement order. See ./script.mjs.
 const scripted = [];
 
 // ---- Boot ----
@@ -195,7 +192,7 @@ function boot() {
 
     // Negative spaces, subtracted before anything can hold a reference to the
     // soup — a carved doorway has to be a doorway to the spawn finder and the
-    // target scatter too, not only to the player (see ../src/negatives.mjs).
+    // target scatter too, not only to the player (see ./negatives.mjs).
     // The level's own, and the ones the placed assets brought with them: every
     // hole there will ever be is known by now, so the map is cut exactly once.
     // The assets' first: when a prop starts carrying the hole the level used to
@@ -216,7 +213,7 @@ function boot() {
     const floors = findFloors(collider);
     // Where you start is authored in the .blend like everything else, falls
     // back to the map's own middle when nothing says otherwise, and yields to
-    // the address bar over both (see ../src/spawn.mjs). The marker is read
+    // the address bar over both (see ./spawn.mjs). The marker is read
     // against the bare map — props land after this — so a spawn stood in
     // front of one still finds the floor rather than the prop's roof.
     const spawn = resolveSpawn({ markers: scene.markers, floors, collider });
@@ -231,7 +228,7 @@ function boot() {
     rescue = new FallRescue(player, collider);
 
     // Who is in reach of what, and which of them E would act on (see
-    // ../src/actions.mjs). Built before any prop lands, because the props
+    // ./actions.mjs). Built before any prop lands, because the props
     // register with it as they do; the areas ride in on the same layout.
     actions = new Actions({ app, camera: cameraEntity, player, layer: ui.actions });
     actions.setAreas(scene.areas);
@@ -415,7 +412,7 @@ function loadContainer(url) {
 }
 
 // Place one authored prop. Kept in world space (child of root) so its numbers
-// match what the exporter wrote / what was grabbed from the Editor scene.
+// match what the exporter wrote.
 //
 // A prop is an object and, optionally, its script: `glb` names the one, `script`
 // the other, and the scene exporter writes both paths when the asset ships a
@@ -505,7 +502,7 @@ function placeProp(prop, asset, loaded) {
  * prop out with `solid: false` on its placement entry, or with a `solid`
  * custom property in Blender (the exporter forwards unknown custom properties
  * into `extras`). Opt out one mesh inside an otherwise-solid prop with a
- * `_nocol` name suffix; see isNonColliding in ../src/world.mjs. A prop shipping
+ * `_nocol` name suffix; see isNonColliding in ./world.mjs. A prop shipping
  * a `_col` proxy collides with that instead of its visual mesh entirely.
  *
  * An asset's script may answer too — an animated one says `solid: false`,
@@ -640,7 +637,7 @@ app.on('update', (dt) => {
 
   if (debug) debug.updateReadout();
 
-  // Fell out of the world: back onto the last floor stood on (see ../src/spawn.mjs).
+  // Fell out of the world: back onto the last floor stood on (see ./spawn.mjs).
   rescue.update();
 
   if (weapon) weapon.update(d);

@@ -1,11 +1,8 @@
 // Scene "look": distance fog, and the PBR surface response of the map.
 //
-// Shared by BOTH entry points (standalone/main.mjs and src/game.mjs) and, like
-// the rest of ../src, engine-light — it never creates a pc.Application and never
-// touches the DOM, so it stays safe to sync to the Editor. Defaults live in
-// scene.manifest.mjs; the debug panel drives the very same setters live, so
-// dialling a slider and then copying the number back into the manifest is the
-// whole authoring loop.
+// Applied once by main.mjs from scene.manifest.mjs, where the numbers live; the
+// debug panel drives the very same setters live, so dialling a slider and then
+// copying the number back into the manifest is the whole authoring loop.
 import { CULLFACE_NONE, FogParams, FOG_NONE, FOG_LINEAR, FOG_EXP, FOG_EXP2 } from 'playcanvas';
 
 // Panel-facing names -> engine constants. Insertion order is also the order of
@@ -16,15 +13,6 @@ export const FOG_TYPE_NAMES = Object.keys(FOG_TYPES);
 export function fogTypeName(type) {
   return FOG_TYPE_NAMES.find((n) => FOG_TYPES[n] === type) ?? 'off';
 }
-
-// The Editor build's copy of scene.manifest.mjs's `fog` and `surface` blocks.
-//
-// It needs one because pcsync only uploads game/src/*.mjs, so game.mjs cannot
-// import the manifest — the same reason it already hardcodes its own SKY. The
-// manifest stays the tracked truth (the standalone build reads it directly);
-// these two must be kept in step with it by hand.
-export const EDITOR_FOG = { type: 'linear', color: [0.741, 0.749, 1], start: 6, end: 66, density: 0.012 };
-export const EDITOR_SURFACE = { roughness: 0.44, specular: 0, metalness: 0.15 };
 
 /**
  * Write a manifest `fog` block onto a scene and hand back the live FogParams.
@@ -73,10 +61,10 @@ export function disableFogOn(cameraComponent) {
  * honest name per knob, applied to all the map's materials at once.
  */
 export class SurfaceLook {
-  constructor(surface = {}) {
-    // Fall back to the in-src copy rather than a third set of literals, so
-    // there is only ever one place in this file that can drift from the manifest.
-    this.params = { ...EDITOR_SURFACE, ...surface };
+  constructor(surface) {
+    // The manifest's `surface` block, copied so a slider never writes back
+    // into it.
+    this.params = { ...surface };
     this.materials = new Set();
   }
 

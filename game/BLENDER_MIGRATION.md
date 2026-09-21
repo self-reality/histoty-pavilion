@@ -2,9 +2,11 @@
 
 ## Context (current state)
 - **Runtime:** PlayCanvas *engine* (`playcanvas` npm ^2.19), not tied to the cloud.
-- Two working builds:
-  - `standalone/main.mjs` — code-first, own `pc.Application`, served from `index.html`. **This is the target build.**
-  - `src/game.mjs` — PlayCanvas Editor script (cloud), synced via `pcsync`.
+- One build: `src/main.mjs` — code-first, own `pc.Application`, served from `index.html`.
+  A second, PlayCanvas Editor build (`src/game.mjs`, synced up with `pcsync`) ran beside
+  it until 2026-09-21. It never learned to read placements, and Blender had taken over
+  the visual-authoring job it existed for, so it was removed — along with the HUD it
+  injected, the sync tooling, and the copies of the manifest's look it had to carry.
 - Shared logic in `src/world.mjs` (targets/floors/spawns built in code), `collision.mjs`, `player.mjs`, `weapon.mjs`.
 - Map is an imported GLB: `assets/de_dust2.glb`, transformed in code (`MAP_SCALE=0.025`, `MAP_EULER=(-90,0,0)`).
 
@@ -16,7 +18,7 @@ factory; git = truth; Claude-legible.
 ## Tasks (in order, each reversible)
 1. ~~**Create `game/scene.manifest.mjs`**~~ — done. `map`, `sky`, `glass[]`, `targets`, `props`,
    `paintings`, plus a `placements` pointer at the Blender-authored layout.
-2. ~~**Wire `standalone/main.mjs`** to read the manifest~~ — done.
+2. ~~**Wire `src/main.mjs`** to read the manifest~~ — done.
 3. ~~**Naming + custom-property convention**~~ — done, and simpler than planned: an Empty
    with a `glb` custom property is a prop, one without is a marker (`spawn_*`, `painting_*`).
    Any other custom property rides through to `extras` in the JSON, so conventions can be added
@@ -51,11 +53,10 @@ Axis conversion (Blender Z-up ↔ PlayCanvas Y-up, both directions): `tools/pc_a
 - Builders only place + run export; PRs review the `scene.placements.json` diff.
 
 ## Constraints / non-goals
-- Do **not** break the standalone build; do **not** delete the Editor path yet.
+- Do **not** break the running build. ~~Do **not** delete the Editor path yet~~ — deleted 2026-09-21, see above.
 - No runtime switch (stay on PlayCanvas engine).
 - Watch GLB polycount/size when scattering (stones on floors/walls).
 
 ## Still open
-- `src/game.mjs` (the Editor build) does not read `placements` yet — only the standalone build does.
 - Nothing consumes `markers[]`; wiring `spawn_*` into `world.mjs` is the obvious next use.
 - One `.blend` per area (currently a single `pavilion.blend`) once more than one person builds.

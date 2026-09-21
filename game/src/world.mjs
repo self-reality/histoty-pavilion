@@ -1,11 +1,7 @@
-// Shared, engine-light world helpers used by BOTH entry points:
-//   • standalone/main.mjs (engine-only build served from index.html)
-//   • src/game.mjs        (PlayCanvas Editor script component)
+// Engine-light world helpers: targets, triangle extraction, floor finding.
 //
-// Nothing here creates a pc.Application or touches the DOM, so it is safe to
-// sync to the Editor as a script asset and safe to import from the standalone
-// bootstrap. Keep it that way — DOM/HUD lives in ui.mjs, app lifecycle in the
-// two entry points.
+// Nothing here creates a pc.Application or touches the DOM. Keep it that way —
+// the HUD lives in index.html and the app's lifecycle in main.mjs.
 import { Vec3, Quat, Color, Entity, StandardMaterial } from 'playcanvas';
 
 // ---- Materials -------------------------------------------------------------
@@ -31,8 +27,7 @@ export function raySphere(o, d, c, r) {
 
 // ---- Targets ---------------------------------------------------------------
 // Red dummies scattered on the floor samples. `onScore(n)` is injected so this
-// stays UI-agnostic: the standalone build wires it to the DOM scoreboard, the
-// Editor build to its own HUD.
+// stays UI-agnostic: main.mjs wires it to the DOM scoreboard.
 export class TargetManager {
   constructor(app, collider, spots, onScore = () => {}, opts = {}) {
     this.app = app;

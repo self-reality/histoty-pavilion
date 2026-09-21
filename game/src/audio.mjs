@@ -131,8 +131,8 @@ function unload(app, assets) {
 }
 
 /**
- * Loads the bank and plays it. One instance per game; both builds make theirs
- * next to the Weapon (see standalone/main.mjs and src/game.mjs).
+ * Loads the bank and plays it. One instance per game, made next to the Weapon
+ * (see main.mjs).
  */
 export class SoundBank {
   constructor(app, cameraEntity, opts = {}) {

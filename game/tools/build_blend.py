@@ -94,7 +94,7 @@ def read_placements(manifest, override=None):
 def merged_props(manifest, placements):
     """Manifest props, then Blender-authored ones — placements win by name.
 
-    Mirrors collectProps() in standalone/main.mjs; if you change the precedence
+    Mirrors loadLayout() in src/main.mjs; if you change the precedence
     in one place, change it in the other.
     """
     by_name = {p['name']: p for p in manifest.get('props', [])}

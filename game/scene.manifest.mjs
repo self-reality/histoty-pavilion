@@ -1,6 +1,6 @@
 // Scene manifest — the git-tracked source of truth for scene construction.
 // See BLENDER_MIGRATION.md. Blender is the asset/layout factory; this file is
-// the truth that both builds read.
+// the truth the game reads.
 //
 // PURE DATA: no imports, no pc.Application, no DOM. Keep it that way so it stays
 // Claude-legible and so the headless Blender exporter can rewrite prop entries
@@ -87,9 +87,8 @@ export const manifest = {
   // animated character does (see ANIMATED_PROPS.md); the exporter fills it in
   // for Blender-placed props.
   //
-  // tent_01 used to live here (grabbed from the Editor scene, see
-  // EXPORT_TENT.md); it now lives in scene/pavilion.blend and comes back
-  // through scene.placements.json. Anything listed here is a *second*
+  // tent_01 used to live here; it now lives in scene/pavilion.blend and comes
+  // back through scene.placements.json. Anything listed here is a *second*
   // definition that Blender will shadow — prefer the .blend.
   props: [],
 

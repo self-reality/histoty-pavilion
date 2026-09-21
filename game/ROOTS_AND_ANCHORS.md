@@ -231,7 +231,7 @@ tent_military.glb               contract ok
 
 **That failure is correct and is skipped, not fixed.** `de_dust2.glb` is the map,
 not a prop: it arrives through `manifest.map`, gets its own transform in
-`standalone/main.mjs`, and lives in the `REF` collection, which adoption never
+`src/main.mjs`, and lives in the `REF` collection, which adoption never
 looks at. "One prop, one root" is a rule about props, and the map is not one. A
 check that cries wolf every run is a check people learn to ignore, so the script
 leaves it out — and that exclusion is the one thing to revisit if the map ever

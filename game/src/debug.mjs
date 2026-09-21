@@ -100,9 +100,8 @@ const CSS = `
 /**
  * Find or create the panel's <style> and root element.
  *
- * Both are keyed by id and reused, so rebuilding the panel (an Editor
- * hot-reload re-runs the whole script) replaces its contents instead of
- * stacking a second copy on top of the first.
+ * Both are keyed by id and reused, so building the panel a second time
+ * replaces its contents instead of stacking a copy on top of the first.
  */
 function ensurePanelRoot() {
   if (!document.getElementById(STYLE_ID)) {
@@ -121,20 +120,11 @@ function ensurePanelRoot() {
 }
 
 /**
- * Toggle the panel's visibility (bound to the backtick key by both builds).
+ * Toggle the panel's visibility (bound to the backtick key in main.mjs).
  * A no-op when there is no panel, which is every production page.
  */
 export function togglePanel() {
   document.getElementById(PANEL_ID)?.classList.toggle('dbg-hidden');
-}
-
-/**
- * Drop the panel and its stylesheet. The Editor build calls this when the
- * script tears down, so a hot-reload never leaves a panel wired to a dead game.
- */
-export function removePanel() {
-  document.getElementById(PANEL_ID)?.remove();
-  document.getElementById(STYLE_ID)?.remove();
 }
 
 /**
@@ -415,8 +405,8 @@ export class DebugTools {
     slider(parent, 'sun', 0, 6, 0.05, sunLight.intensity, (v) => sunLight.intensity = v);
     // Euler X/Y of a directional light is just its direction: pitch = elevation
     // (90 = straight down / noon), yaw = compass bearing. The range spans the
-    // full -90..90 so an Editor-authored light is never shown clamped to a
-    // number it isn't actually at.
+    // full -90..90 so the light is never shown clamped to a number it isn't
+    // actually at.
     const angles = this.sun.getEulerAngles();
     let pitch = angles.x, yaw = angles.y;
     slider(parent, 'sun pitch', -90, 90, 1, pitch, (v) => { pitch = v; this.sun.setEulerAngles(pitch, yaw, 0); });
