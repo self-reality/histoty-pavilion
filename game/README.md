@@ -48,6 +48,7 @@ owns the whole resolution (map centre → marker → address).
 | `Shift` | Sprint |
 | `Space` | Jump |
 | `R` | Reload |
+| `E` | Use — whatever the on-screen **E** is on (walk up to the standing g-man) |
 | `T` | Teleport to a random spawn point |
 | `Esc` | Release mouse |
 
@@ -109,7 +110,9 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
 | `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's script or from `rigs` in the manifest |
-| `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose |
+| `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose, the actions a player can set off |
+| `src/actions.mjs` | The E: which props are in reach, which one you are looking at, the hint over each, and the trigger |
+| `src/areas.mjs` | Action areas: volumes of any shape, drawn in Blender, that say where a prop's E is on offer |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
@@ -272,13 +275,30 @@ assets/g-man-dance/                  ← place the GLB inside it in Blender like
 ```
 
 The script is data, in a vocabulary the kit's `ASSET_CONTRACT.md` (section 6,
-"Scripts") fixes: which clip plays and how, what the loader has to hang where
-first (g-man's head is a second skeleton), and that the prop is not solid —
+"Scripts") fixes: which clip plays and how — from the moment the prop lands, or
+as an **action** when a player presses E at it — what the loader has to hang
+where first (g-man's head is a second skeleton), and that the prop is not solid —
 collision is baked once at load, and a dancer would leave a statue of his first
 frame in the room. `tools/export_scene.py` writes the script's path into the
 placement beside the GLB's; `src/script.mjs` reads it and ticks the clip onto
 the bones. ANIMATED_PROPS.md is the whole story, BLENDER_SCENE.md the placing
 steps, and `tests/anim.mjs` the proof.
+
+### Actions
+
+Walk up to the g-man standing by the cistern: an **E** appears on him, and
+pressing it makes him dance — once through, or until you press it again.
+
+What he does is the asset's: his script lists an action (`dance`, a label, a
+clip). Everything about *offering* it is this side's, in `src/actions.mjs`. By
+default the E shows within two metres of a prop. To say where instead, draw an
+**action area** in Blender — a mesh of any shape in the `ACT` collection, named
+`act_<prop>` — and it replaces the radius; it exports beside the props and the
+negatives, and `src/areas.mjs` answers "is the player inside?" for a box, a
+cylinder, a sphere or any closed mesh. With several props in reach each gets a
+hint, and the key belongs to the one you are looking at, whose hint is lit.
+ANIMATED_PROPS.md ("Actions") and BLENDER_SCENE.md ("Action areas") have the
+detail; `tests/actions.mjs` and `tests/areas.mjs` the proof.
 
 ### Sound
 
@@ -435,6 +455,8 @@ node tests/negatives.mjs # a cutter opens a doorway in the picture and the colli
 node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
+node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, areas replace the radius, the key goes to what you look at
+node tests/areas.mjs   # an area drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

@@ -9,13 +9,14 @@ object, a script saying what it does, and any clips the script plays. It is
 copied into `assets/`, placed in Blender like any prop, and the runtime does the
 rest. Nothing is built here.
 
-A script does not have to animate. The dancer's plays a clip; the meditator's
-holds a single pose. Same folder shape, same loader, same contract.
+A script does not have to animate. The dancer's plays a clip when you press
+**E** at him and stands with his briefcase until you do; the meditator's holds a
+single pose. Same folder shape, same loader, same contract.
 
 ```
 assets/g-man-dance/
   g-man-dance.glb                ← the OBJECT: the rig, under one root node named g-man-dance_root
-  g-man-dance.script.json        ← the SCRIPT: which clip plays, how, and what to hang where first
+  g-man-dance.script.json        ← the SCRIPT: the pose he waits in, the action that sets him off, what to hang where first
   keep_it_gangsta_3.dance.json   ← a clip, retargeted to that rig
 
 assets/g-man-sit/
@@ -71,6 +72,7 @@ The script is data, never code. Its vocabulary is the contract:
 | `clips` | every clip in the folder: name, file, duration, bpm, loop, sha256 |
 | `play` | `{ clip, loop, speed }` — what plays from the moment the prop lands |
 | `pose` / `hide` / `offset` / `move` | a static pose, in exactly the terms a `rigs` entry uses |
+| `actions` | `[{ name, label, stop, radius, play }]` — what a player can set it off to do; see "Actions" |
 
 A clip is a shared `times` array and, per bone pattern, a flat `xyzw`
 quaternion per key: a **delta on the bind pose**, composed as `delta × bind`,
@@ -84,6 +86,68 @@ A `rigs` pose is composed the *other* way, `bind × delta`, so a hand-dialled
 euler triple reads as "bend this joint in its own axes". Same words, opposite
 order, one whole bind rotation apart — which is why `src/rig.mjs` and
 `src/script.mjs` never share that line.
+
+## Actions
+
+The top level of a script is what the object does **at rest**, from the moment
+it lands: its `play`, its `pose`, or nothing. An action is what it does instead,
+for a while, because a player walked up and pressed **E**:
+
+```json
+"pose":    { "ValveBiped.Bip01_L_UpperArm*": [0, 33, 0], "…": "…" },
+"actions": [
+  { "name": "dance", "label": "Dance", "stop": "Stop",
+    "play": { "clip": "keep_it_gangsta_3", "loop": false, "speed": 1 } }
+]
+```
+
+Still data, never code: a name, the word the hint shows, the word it shows while
+running, how near "near" is (`radius`, metres, 2 if unsaid), and a `play` in
+exactly the terms the script's own takes. The kit's contract has the vocabulary
+and three rules that are the whole state machine — **at rest it starts, running
+it stops, and a clip that does not loop stops by itself** — and `PropScript` in
+`src/script.mjs` is the only place they live (`trigger()`, `stop()`, and the
+`ended` check in `update()`). So the dancer's one-off is a performance you can
+cut short, and a looped action would be a switch.
+
+Who may press the key, and when, is not the asset's business and lives
+elsewhere, in `src/actions.mjs`:
+
+- **In reach** means inside one of the level's **action areas** for the prop
+  (drawn in Blender's `ACT` collection — BLENDER_SCENE.md, "Action areas") or,
+  when the level draws none, within the action's `radius`. The radius is
+  measured from the prop's live *bounds* to the player's whole standing height,
+  not from origin to eye: g-man's origin is between his shoes, 1.6 m under the
+  camera, so two metres origin-to-eye would be one metre across the floor. And
+  live, so a dancer who has walked off his spot is reached where he is.
+- **Which one**, of several in reach, is the one nearest the middle of your view
+  — you press E at what you are looking at. Each prop in reach gets an `E` and
+  its label on screen; the one the key would act on is lit and the rest are
+  dimmed. One alone is lit wherever you look: the E is on screen, so the E works.
+- **The hint** rides the prop at chest height and slides to the edge of the
+  screen when the prop is beside or behind you, rather than vanishing while the
+  key still works.
+
+**Easing is the consumer's too**, and it matters more than it sounds: the last
+key of a dance is nothing like the pose the dancer stands in, and neither is the
+first. `PropScript` eases every bone either side drives over `EASE_SECONDS`
+(0.35 s), from wherever it is that instant — part-way through an earlier ease
+included, so pressing E twice in a hurry never snaps. Where a stopped action's
+bones go back to is captured when the action is set off: bind, the script's
+pose, a `rigs` entry on top, a slider dragged since — whatever rest was.
+
+**The pose he waits in is part of the asset.** The rig's bind pose is an A-pose,
+arms 41° out from his sides, which reads as a shop dummy. Four numbers — both
+upper arms swung in 33° about Y, a few degrees of elbow — put his arms down and
+his briefcase at his side. They were dialled here (`/?debug`, the Rig sliders)
+and live in the script, which the producer keeps across re-exports: its
+`write_script` rewrites everything it measures and carries `pose`, `play`,
+`solid` and `actions` over from the script it is replacing.
+
+`tests/actions.mjs` is the proof: reach ends 2.00 m from his bounds, the first
+frame after E has moved his arm under a degree, a second E brings him home to
+within 0.1°, a held key is one press, every area shape contains what it should,
+and of two dancers the one you look at is the one that dances.
 
 ## What the runtime does
 
@@ -109,6 +173,11 @@ order:
    step as the player: slerp between the two neighbouring keys, `delta × bind`
    onto every matched node, the pelvis's travel turned through its parent's
    frame. A clip that does not loop holds its last key.
+5. **Bind each action's clip**, the same way, and pose nothing with it: binding
+   and playing are separate, because an action's clip is bound at load — so the
+   key is answered on the frame it is pressed, not a fetch later — and must not
+   move a bone until it is set off. Every clip any action names is fetched up
+   front alongside the script's own.
 
 Then the manifest's `rigs` entry for the placement, if any, goes on top — with
 a warning if a clip is also playing, since the clip rewrites its bones every
@@ -123,9 +192,9 @@ wins), and the log line says where the answer came from. An animated prop that
 must block ships a `_col` stand-in the clip does not move.
 
 `tests/anim.mjs` places the dancer from the test, through the same `loadProp`,
-and checks all of it: the clip ticks, the head rides Spine4 at its bind
-distance, the pelvis walks, nothing joins the collider, and the clock holds at
-the end of a one-off clip.
+sets his action off by hand, and checks all of it: the clip ticks, the head
+rides Spine4 at its bind distance, the pelvis walks, nothing joins the collider,
+and a one-off clip ends with him back at rest.
 
 ## Placing one
 
@@ -185,7 +254,7 @@ same file:
 | placement | folder | root node | its script says |
 |---|---|---|---|
 | `g-man-sit_01` | `assets/g-man-sit/` | `g-man-sit_root` | a pose — sukhasana, briefcase hidden, solid |
-| `g-man-dance_01` | `assets/g-man-dance/` | `g-man-dance_root` | a clip — `keep_it_gangsta_3`, looped, not solid |
+| `g-man-dance_01` | `assets/g-man-dance/` | `g-man-dance_root` | a pose to wait in, and an action — `dance` plays `keep_it_gangsta_3` once on E; not solid |
 
 The copy costs ~1 MB of download and buys an unambiguous scene. Adoption in
 `tools/export_scene.py` works out which file a hand-imported payload came from
@@ -207,7 +276,13 @@ contract as everything else.
 ## What is still true
 
 - **The Editor build has no props.** `src/game.mjs` reads no placements and
-  calls no `loadProp`; animation lands in the standalone build only.
+  calls no `loadProp`; animation — and with it actions, areas and the E — lands
+  in the standalone build only.
+- **One key, one action at a time.** A prop offers the first action its script
+  lists, unless the area you are standing in names another. Nothing chains,
+  nothing waits on another prop, and an action cannot hold its last key — a
+  door that stays open is the first asset that will want that, and the place to
+  add it is a field on `play`, in the contract, when that door exists.
 - **Pose and clip on the same bone: the clip wins**, every frame. Give a dancer
   a `rigs` entry only for bones the clip does not touch, and expect the warning.
 - **The kit's build drops armatures.** See above; the object is copied, not
@@ -235,4 +310,4 @@ contract as everything else.
 
 Background: `0012f18`, `c744a5f` and `59c7ca7` established the export-side
 naming and merge behaviour; the script convention landed across all three repos
-on 2026-09-15.
+on 2026-09-15, and actions across the same three on 2026-09-21.

@@ -14,7 +14,16 @@
 //                                  says, applied once — see PropRig in rig.mjs
 //   rig.attach                     what to hang where before a clip can play
 //   clips + play                   which clip, looped or not, at what speed
+//   actions                        what a player standing by it can set it off to
+//                                  do — each a name, a label and a `play` of its own
 //   solid                          the asset's own answer to "can you walk into it"
+//
+// The top level is what the object does AT REST, from the moment it lands. An
+// action is what it does instead, for a while: set off at rest it starts, set
+// off while running it stops, and a clip that does not loop stops by itself.
+// Stopped, the object goes back to rest. That is the whole state machine, and
+// who sets an action off — which key, from how near — is ../src/actions.mjs's
+// business, not this file's: here an action is a method somebody calls.
 //
 // The manifest's `rigs` entry for a placement is applied on top of the script's
 // own pose, the way placements shadow hand-written props: the asset says what
@@ -41,8 +50,15 @@ export const SCRIPT_VERSION = 1;
 const loaded = new Map();
 
 /**
- * Fetch a script and the clip it plays. Resolves to { url, script, clip } —
- * `clip` null when the script plays nothing — or rejects with why.
+ * Fetch a script and every clip it can play. Resolves to { url, script, clip,
+ * clips } — `clip` the one the script plays at rest, null when it plays
+ * nothing; `clips` a Map by name of that and whatever its actions play — or
+ * rejects with why.
+ *
+ * An action's clip is fetched up front with the rest rather than when the
+ * player first presses the key: a dance that starts a round trip late is a
+ * dance that ignored you, and the clips are a few hundred KB beside a GLB of
+ * a megabyte.
  *
  * `no-cache` rather than the placements file's `no-store`: an asset changes
  * when it is copied in again, not on every export, so a revalidated cache is
@@ -58,18 +74,22 @@ export function loadScript(url) {
       if (script.version !== SCRIPT_VERSION) {
         console.warn(`[script ${url}] version ${script.version}, this loader reads ${SCRIPT_VERSION}`);
       }
-      let clip = null;
-      const name = script.play?.clip;
-      if (name) {
+      const wanted = new Map();   // clip name -> who asked, for the error
+      if (script.play?.clip) wanted.set(script.play.clip, 'play.clip');
+      for (const action of script.actions ?? []) {
+        if (action?.play?.clip && !wanted.has(action.play.clip)) wanted.set(action.play.clip, `action ${action.name}`);
+      }
+      const clips = new Map();
+      await Promise.all([...wanted].map(async ([name, asker]) => {
         const entry = (script.clips ?? []).find((c) => c.name === name);
-        if (!entry) throw new Error(`play.clip "${name}" is not one of the script's clips`);
+        if (!entry) throw new Error(`${asker} "${name}" is not one of the script's clips`);
         // Relative to the script, not the page: the folder is the unit that moves.
         const clipUrl = new URL(entry.file, new URL(url, location.href));
         const r = await fetch(clipUrl, { cache: 'no-cache' });
         if (!r.ok) throw new Error(`${entry.file}: HTTP ${r.status}`);
-        clip = await r.json();
-      }
-      return { url, script, clip };
+        clips.set(name, await r.json());
+      }));
+      return { url, script, clip: clips.get(script.play?.clip) ?? null, clips };
     })();
     loaded.set(url, pending);
   }
@@ -148,12 +168,16 @@ const _tmp = new Vec3();
  * each result is composed onto the node's captured bind rotation.
  */
 export class ClipPlayer {
-  constructor(root, clip, script, bind, label = '') {
+  /**
+   * `play` is who is asking — `{ loop, speed }` from the script's own `play`
+   * at rest, or from the action that plays this clip. The rig and the bind pose
+   * are the script's either way.
+   */
+  constructor(root, clip, script, bind, label = '', play = script.play ?? {}) {
     this.label = label;
     this.name = clip.name;
     this.times = Float32Array.from(clip.times ?? []);
     this.duration = clip.duration ?? (this.times.length ? this.times[this.times.length - 1] : 0);
-    const play = script.play ?? {};
     this.loop = play.loop ?? clip.loop ?? true;
     this.speed = play.speed ?? 1;
     this.time = 0;
@@ -184,11 +208,21 @@ export class ClipPlayer {
         this.missing.push(`${clip.root.bone} (root motion: ${!rootBone ? 'no pelvis' : !pelvis ? 'no pelvis under the root' : 'no axes — rig.neck/spine and the thighs'})`);
       }
     }
-    this.seek(0);
+    // Every node this clip writes to, the pelvis it walks included. Nothing is
+    // posed here: binding a clip and playing it are separate, because an
+    // action's clip is bound at load and must not move a bone until it is set off.
+    this.nodes = new Set(this.root ? [this.root.node] : []);
+    for (const track of this.tracks) for (const node of track.nodes) this.nodes.add(node);
   }
 
   /** Nodes actually driven — what the placement log reports. */
   get count() { return this.tracks.reduce((n, t) => n + t.nodes.length, 0); }
+
+  /** A one-off that has played through. A looped clip never has. */
+  get ended() { return !this.loop && this.time >= this.duration; }
+
+  /** Back to the first key, for the next time somebody sets it off. */
+  rewind() { this.time = 0; }
 
   update(dt) {
     if (!this.times.length) return;
@@ -244,6 +278,18 @@ export class ClipPlayer {
   }
 }
 
+// How long a prop takes to ease out of what it was doing and into what it does
+// next. The contract leaves this to the consumer: long enough that the last key
+// of a dance does not snap into the pose the dancer stands in, short enough
+// that pressing the key still feels like it did something.
+export const EASE_SECONDS = 0.35;
+
+// Metres from the object within which an action is offered when neither the
+// action nor the scene says otherwise — the contract's default.
+export const DEFAULT_ACTION_RADIUS = 2;
+
+const NO_NODES = new Set();
+
 /**
  * PropScript — one placed prop, doing what its script says.
  *
@@ -251,9 +297,10 @@ export class ClipPlayer {
  * then hang what the script says where (measured against that bind), then the
  * script's own pose, then the clip — which composes onto the captured bind, so
  * a pose on a bone the clip also drives is simply overwritten every frame.
+ * Actions are bound last and move nothing until one is set off.
  */
 export class PropScript {
-  constructor(root, { url, script, clip }, label = '') {
+  constructor(root, { url, script, clip, clips }, label = '') {
     this.root = root;
     this.url = url;
     this.label = label;
@@ -275,8 +322,33 @@ export class PropScript {
     this.rig = posed ? new PropRig(root, script, label) : null;
     if (this.rig?.missing.length) this.warnings.push(`no node matched: ${this.rig.missing.join(', ')}`);
 
+    // What it does at rest, from the moment it lands.
     this.player = clip ? new ClipPlayer(root, clip, script, this.bind, label) : null;
     if (this.player?.missing.length) this.warnings.push(`clip ${clip.name}: no node matched ${this.player.missing.join(', ')}`);
+    this.player?.seek(0);
+
+    // What a player can set it off to do instead. Each action binds its own
+    // clip now, so the key is answered on the frame it is pressed.
+    this.actions = [];    // [{ name, label, stop, radius, player }]
+    for (const entry of script.actions ?? []) {
+      const source = entry?.play?.clip ? clips?.get(entry.play.clip) : null;
+      if (!entry?.name || !source) {
+        this.warnings.push(`action ${entry?.name ?? '(unnamed)'}: ${!entry?.name ? 'no name' : 'no clip to play'} — dropped`);
+        continue;
+      }
+      const player = new ClipPlayer(root, source, script, this.bind, label, entry.play);
+      if (player.missing.length) this.warnings.push(`action ${entry.name}, clip ${source.name}: no node matched ${player.missing.join(', ')}`);
+      this.actions.push({
+        name: entry.name,
+        label: entry.label ?? entry.name,
+        stop: entry.stop ?? null,
+        radius: entry.radius > 0 ? entry.radius : DEFAULT_ACTION_RADIUS,
+        player,
+      });
+    }
+    this.acting = null;   // the action running now; null at rest
+    this.rest = null;     // Map(node -> { q, p }): where a stopped action's bones go back to
+    this.fade = null;     // { from: Map(node -> { q, p }), t } while easing between the two
   }
 
   /**
@@ -320,7 +392,81 @@ export class PropScript {
   /** A mesh the script's pose hid is gone from collision too. */
   collides(name) { return this.rig ? this.rig.collides(name) : true; }
 
-  update(dt) { this.player?.update(dt); }
+  /** Does anything here need the game loop? A pose alone does not. */
+  get ticks() { return !!(this.player || this.actions.length); }
+
+  /**
+   * Set an action off — the first one the script lists, unless named.
+   *
+   * The contract's three rules, and the only place they live: at rest it
+   * starts, running it stops, and update() stops a one-off that has played
+   * through. Returns the action, or null if the script has none by that name.
+   */
+  trigger(name) {
+    const action = name ? this.actions.find((a) => a.name === name) : this.actions[0];
+    if (!action) return null;
+    if (this.acting === action) { this.stop(); return action; }
+    // Where a stopped action's bones go back to is wherever they are now —
+    // bind, the script's pose, a `rigs` entry on top, a slider dragged since —
+    // provided now is rest, and not the tail of the last action easing out.
+    if (!this.rest || (!this.acting && !this.fade)) {
+      this.rest = new Map();
+      for (const a of this.actions) {
+        for (const node of a.player.nodes) {
+          this.rest.set(node, { q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() });
+        }
+      }
+    }
+    this.ease((this.acting?.player ?? this.player)?.nodes ?? NO_NODES, action.player.nodes);
+    action.player.rewind();
+    this.acting = action;
+    return action;
+  }
+
+  /** End the running action, and ease back to what the script does at rest. */
+  stop() {
+    if (!this.acting) return;
+    this.ease(this.acting.player.nodes, this.player?.nodes ?? NO_NODES);
+    this.acting = null;
+  }
+
+  // Start easing every node either side drives, from wherever it is this
+  // instant — which, part-way through an earlier ease, is already a blend, so
+  // pressing the key twice in a hurry never snaps.
+  ease(leaving, arriving) {
+    const from = new Map();
+    for (const nodes of [leaving, arriving]) {
+      for (const node of nodes) {
+        if (!from.has(node)) from.set(node, { q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() });
+      }
+    }
+    this.fade = from.size ? { from, t: 0 } : null;
+  }
+
+  update(dt) {
+    (this.acting?.player ?? this.player)?.update(dt);
+    // The last key has been posed this frame; ease away from it, not from the one before.
+    if (this.acting?.player.ended) this.stop();
+    if (!this.fade) return;
+
+    const fade = this.fade;
+    fade.t += dt;
+    const x = Math.min(fade.t / EASE_SECONDS, 1);
+    const f = x * x * (3 - 2 * x);
+    // What a node is easing TOWARDS: what the clip now playing just wrote to
+    // it, or — for a bone nothing drives any more — where it rests.
+    const driven = (this.acting?.player ?? this.player)?.nodes ?? NO_NODES;
+    for (const [node, was] of fade.from) {
+      const to = driven.has(node)
+        ? { q: node.getLocalRotation(), p: node.getLocalPosition() }
+        : this.rest?.get(node) ?? this.bind.get(node);
+      _posed.slerp(was.q, to.q, f);
+      _v.lerp(was.p, to.p, f);
+      node.setLocalRotation(_posed);
+      node.setLocalPosition(_v);
+    }
+    if (x >= 1) this.fade = null;
+  }
 
   /** One line for the placement log. */
   describe() {
@@ -331,6 +477,10 @@ export class PropScript {
         + `${p.speed !== 1 ? ` at ${p.speed}x` : ''} on ${p.count} nodes${p.root ? ' + root motion' : ''}`);
     }
     if (this.rig) parts.push(`${this.rig.count} bones posed`);
+    for (const a of this.actions) {
+      parts.push(`action ${a.name} "${a.label}" plays ${a.player.name} ${a.player.duration.toFixed(1)} s`
+        + `${a.player.loop ? ' looped' : ' once'}`);
+    }
     for (const a of this.attached) parts.push(`${a.node} hung off ${a.to}`);
     return parts.join(', ') || 'nothing to do';
   }

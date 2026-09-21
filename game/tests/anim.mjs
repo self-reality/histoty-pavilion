@@ -1,6 +1,10 @@
 // An animated asset does what its script says: the clip ticks, the head skin
 // follows the spine, the pelvis walks, and the prop never joins the collider.
 //
+// The dancer's clip is an ACTION these days — he stands until somebody sets it
+// off (tests/actions.mjs is the test of that) — so this sets it off by hand
+// and then measures the clip exactly as it did when it played from the start.
+//
 //   node tests/anim.mjs        # needs `npm start` running on :5173
 //
 // The asset is placed from the test through the same loadProp the layout goes
@@ -46,6 +50,10 @@ const r = await page.evaluate(async (ASSET) => {
   const root = g.app.root.findByName('g-man-dance_test');
   const ref = g.app.root.findByName('g-man-dance_ref');
   const s = g.scripted.find((x) => x.label === 'g-man-dance_test');
+  const restPlayer = s.player;              // what the script plays at rest: nothing
+  s.trigger('dance');
+  const player = s.acting?.player;
+  if (!player) throw new Error(`the script has no "dance" action: ${s.actions.map((a) => a.name)}`);
   const depth = (n) => { let d = 0; for (let p = n.parent; p; p = p.parent) d++; return d; };
   const shallowest = (list) => list.reduce((a, b) => (!a || depth(b) < depth(a) ? b : a), null);
   const find = (r, pattern) => shallowest(matchNodes(r, pattern));
@@ -71,7 +79,7 @@ const r = await page.evaluate(async (ASSET) => {
   const bindDist = dist(b);
   const distAt0 = dist(t);
   const snap = () => ({
-    time: s.player.time,
+    time: player.time,
     thigh: t.thigh.getLocalRotation().clone(),
     pelvis: t.pelvis.getLocalPosition().clone(),
     headDist: dist(t),
@@ -90,18 +98,20 @@ const r = await page.evaluate(async (ASSET) => {
   const solidTris = g.collider.tris.filter((tri) => tri.prop === 'g-man-dance_test').length;
 
   // 4) Looping/holding as the script says, past the end of the clip.
-  const before = s.player.loop;
+  const before = player.loop;
   for (let i = 0; i < 30 * 30; i++) s.update(1 / 30);      // 30 s more, past 22.6 s
-  const timeAfter = s.player.time;
+  const timeAfter = player.time;
 
   return {
     warnings: s.warnings,
-    played: s.player.name,
-    duration: s.player.duration,
+    atRest: restPlayer ? restPlayer.name : null,
+    stillActing: s.acting?.name ?? null,
+    played: player.name,
+    duration: player.duration,
     loop: before,
-    nodes: s.player.count,
-    missing: s.player.missing,
-    rootMotion: !!s.player.root,
+    nodes: player.count,
+    missing: player.missing,
+    rootMotion: !!player.root,
     attached,
     headParent,
     bindDist, distAt0, distAt3: a1.headDist,
@@ -121,7 +131,9 @@ for (const l of logs) console.log('  ' + l);
 const problems = [];
 if (errs.length) problems.push(`page errors: ${errs.join(' | ')}`);
 if (r.warnings.length) problems.push(`script warnings: ${r.warnings.join(' | ')}`);
+if (r.atRest !== null) problems.push(`plays ${r.atRest} at rest — the dance should wait to be set off`);
 if (r.played !== 'keep_it_gangsta_3') problems.push(`played ${r.played}`);
+if (!r.loop && r.stillActing) problems.push(`a one-off is still "${r.stillActing}" 10 s after its clip ended`);
 if (r.missing.length) problems.push(`unmatched patterns: ${r.missing.join(', ')}`);
 if (r.nodes < 13) problems.push(`only ${r.nodes} nodes driven`);
 if (!r.rootMotion) problems.push('no root motion track');

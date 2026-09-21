@@ -59,6 +59,39 @@
     #hitmarker::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
     #hitmarker::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
 
+    /* Action hints — an E over every prop in reach (see src/actions.mjs), which
+       places each one with a transform. The one the key would act on is lit;
+       the rest are there to say "this one too, if you look at it". */
+    #actions { position: fixed; inset: 0; pointer-events: none; z-index: 9; overflow: hidden; }
+    .action-hint {
+      /* Laid out from the key's centre: the transform puts this box's origin on
+         the point, and the margins pull the 26 px key back over it. */
+      position: absolute; left: 0; top: 0; margin: -13px 0 0 -13px;
+      display: flex; align-items: center; gap: 8px;
+      white-space: nowrap; opacity: 0.55; will-change: transform;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.8); transition: opacity 0.12s ease;
+    }
+    /* Pinned to the right-hand edge: the word goes left of the key, and the box
+       is hung from its right end so the key stays where it was put. */
+    .action-hint.flipped { flex-direction: row-reverse; left: auto; right: 100%; margin: -13px -13px 0 0; }
+    .action-hint .key {
+      display: grid; place-items: center; width: 26px; height: 26px; border-radius: 6px;
+      font: 700 14px/1 ui-monospace, monospace; color: #fff;
+      background: rgba(12,14,18,0.55); border: 1.5px solid rgba(255,255,255,0.55);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.12s ease;
+    }
+    .action-hint .label { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; }
+    .action-hint.active { opacity: 1; }
+    .action-hint.active .key {
+      color: #1a140a; background: var(--accent); border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(255,207,90,0.25), 0 4px 14px rgba(255,207,90,0.45);
+      transform: scale(1.15);
+    }
+    .action-hint.active .label { color: var(--accent); }
+    /* Slid to the edge of the screen: what it belongs to is beside or behind you. */
+    .action-hint.pinned .label { opacity: 0.7; }
+
     /* Start / pause overlay */
     #overlay {
       position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
@@ -123,6 +156,7 @@
   <div id="crosshair"></div>
   <div id="dot"></div>
   <div id="hitmarker"></div>
+  <div id="actions"></div>
 
   <div id="hud">
     <div id="score">SCORE <b id="scoreVal">0</b></div>
@@ -144,6 +178,7 @@
       <span class="k">Shift</span><span class="d">Sprint</span>
       <span class="k">Space</span><span class="d">Jump</span>
       <span class="k">R</span><span class="d">Reload</span>
+      <span class="k">E</span><span class="d">Use what the E is on</span>
       <span class="k">T</span><span class="d">Teleport to new spawn</span>
       <span class="k">Esc</span><span class="d">Release mouse</span>
     </div>

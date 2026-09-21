@@ -32,9 +32,22 @@
       "sha256": "532502f8c8bf578943bed1e8308652fed0ccc905d9421cb1cc21fa4c9da4fce9"
     }
   ],
-  "play": {
-    "clip": "keep_it_gangsta_3",
-    "loop": true,
-    "speed": 1
-  }
+  "pose": {
+    "ValveBiped.Bip01_L_UpperArm*": [0, 33, 0],
+    "ValveBiped.Bip01_R_UpperArm*": [0, -33, 0],
+    "ValveBiped.Bip01_L_Forearm*": [0, 0, -10],
+    "ValveBiped.Bip01_R_Forearm*": [0, 0, -6]
+  },
+  "actions": [
+    {
+      "name": "dance",
+      "label": "Dance",
+      "stop": "Stop",
+      "play": {
+        "clip": "keep_it_gangsta_3",
+        "loop": false,
+        "speed": 1
+      }
+    }
+  ]
 }

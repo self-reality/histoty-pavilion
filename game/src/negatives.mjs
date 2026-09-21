@@ -99,7 +99,7 @@ function shapeOf(entry) {
 
 const _e1 = new Vec3(), _e2 = new Vec3();
 
-function matrixOf(entry) {
+export function matrixOf(entry) {
   const [px, py, pz] = entry.pos ?? [0, 0, 0];
   const [sx, sy, sz] = entry.scale ?? [1, 1, 1];
   const q = new Quat();
@@ -115,12 +115,17 @@ function matrixOf(entry) {
  * made into a volume. Rejecting is the safe direction: a volume whose normals
  * came out inward means "everything except this box", and applying one would
  * delete the level.
+ *
+ * `tag` is who is asking, for the console. An action area is the same convex
+ * primitive put to the opposite use — asked whether the player is in it rather
+ * than subtracted from anything — and reads its box and cylinder through here
+ * so that the two agree on what a scaled cube encloses. See ./areas.mjs.
  */
-export function volumeFrom(entry) {
+export function volumeFrom(entry, tag = 'negatives') {
   const name = entry.name ?? '(unnamed)';
   const shape = shapeOf(entry);
   if (!shape) {
-    console.warn(`[negatives] ${name}: unknown shape "${entry.shape}" — skipped`);
+    console.warn(`[${tag}] ${name}: unknown shape "${entry.shape}" — skipped`);
     return null;
   }
 
@@ -140,7 +145,7 @@ export function volumeFrom(entry) {
     const n = new Vec3().cross(_e1, _e2);
     const len = n.length();
     if (len < 1e-12) {
-      console.warn(`[negatives] ${name}: a face collapsed — zero scale on an axis? — skipped`);
+      console.warn(`[${tag}] ${name}: a face collapsed — zero scale on an axis? — skipped`);
       return null;
     }
     n.mulScalar(1 / len);
@@ -156,7 +161,7 @@ export function volumeFrom(entry) {
   c.mulScalar(1 / verts.length);
   for (const p of planes) {
     if (p[0] * c.x + p[1] * c.y + p[2] * c.z + p[3] > -1e-9) {
-      console.warn(`[negatives] ${name}: normals point inward — mirrored (negative scale)? — skipped`);
+      console.warn(`[${tag}] ${name}: normals point inward — mirrored (negative scale)? — skipped`);
       return null;
     }
   }

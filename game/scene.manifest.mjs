@@ -107,6 +107,25 @@ export const manifest = {
   // is what Blender exports for an upright cutter. See src/negatives.mjs.
   negatives: [],
 
+  // ---- Action areas: where a prop's action is on offer ----
+  // A prop whose script lists `actions` (the dancing g-man's `dance`) offers
+  // the first of them with an E to anyone within its `radius` — two metres —
+  // of the prop. An area is the level knowing better: a volume of any shape
+  // that replaces that radius for the placement it names. Authored in
+  // Blender's ACT collection and normally arriving through `placements` above;
+  // entries here are the same escape hatch `props` and `negatives` are, and
+  // are shadowed by same-named ones from Blender.
+  //
+  //   { name: 'act_g-man-dance_01', target: 'g-man-dance_01', shape: 'cylinder',
+  //     sides: 32, pos: [x, y, z], euler: [...], scale: [3, 1.2, 3] }
+  //
+  // `shape` is 'box', 'cylinder' or 'sphere' — unit primitives, sized like
+  // Blender's and like a negative's — or 'mesh', with the closed mesh's own
+  // `verts` [x, y, z, ...] and `tris` [a, b, c, ...] in the area's local space,
+  // which is the one Blender writes and nobody types. `action` names which of
+  // the script's actions, for a prop with several. See src/areas.mjs.
+  areas: [],
+
   // ---- Markers: a place in the level rather than a thing in it ----
   // A marker is a name and a transform with no geometry at either end of it —
   // in Blender, a childless Empty (see BLENDER_SCENE.md). `spawn*` is the one

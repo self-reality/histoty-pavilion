@@ -20,6 +20,7 @@ import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
 import { loadScript, PropScript } from '../src/script.mjs';
 import { collectVolumes, carve, carveRender } from '../src/negatives.mjs';
+import { Actions } from '../src/actions.mjs';
 import { SoundBank } from '../src/audio.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -48,6 +49,7 @@ const ui = {
   dot: document.getElementById('dot'),
   hud: document.getElementById('hud'),
   hitmarker: document.getElementById('hitmarker'),
+  actions: document.getElementById('actions'),
   hud_mag: document.getElementById('mag'),
   hud_reserve: document.getElementById('reserve'),
   hud_reloading: document.getElementById('reloading'),
@@ -158,8 +160,10 @@ let collider = null;
 let debug = null;
 let audio = null;
 let rescue = null;
+let actions = null;
 let started = false;
-// Props whose script ticks — a clip playing — in placement order. See ../src/script.mjs.
+// Props whose script ticks — a clip playing, or an action that may be set off —
+// in placement order. See ../src/script.mjs.
 const scripted = [];
 
 // ---- Boot ----
@@ -221,6 +225,12 @@ function boot() {
     player.floors = floors;
     rescue = new FallRescue(player, collider);
 
+    // Who is in reach of what, and which of them E would act on (see
+    // ../src/actions.mjs). Built before any prop lands, because the props
+    // register with it as they do; the areas ride in on the same layout.
+    actions = new Actions({ app, camera: cameraEntity, player, layer: ui.actions });
+    actions.setAreas(scene.areas);
+
     targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
 
     // The whole bank is ~170 KB, so it loads up front rather than streaming —
@@ -246,7 +256,7 @@ function boot() {
     }
 
     // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, rescue, weapon, targets, collider, debug, audio, negatives, surface, camera: cameraEntity, root: playerRoot,
+    window.game = { app, player, rescue, weapon, targets, collider, debug, audio, negatives, actions, surface, camera: cameraEntity, root: playerRoot,
                     // Place a prop by hand from the console or a test — the same
                     // entry the layout goes through — and see what is animating.
                     loadProp, scripted };
@@ -295,11 +305,13 @@ function reportNegatives(volumes, before, after, shown) {
 // geometry added, the other geometry taken away — so they are fetched together
 // rather than each reaching for the layout on its own. Markers ride along on
 // the same terms: a transform with no geometry at either end of it — where the
-// player starts is one.
+// player starts is one. So do action areas: a negative's sibling, a volume
+// that is asked whether the player is in it instead of being cut out of the map.
 async function loadLayout() {
   const props = new Map(manifest.props.map((p) => [p.name, p]));
   const negatives = new Map((manifest.negatives ?? []).map((n) => [n.name, n]));
   const markers = new Map((manifest.markers ?? []).map((m) => [m.name, m]));
+  const areas = new Map((manifest.areas ?? []).map((a) => [a.name, a]));
   if (manifest.placements) {
     try {
       // `no-store`, because this file is rewritten by every `npm run
@@ -315,11 +327,13 @@ async function loadLayout() {
       for (const prop of data.props ?? []) props.set(prop.name, prop);
       for (const neg of data.negatives ?? []) negatives.set(neg.name, neg);
       for (const marker of data.markers ?? []) markers.set(marker.name, marker);
+      for (const area of data.areas ?? []) areas.set(area.name, area);
     } catch (err) {
       console.warn(`[scene] no Blender placements (${manifest.placements}):`, err.message);
     }
   }
-  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()] };
+  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()],
+           areas: [...areas.values()] };
 }
 
 // One container asset per URL — a scattered prop placed 50 times downloads and
@@ -386,7 +400,7 @@ function placeProp(prop, asset, loaded) {
     const script = loaded ? new PropScript(root, loaded, prop.name) : null;
     if (script) {
       for (const w of script.warnings) console.warn(`[script ${prop.name}] ${w}`);
-      if (script.player) scripted.push(script);
+      if (script.ticks) scripted.push(script);
       if (script.rig) debug?.addRig(script.rig);
     }
     // Fold the rig before the hierarchy syncs: the pose moves the prop root
@@ -404,6 +418,8 @@ function placeProp(prop, asset, loaded) {
     const solid = addPropCollision(prop, root, rig, script);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
+    // Anything its script lets a player set off is now in reach of the E key.
+    if (script) actions?.add(prop.name, root, script);
     // Scale is in the line because "is my Blender edit actually in this tab?" is
     // the question you ask most while placing, and a stale placements file
     // answers it silently and wrongly. Read it, compare with the .blend.
@@ -501,6 +517,9 @@ app.keyboard.on(pc.EVENT_KEYDOWN, (e) => {
   if (e.key === pc.KEY_V && debug) { debug.cycleMode(); return; } // works while paused too
   if (!started) return;
   if (e.key === pc.KEY_R && weapon) weapon.reload();
+  // Once per press: a held key repeats, and a dance set off and stopped thirty
+  // times a second is a man twitching.
+  if (e.key === pc.KEY_E && actions && isLocked() && !e.event?.repeat) actions.trigger();
   if (e.key === pc.KEY_T && player && player.floors && player.floors.length) {
     const s = player.floors[Math.floor(Math.random() * player.floors.length)];
     player.teleport(s.x, s.y + 0.15, s.z);
@@ -565,6 +584,10 @@ app.on('update', (dt) => {
   // Clips tick on the same clamped step as the controller, so a tab switch
   // does not fast-forward a dance any more than it fast-forwards a fall.
   for (const s of scripted) s.update(d);
+
+  // After the clips, so a dancer is reached where this frame's pose put him;
+  // the hints come down with the pause overlay and the crosshair.
+  actions.update(started && isLocked());
 
   if (hitmarkerTimer > 0) {
     hitmarkerTimer -= d;
