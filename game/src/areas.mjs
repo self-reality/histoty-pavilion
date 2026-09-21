@@ -20,6 +20,13 @@
 // otherwise. A prop with any area at all is offered ONLY inside its areas: the
 // radius is a default, and an area is somebody having decided.
 //
+// An ASSET may carry its own, too: an `_act` mesh modelled with it, shipped in
+// its package and copied into its script (areaFromAsset below). That one needs
+// no placing — it stands where the prop stands and moves when the prop moves.
+// Three answers to "where is it offered?", then, each replacing the one before:
+// the script's radius, the asset's own area, an area the level draws for one
+// copy of it in one spot.
+//
 // Where an area differs from a negative is what is asked of the volume. A
 // negative has to clip triangles, which is why it is convex and a primitive. An
 // area is only ever asked "is this point inside?", and that question has an
@@ -106,7 +113,7 @@ function crosses(ox, oy, oz, v, ia, ib, ic) {
   return (e2x * qx + e2y * qy + e2z * qz) * inv > 0;
 }
 
-function meshArea(entry, name) {
+function meshArea(entry, name, m = matrixOf(entry)) {
   const verts = Float64Array.from(entry.verts ?? []);
   const tris = Uint32Array.from(entry.tris ?? []);
   const count = verts.length / 3;
@@ -118,7 +125,6 @@ function meshArea(entry, name) {
     console.warn(`[${TAG}] ${name}: \`tris\` points past the end of \`verts\` — skipped`);
     return null;
   }
-  const m = matrixOf(entry);
   const inverse = new Mat4().copy(m);
   if (!inverse.invert()) {
     console.warn(`[${TAG}] ${name}: zero scale on an axis — skipped`);
@@ -160,6 +166,26 @@ export function areaFrom(entry) {
   const { box, contains } = volume;
   return {
     name, target: entry.target, action: entry.action ?? null, shape, box,
+    contains(x, y, z) {
+      if (x < box[0] || y < box[1] || z < box[2] || x > box[3] || y > box[4] || z > box[5]) return false;
+      return contains(x, y, z);
+    },
+  };
+}
+
+/**
+ * An area an ASSET carries — an `areas` entry of its script, the copy of an
+ * `_act` mesh modelled with it — put where the asset stands. `matrix` is the
+ * placed prop's world transform, so the area is wherever the prop is, however
+ * it got there; `target` is that prop.
+ */
+export function areaFromAsset(entry, matrix, target) {
+  const name = `${target}/${entry.name ?? '(unnamed)'}`;
+  const volume = meshArea(entry, name, matrix);
+  if (!volume) return null;
+  const { box, contains } = volume;
+  return {
+    name, target, action: entry.action ?? null, shape: 'mesh', box,
     contains(x, y, z) {
       if (x < box[0] || y < box[1] || z < box[2] || x > box[3] || y > box[4] || z > box[5]) return false;
       return contains(x, y, z);

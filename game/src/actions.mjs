@@ -5,9 +5,11 @@
 // for. This file is the pavilion's half, the part the kit's contract leaves to
 // the consumer on purpose:
 //
-//   who is in reach    inside one of the scene's action areas for the prop (see
-//                      ./areas.mjs) — or, when the scene draws none, within the
-//                      action's `radius` of the prop itself, two metres by default
+//   who is in reach    inside one of the level's action areas for the prop (see
+//                      ./areas.mjs); or, when the level draws none, inside the
+//                      area the asset carries in its own package; or, when it
+//                      carries none, within the action's `radius` of the prop
+//                      itself, two metres by default
 //   which one          of several in reach, the one nearest the middle of the
 //                      view: you press E at what you are looking at
 //   the hint           an E and the action's label over every prop in reach, the
@@ -22,7 +24,7 @@
 // The bounds are read live, so a dancer who has walked off his spot is reached
 // where he is.
 import { Mat4, Vec3 } from 'playcanvas';
-import { collectAreas } from './areas.mjs';
+import { areaFromAsset, collectAreas } from './areas.mjs';
 
 // How far in from the edge of the screen a hint stops when the thing it
 // belongs to is off to one side or behind you, in CSS pixels. A hint you cannot
@@ -77,11 +79,16 @@ export class Actions {
     return item;
   }
 
-  // Which of the layout's areas are this prop's, and which action each offers.
+  // Which areas are this prop's, and which action each offers: the level's, if
+  // it drew any for this prop, and otherwise the ones the asset brought with it.
+  // Placed by the prop's world transform as it stands now — after its pose has
+  // settled its seat offset — so the area is where the prop is.
   claim(item) {
     item.areas = [];
-    for (const area of this.areas) {
-      if (area.target !== item.name) continue;
+    const drawn = this.areas.filter((area) => area.target === item.name);
+    const own = drawn.length ? [] : (item.script.script.areas ?? [])
+      .map((entry) => areaFromAsset(entry, item.root.getWorldTransform(), item.name)).filter(Boolean);
+    for (const area of drawn.length ? drawn : own) {
       const action = area.action ? item.script.actions.find((a) => a.name === area.action) : item.script.actions[0];
       if (!action) {
         console.warn(`[actions] ${area.name}: ${item.name} has no action named "${area.action}" `

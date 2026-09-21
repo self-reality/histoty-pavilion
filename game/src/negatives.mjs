@@ -1,9 +1,8 @@
 // Negative spaces — convex volumes subtracted from the map.
 //
-// Authored in Blender exactly like a prop, and exported the same way: a
-// primitive placed in the NEG collection becomes one entry in
-// scene.placements.json. The only difference is which field it carries, and
-// which direction it works in —
+// Authored in Blender exactly like a prop, and exported the same way: a mesh
+// placed in the NEG collection becomes one entry in scene.placements.json. The
+// only difference is which field it carries, and which direction it works in —
 //
 //   { "name": "tent_01",     "glb":   "./assets/tent_military.glb", ... }  adds
 //   { "name": "neg_door_01", "shape": "box",                        ... }  takes away
@@ -29,6 +28,21 @@
 // What a negative does not do is add. Cut a hole in a floor and there is no
 // shaft under it, only a view of the level's underside — the shaft is a prop
 // placed in the opening (see BLENDER_SCENE.md).
+//
+// A negative comes from one of two places, and they end up the same thing:
+//
+//   the level   a cube or cylinder in Blender's NEG collection — a name, a shape
+//               and a transform, for a hole that belongs to no prop
+//   an asset    a `*_neg` mesh modelled WITH a prop and shipped in its package:
+//               a well brings the hole it stands over. Its shape arrives as
+//               vertices and triangles in the asset's script (the kit's `npm
+//               run pack` copies it out of the GLB), in the asset's own space,
+//               and is put where the prop is put. Move the prop, the hole moves.
+//
+// An asset's cutter is ANY closed mesh — what is inside it is what is cut, and
+// that is the only rule. So the cutter is not a list of planes, which can only
+// say "convex", but a BSP tree built from the mesh's own faces, which can say
+// anything with an inside. A box is simply the tree with no branches.
 import { Mat4, Mesh, Quat, SEMANTIC_POSITION, TYPE_FLOAT32, Vec3 } from 'playcanvas';
 
 // ---- Unit shapes -----------------------------------------------------------
@@ -123,6 +137,9 @@ export function matrixOf(entry) {
  */
 export function volumeFrom(entry, tag = 'negatives') {
   const name = entry.name ?? '(unnamed)';
+  // Anything that is not a unit primitive ships its own geometry, in its own
+  // space under the entry's transform — the same thing an asset's `_neg` is.
+  if (entry.shape === 'mesh') return volumeFromMesh(entry, matrixOf(entry), tag);
   const shape = shapeOf(entry);
   if (!shape) {
     console.warn(`[${tag}] ${name}: unknown shape "${entry.shape}" — skipped`);
@@ -173,7 +190,131 @@ export function volumeFrom(entry, tag = 'negatives') {
     max.x = Math.max(max.x, v.x); max.y = Math.max(max.y, v.y); max.z = Math.max(max.z, v.z);
   }
 
-  return { name, planes, min, max, box: [min.x, min.y, min.z, max.x, max.y, max.z], hits: 0 };
+  return { name, planes, tree: chainOf(planes), min, max, box: [min.x, min.y, min.z, max.x, max.y, max.z], hits: 0 };
+}
+
+// ---- The cutter: a BSP tree --------------------------------------------------
+// One node per face plane of the cutter, and two ways on from it:
+//
+//   front   what lies in front of this face. `null` means nothing of the cutter
+//           does — it is OUTSIDE, for good
+//   back    what lies behind it. `null` means nothing but the cutter's own
+//           substance does — it is INSIDE
+//
+// For a convex cutter every face has the whole of the rest behind it, so no
+// node has a front and the tree is a chain: the six planes of a box, one after
+// the other. That is the list of planes this file used to clip against, and it
+// still is, exactly — a convex cutter pays nothing for the generality. A
+// concave one branches where a face has some of the shape in front of it: the
+// inner corner of an L is outside one arm's wall and still inside the other arm.
+
+/** Convex: each plane's front is outside, and behind it is the next plane. */
+function chainOf(planes) {
+  let tree = null;
+  for (let i = planes.length - 1; i >= 0; i--) tree = { plane: planes[i], front: null, back: tree };
+  return tree;
+}
+
+function planeOf(poly) {
+  const [a, b, c] = poly;
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+  const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+  const len = Math.hypot(nx, ny, nz);
+  if (len < 1e-12) return null;
+  return [nx / len, ny / len, nz / len, -(nx * a[0] + ny * a[1] + nz * a[2]) / len];
+}
+
+// How close to a face's plane another face's corner still counts as on it,
+// while a tree is being built. Looser than the clipper's own tolerance: these
+// are a mesh's vertices after a rounding and a placement transform, and two
+// triangles of one flat quad have to be recognised as one plane.
+const COPLANAR = 1e-5;
+
+/**
+ * A tree from a closed mesh's faces, wound counter-clockwise seen from outside.
+ *
+ * The first face of whatever is left becomes the node; the rest are sorted to
+ * its front and its back, cut in two where they straddle it. A face lying IN
+ * the node's plane is accounted for by the node and dropped if it faces the
+ * same way — that is the other triangle of the same quad — and is otherwise
+ * the far side of something paper-thin, which belongs behind.
+ *
+ * Walks down the back by looping and only recurses to the front, so a convex
+ * mesh of a thousand faces is a loop of a thousand turns, not a stack of them.
+ */
+function treeOf(polys) {
+  let root = null, last = null;
+  let rest = polys;
+  while (rest.length) {
+    const plane = planeOf(rest[0]);
+    const front = [], back = [];
+    for (let i = 1; i < rest.length; i++) {
+      const poly = rest[i];
+      let ahead = false, behind = false;
+      for (const p of poly) {
+        const d = plane[0] * p[0] + plane[1] * p[1] + plane[2] * p[2] + plane[3];
+        if (d > COPLANAR) ahead = true; else if (d < -COPLANAR) behind = true;
+      }
+      if (!ahead && !behind) {
+        const other = planeOf(poly);
+        if (other[0] * plane[0] + other[1] * plane[1] + other[2] * plane[2] < 0) back.push(poly);
+      } else splitPolygon(poly, plane, COPLANAR, front, back);
+    }
+    const node = { plane, front: front.length ? treeOf(front) : null, back: null };
+    if (last) last.back = node; else root = node;
+    last = node;
+    rest = back;
+  }
+  return root;
+}
+
+/**
+ * A closed mesh, placed -> `{ name, tree, min, max, box }`, or null.
+ *
+ * `entry` is `{ name, verts: [x, y, z, ...], tris: [a, b, c, ...] }` in the
+ * asset's own space — a `negatives` entry of an asset's script — and `matrix`
+ * is where that asset stands. Which way the faces are wound is worked out, not
+ * trusted: the mesh's signed volume says whether its normals point out or in,
+ * and a placement that mirrors the prop turns every one of them over. Unlike a
+ * mirrored box from the level, that is nothing to refuse — the inside of a
+ * closed mesh is the inside whichever way it is wound.
+ */
+export function volumeFromMesh(entry, matrix, tag = 'negatives') {
+  const name = entry.name ?? '(unnamed)';
+  const flat = entry.verts ?? [], index = entry.tris ?? [];
+  if (flat.length % 3 || index.length % 3 || index.length < 12) {
+    console.warn(`[${tag}] ${name}: needs \`verts\` (x,y,z,…) and at least four \`tris\` — skipped`);
+    return null;
+  }
+  const verts = [];
+  const min = new Vec3(Infinity, Infinity, Infinity);
+  const max = new Vec3(-Infinity, -Infinity, -Infinity);
+  for (let i = 0; i < flat.length; i += 3) {
+    const v = matrix.transformPoint(new Vec3(flat[i], flat[i + 1], flat[i + 2]));
+    verts.push([v.x, v.y, v.z]);
+    min.x = Math.min(min.x, v.x); min.y = Math.min(min.y, v.y); min.z = Math.min(min.z, v.z);
+    max.x = Math.max(max.x, v.x); max.y = Math.max(max.y, v.y); max.z = Math.max(max.z, v.z);
+  }
+  if (index.some((i) => !(i >= 0 && i < verts.length))) {
+    console.warn(`[${tag}] ${name}: \`tris\` points past the end of \`verts\` — skipped`);
+    return null;
+  }
+
+  let polys = [];
+  let six = 0;                                     // six times the signed volume
+  for (let t = 0; t < index.length; t += 3) {
+    const a = verts[index[t]], b = verts[index[t + 1]], c = verts[index[t + 2]];
+    six += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    if (planeOf([a, b, c])) polys.push([a, b, c]);
+  }
+  if (Math.abs(six) < 1e-9 || polys.length < 4) {
+    console.warn(`[${tag}] ${name}: encloses no volume — flattened by a zero scale, or not closed? — skipped`);
+    return null;
+  }
+  if (six < 0) polys = polys.map(([a, b, c]) => [a, c, b]);
+
+  return { name, tree: treeOf(polys), min, max, box: [min.x, min.y, min.z, max.x, max.y, max.z], hits: 0 };
 }
 
 /** Every entry that made it into a usable volume, in order. */
@@ -240,26 +381,40 @@ function splitPolygon(poly, pl, eps, front, back) {
 }
 
 /**
- * Subtract one volume from a set of convex polygons.
+ * Subtract one cutter from a set of convex polygons: whatever of them is
+ * outside it goes into `outside`, and the number of pieces that were inside —
+ * and are therefore gone — comes back.
  *
- * Plane by plane: whatever falls in front of a face is outside the volume for
- * good — no later face can put it back — so it is banked immediately into
- * `outside` and never touched again. Only the part still behind every face so
- * far carries on. What survives the last face is inside the volume, and that is
- * what the caller throws away.
+ * Node by node: whatever falls in front of a face with nothing in front of it
+ * is outside the cutter for good — nothing further down can put it back — so it
+ * is banked immediately and never touched again. Only what is still behind
+ * carries on, and what is behind a face with nothing behind it is inside.
  *
  * Banking early is what keeps the fragment count down: a doorway punched
  * through a wall quad comes out as the four pieces around the opening, not as
  * everything six clipping passes could produce.
+ *
+ * A concave cutter can cut a polygon in two and then find both halves outside.
+ * The caller is told nothing was removed, and keeps the polygon it had rather
+ * than the pieces: a cutter that took nothing must leave nothing behind it,
+ * not even a seam.
  */
-function subtractVolume(polys, planes, eps, outside) {
-  let inside = polys;
-  for (let k = 0; k < planes.length && inside.length; k++) {
-    const next = [];
-    for (const poly of inside) splitPolygon(poly, planes[k], eps, outside, next);
-    inside = next;
+function clipOut(tree, polys, eps, outside) {
+  let removed = 0;
+  let node = tree;
+  let behind = polys;
+  while (node && behind.length) {
+    const front = [], back = [];
+    for (const poly of behind) splitPolygon(poly, node.plane, eps, front, back);
+    if (front.length) {
+      if (node.front) removed += clipOut(node.front, front, eps, outside);
+      else for (const poly of front) outside.push(poly);
+    }
+    if (!node.back) return removed + back.length;
+    node = node.back;
+    behind = back;
   }
-  return inside;
+  return removed;
 }
 
 // Axis-aligned overlap of a triangle against a volume's bounds, both given as
@@ -314,7 +469,8 @@ export function carve(tris, volumes) {
         polys = [source];
       }
       const kept = [];
-      if (subtractVolume(polys, v.planes, ON, kept).length) v.hits++;
+      if (!clipOut(v.tree, polys, ON, kept)) continue;     // in range, and took nothing
+      v.hits++;
       polys = kept;
       if (!polys.length) break;
     }
@@ -338,12 +494,24 @@ export function carve(tris, volumes) {
  */
 function localise(volume, world, inverse) {
   const m = world.data;
-  const planes = volume.planes.map((p) => {
+  const local = (p) => {
     const o = [0, 1, 2, 3].map((i) => m[4 * i] * p[0] + m[4 * i + 1] * p[1]
       + m[4 * i + 2] * p[2] + m[4 * i + 3] * p[3]);
     const len = Math.hypot(o[0], o[1], o[2]) || 1;
     return [o[0] / len, o[1] / len, o[2] / len, o[3] / len];
-  });
+  };
+  // The same tree, plane for plane. Looped down the back like everything else
+  // that walks one.
+  const copy = (node) => {
+    let root = null, last = null;
+    for (let n = node; n; n = n.back) {
+      const made = { plane: local(n.plane), front: n.front ? copy(n.front) : null, back: null };
+      if (last) last.back = made; else root = made;
+      last = made;
+    }
+    return root;
+  };
+  const tree = copy(volume.tree);
 
   // The world bounds through the inverse: conservative (an OBB's AABB), which
   // is all a broadphase has to be.
@@ -360,7 +528,7 @@ function localise(volume, world, inverse) {
       if (c > hi[a]) hi[a] = c;
     }
   }
-  return { planes, box: [...lo, ...hi] };
+  return { tree, box: [...lo, ...hi] };
 }
 
 // Every vertex stream the mesh holds, packed one vertex at a time with POSITION
@@ -479,7 +647,7 @@ function carveMesh(instance, volumes, device) {
         polys = [source];
       }
       const kept = [];
-      subtractVolume(polys, v.planes, eps, kept);
+      if (!clipOut(v.tree, polys, eps, kept)) continue;    // in range, and took nothing
       polys = kept;
       if (!polys.length) break;
     }

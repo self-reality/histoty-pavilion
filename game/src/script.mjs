@@ -16,6 +16,10 @@
 //   clips + play                   which clip, looped or not, at what speed
 //   actions                        what a player standing by it can set it off to
 //                                  do — each a name, a label and a `play` of its own
+//   negatives / areas              the volumes it carries, copied out of its `_neg`
+//                                  and `_act` meshes: what it cuts out of the map,
+//                                  and where its action is offered from. Not run
+//                                  here — see negatives.mjs and areas.mjs
 //   solid                          the asset's own answer to "can you walk into it"
 //
 // The top level is what the object does AT REST, from the moment it lands. An
@@ -48,6 +52,33 @@ export const SCRIPT_VERSION = 1;
 // One fetch per script URL, shared by every placement of the asset — the same
 // dedup the container cache in standalone/main.mjs does for the GLB.
 const loaded = new Map();
+const fetched = new Map();
+
+/**
+ * The script's JSON and nothing else — no clips.
+ *
+ * This is what startup waits for. A packaged asset's script carries the
+ * negative spaces it cuts out of the map, and the map is cut before its
+ * collision is built, so every placed asset's script is read before the level
+ * is walkable. That is only affordable because a script is a few KB: a
+ * dancer's clip is a few hundred, and nothing at startup needs it.
+ */
+export function loadScriptJson(url) {
+  let pending = fetched.get(url);
+  if (!pending) {
+    pending = (async () => {
+      const res = await fetch(url, { cache: 'no-cache' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const script = await res.json();
+      if (script.version !== SCRIPT_VERSION) {
+        console.warn(`[script ${url}] version ${script.version}, this loader reads ${SCRIPT_VERSION}`);
+      }
+      return script;
+    })();
+    fetched.set(url, pending);
+  }
+  return pending;
+}
 
 /**
  * Fetch a script and every clip it can play. Resolves to { url, script, clip,
@@ -68,12 +99,7 @@ export function loadScript(url) {
   let pending = loaded.get(url);
   if (!pending) {
     pending = (async () => {
-      const res = await fetch(url, { cache: 'no-cache' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const script = await res.json();
-      if (script.version !== SCRIPT_VERSION) {
-        console.warn(`[script ${url}] version ${script.version}, this loader reads ${SCRIPT_VERSION}`);
-      }
+      const script = await loadScriptJson(url);
       const wanted = new Map();   // clip name -> who asked, for the error
       if (script.play?.clip) wanted.set(script.play.clip, 'play.clip');
       for (const action of script.actions ?? []) {

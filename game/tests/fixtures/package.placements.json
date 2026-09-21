@@ -1,0 +1,19 @@
+{
+  "_generated": "by hand, for tests/package.mjs — a layout holding one packaged asset, stood on a flat, open patch of the map",
+  "version": 1,
+  "source": null,
+  "props": [
+    {
+      "name": "well_01",
+      "pos": [11.4, 0.0, 0.1],
+      "rot": [0.0, 0.70711, 0.0, 0.70711],
+      "euler": [0.0, 90.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "glb": "./tests/fixtures/well/well.glb",
+      "script": "./tests/fixtures/well/well.script.json"
+    }
+  ],
+  "markers": [],
+  "negatives": [],
+  "areas": []
+}

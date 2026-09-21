@@ -73,6 +73,7 @@ The script is data, never code. Its vocabulary is the contract:
 | `play` | `{ clip, loop, speed }` — what plays from the moment the prop lands |
 | `pose` / `hide` / `offset` / `move` | a static pose, in exactly the terms a `rigs` entry uses |
 | `actions` | `[{ name, label, stop, radius, play }]` — what a player can set it off to do; see "Actions" |
+| `negatives` / `areas` | the volumes the object carries, copied out of its `_neg` / `_act` meshes by the kit's `npm run pack`: what it cuts out of the map, and where its action is offered |
 
 A clip is a shared `times` array and, per bone pattern, a flat `xyzw`
 quaternion per key: a **delta on the bind pose**, composed as `delta × bind`,
@@ -114,8 +115,11 @@ Who may press the key, and when, is not the asset's business and lives
 elsewhere, in `src/actions.mjs`:
 
 - **In reach** means inside one of the level's **action areas** for the prop
-  (drawn in Blender's `ACT` collection — BLENDER_SCENE.md, "Action areas") or,
-  when the level draws none, within the action's `radius`. The radius is
+  (drawn in Blender's `ACT` collection — BLENDER_SCENE.md, "Action areas"); or,
+  when the level draws none, inside the area the asset **carries** — an `_act`
+  mesh modelled with it, read from its script and placed by the prop's own
+  transform, so it goes where the prop goes; or, when it carries none, within
+  the action's `radius`. The radius is
   measured from the prop's live *bounds* to the player's whole standing height,
   not from origin to eye: g-man's origin is between his shoes, 1.6 m under the
   camera, so two metres origin-to-eye would be one metre across the floor. And

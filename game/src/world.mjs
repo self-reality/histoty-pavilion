@@ -144,6 +144,19 @@ export const isNonColliding = (name) => NO_COLLIDE.test(name || '');
 export const COLLISION_PROXY = /_col(?:[._]\d+)*$/i;
 export const isCollisionProxy = (name) => COLLISION_PROXY.test(name || '');
 
+/**
+ * Two more suffixes, for meshes that are not surface but SPACE: `_neg` is a
+ * negative space the asset cuts out of the map where it stands, `_act` the area
+ * its action is offered from (section 2 of the kit's contract). They are
+ * modelled with the asset so that they move with it, and they are in the GLB
+ * for the modeller's benefit and the level editor's — by the time the GLB
+ * lands here, the game has long since read both shapes out of the asset's
+ * script (see negatives.mjs and areas.mjs). So here a volume mesh is only
+ * something to keep out of sight and out of the collider.
+ */
+export const VOLUME = /_(?:neg|act)(?:[._]\d+)*$/i;
+export const isVolume = (name) => VOLUME.test(name || '');
+
 // ---- Triangle extraction (world space) ------------------------------------
 // Pulls a triangle soup out of a loaded/instantiated render hierarchy, already
 // baked into world space, ready to feed TriangleCollider.
@@ -205,7 +218,8 @@ export function propCollisionTriangles(rootEntity, opts = {}) {
   const collides = opts.collides ?? (() => true);
   const hasProxy = rootEntity.findComponents('render')
     .some((rc) => rc.meshInstances.some((mi) => isCollisionProxy(mi.node.name)));
-  const base = hasProxy ? (name) => !isCollisionProxy(name) : isNonColliding;
+  // A volume never collides — least of all a `_neg`, which is a hole.
+  const base = hasProxy ? (name) => !isCollisionProxy(name) : (name) => isNonColliding(name) || isVolume(name);
   return extractTriangles(rootEntity, {
     skip: (name) => base(name) || !collides(name),
   });
@@ -218,10 +232,19 @@ export function propCollisionTriangles(rootEntity, opts = {}) {
  * them — so hiding is per mesh instance rather than by disabling the entity.
  */
 export function hideCollisionProxies(rootEntity) {
+  return hideMeshes(rootEntity, isCollisionProxy);
+}
+
+/** The same, for the `_neg` and `_act` volumes a packaged asset carries. */
+export function hideVolumes(rootEntity) {
+  return hideMeshes(rootEntity, isVolume);
+}
+
+function hideMeshes(rootEntity, matches) {
   let hidden = 0;
   for (const rc of rootEntity.findComponents('render')) {
     for (const mi of rc.meshInstances) {
-      if (!isCollisionProxy(mi.node.name)) continue;
+      if (!matches(mi.node.name)) continue;
       mi.visible = false;
       mi.castShadow = false;
       hidden++;

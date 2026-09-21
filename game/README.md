@@ -32,6 +32,12 @@ http://localhost:5173/?look=137,-12               ...and tilted 12° down (+ is 
 http://localhost:5173/?at=37.2,3.3,-71.4&look=137,-12&debug
 ```
 
+A third parameter swaps the whole layout: `?placements=./some/layout.json`
+loads that file in place of `scene.placements.json` (same site only). It exists
+so a test can stand a fixture in the level at boot — the only time a packaged
+asset's hole can be cut — and is as good a way as any to try a layout without
+exporting over the real one.
+
 Numbers that don't parse are ignored rather than sending you to the origin. In
 debug mode the **Copy link here** button writes the address for where you are
 standing and looking, so a place found on foot becomes a link that opens on it.
@@ -105,14 +111,14 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/spawn.mjs` | Where the player starts: map centre, then the `.blend`'s marker, then `?at=`/`?look=` in the address |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response (shared by both builds) |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
-| `src/negatives.mjs` | Negative spaces: convex volumes clipped out of the map's collision and its meshes at load |
+| `src/negatives.mjs` | Negative spaces: closed volumes of any shape — the level's, and the ones placed assets carry — cut out of the map's collision and its meshes at load |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
 | `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's script or from `rigs` in the manifest |
 | `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose, the actions a player can set off |
 | `src/actions.mjs` | The E: which props are in reach, which one you are looking at, the hint over each, and the trigger |
-| `src/areas.mjs` | Action areas: volumes of any shape, drawn in Blender, that say where a prop's E is on offer |
+| `src/areas.mjs` | Action areas: volumes of any shape — carried by an asset, or drawn in Blender for one copy of it — that say where a prop's E is on offer |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL, read by both builds |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
@@ -368,6 +374,40 @@ with one — the alternative is 21 hand-assigned audio assets kept in step with 
 bank that is re-rendered upstream. Clear it and the game runs silent, as it
 does if the files were never copied in.
 
+### Packages
+
+An asset is a package: what you see, what you bump into, the hole it needs in
+the level, where you stand to use it, and what it does. The first two have
+always been mesh names inside the GLB (`_col`, `_nocol` — next section). The
+kit's contract now gives the other two the same treatment:
+
+| in the GLB | is | here |
+|---|---|---|
+| `*_neg` — any closed mesh, any number | a **negative space** the asset brings | cut out of the map, wherever the prop stands |
+| `*_act` — any closed mesh | an **action area** | where the E for its action shows, instead of a radius |
+
+Both are modelled with the asset, so they are under its anchor in Blender and
+move when it moves. Neither is ever drawn or collided with.
+
+**The map is cut once, at startup, with every hole there is.** That needs every
+hole known before the collision is built — and props stream in afterwards, a
+megabyte at a time. So the kit copies each asset's volumes out of its GLB into
+the script beside it (`npm run pack`, which its build runs), and this side
+fetches the scripts of every placed prop with the layout: a few KB each, always
+in long before the map is. `packagedNegatives()` in `standalone/main.mjs` puts
+each where its prop will stand, and they join the level's own cutters in one
+carve.
+
+A cutter is **any closed volume** — what is inside is what is cut, and that is
+the only rule. `src/negatives.mjs` cuts with a BSP tree built from the cutter's
+own faces, so an L-shaped pit is one cutter, not two; a box is simply the tree
+with no branches, and clips exactly as it always did.
+
+`tests/package.mjs` stands a packaged well in the level — built by the kit's
+real pipeline, placed by `?placements=` because a hole can only be cut at boot,
+and turned a quarter so that everything is checked where the well *is* rather
+than where it was modelled.
+
 ### Props and collision
 
 Placed props are **solid by default** — their geometry joins the collider as they
@@ -456,7 +496,9 @@ node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere y
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, areas replace the radius, the key goes to what you look at
-node tests/areas.mjs   # an area drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
+node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
+node tests/areas.mjs   # an area or a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
+node tests/carried.mjs # a prop's own volumes show under its anchor and are never exported; an anchor follows its asset into a package (Blender)
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```
 

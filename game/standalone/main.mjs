@@ -14,12 +14,12 @@ import { Player } from '../src/player.mjs';
 import { Weapon } from '../src/weapon.mjs';
 import { isDebugMode } from '../src/debugmode.mjs';
 import { TargetManager, extractTriangles, findFloors, isNonColliding,
-         propCollisionTriangles, hideCollisionProxies, unlitIgnoreAmbient } from '../src/world.mjs';
+         propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient } from '../src/world.mjs';
 import { resolveSpawn, placeAtSpawn, FallRescue } from '../src/spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from '../src/atmosphere.mjs';
 import { rigForProp } from '../src/rig.mjs';
-import { loadScript, PropScript } from '../src/script.mjs';
-import { collectVolumes, carve, carveRender } from '../src/negatives.mjs';
+import { loadScript, loadScriptJson, PropScript } from '../src/script.mjs';
+import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from '../src/negatives.mjs';
 import { Actions } from '../src/actions.mjs';
 import { SoundBank } from '../src/audio.mjs';
 
@@ -196,7 +196,12 @@ function boot() {
     // Negative spaces, subtracted before anything can hold a reference to the
     // soup — a carved doorway has to be a doorway to the spawn finder and the
     // target scatter too, not only to the player (see ../src/negatives.mjs).
-    const negatives = collectVolumes(scene.negatives);
+    // The level's own, and the ones the placed assets brought with them: every
+    // hole there will ever be is known by now, so the map is cut exactly once.
+    // The assets' first: when a prop starts carrying the hole the level used to
+    // draw for it, it is the level's cutter that finds nothing left and is named
+    // as the redundant one — see reportNegatives.
+    const negatives = [...packagedNegatives(scene), ...collectVolumes(scene.negatives)];
     const raw = extractTriangles(renderRoot);
     const tris = carve(raw, negatives);
     // The same volumes out of the render mesh, so it is a hole you can see
@@ -277,6 +282,31 @@ function boot() {
   }));
 }
 
+// The negative spaces placed assets carry, put where the assets stand.
+//
+// An asset's `_neg` meshes are copied into its script by the kit's pack step,
+// in the asset's own space, which is what lets them be known HERE — with the
+// layout, before the map's collision exists — rather than whenever a megabyte
+// of GLB finishes arriving. The prop itself is not on stage yet, so where it
+// will stand is worked out from the same numbers placeProp() will use: its
+// placement, plus the seat offset of its script's pose and of any `rigs` entry,
+// which both move the prop root.
+function packagedNegatives(scene) {
+  const volumes = [];
+  for (const prop of scene.props) {
+    const script = scene.scripts.get(prop.name);
+    if (!script?.negatives?.length) continue;
+    const [px, py, pz] = prop.pos ?? [0, 0, 0];
+    const lift = [script.offset, manifest.rigs?.[prop.name]?.offset].filter(Array.isArray);
+    const at = matrixOf({ ...prop, pos: lift.reduce((p, o) => [p[0] + o[0], p[1] + o[1], p[2] + o[2]], [px, py, pz]) });
+    for (const entry of script.negatives) {
+      const volume = volumeFromMesh({ ...entry, name: `${prop.name}/${entry.name}` }, at);
+      if (volume) volumes.push(volume);
+    }
+  }
+  return volumes;
+}
+
 // A cutter that removed nothing is the failure mode worth printing: the entry
 // is in the layout, the export said nothing, and the doorway simply is not
 // there. Usually it has been left somewhere the map has no geometry.
@@ -288,7 +318,14 @@ function reportNegatives(volumes, before, after, shown) {
     + `render ${shown.meshes} mesh${shown.meshes === 1 ? '' : 'es'} rebuilt `
     + `(${shown.before.toLocaleString()} -> ${shown.after.toLocaleString()} tris)`);
   for (const v of volumes) {
-    if (v.hits) console.log(`[negatives] ${v.name} cut ${v.hits} triangle${v.hits > 1 ? 's' : ''}`);
+    if (v.hits) { console.log(`[negatives] ${v.name} cut ${v.hits} triangle${v.hits > 1 ? 's' : ''}`); continue; }
+    // Nothing left to cut is a different story from nothing there: a cutter
+    // wholly inside the reach of one that did its work is the second of two
+    // doing the same job — typically a level cutter left behind after the prop
+    // it was drawn for began bringing its own.
+    const inside = (a, b) => [0, 1, 2].every((i) => a.box[i] >= b.box[i] - 1e-3 && a.box[i + 3] <= b.box[i + 3] + 1e-3);
+    const earlier = volumes.find((o) => o !== v && o.hits && inside(v, o));
+    if (earlier) console.warn(`[negatives] ${v.name} cut NOTHING — ${earlier.name} had already taken it. One of the two is redundant`);
     else console.warn(`[negatives] ${v.name} cut NOTHING — is it inside the map?`);
   }
 }
@@ -307,12 +344,17 @@ function reportNegatives(volumes, before, after, shown) {
 // the same terms: a transform with no geometry at either end of it — where the
 // player starts is one. So do action areas: a negative's sibling, a volume
 // that is asked whether the player is in it instead of being cut out of the map.
+//
+// The scripts of the placed assets are fetched here too, JSON only. They are a
+// few KB each and the map is megabytes, so they are always in long before it
+// is — and they have to be, because an asset may carry a hole for the map.
 async function loadLayout() {
   const props = new Map(manifest.props.map((p) => [p.name, p]));
   const negatives = new Map((manifest.negatives ?? []).map((n) => [n.name, n]));
   const markers = new Map((manifest.markers ?? []).map((m) => [m.name, m]));
   const areas = new Map((manifest.areas ?? []).map((a) => [a.name, a]));
-  if (manifest.placements) {
+  const placements = placementsUrl();
+  if (placements) {
     try {
       // `no-store`, because this file is rewritten by every `npm run
       // scene:export` and a stale copy silently shows the wrong layout. The dev
@@ -321,7 +363,7 @@ async function loadLayout() {
       // its cached copy without asking. Cmd-Shift-R does not save you: a hard
       // reload only forces revalidation for the navigation and the subresources
       // it pulls in, and this fetch is issued from script afterwards.
-      const res = await fetch(manifest.placements, { cache: 'no-store' });
+      const res = await fetch(placements, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       for (const prop of data.props ?? []) props.set(prop.name, prop);
@@ -329,11 +371,32 @@ async function loadLayout() {
       for (const marker of data.markers ?? []) markers.set(marker.name, marker);
       for (const area of data.areas ?? []) areas.set(area.name, area);
     } catch (err) {
-      console.warn(`[scene] no Blender placements (${manifest.placements}):`, err.message);
+      console.warn(`[scene] no Blender placements (${placements}):`, err.message);
     }
   }
+  // A script that fails here fails again, loudly, when its prop is placed.
+  const scripts = new Map();
+  await Promise.all([...props.values()].filter((p) => p.script).map(async (p) => {
+    try { scripts.set(p.name, await loadScriptJson(p.script)); } catch { /* reported by loadProp */ }
+  }));
   return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()],
-           areas: [...areas.values()] };
+           areas: [...areas.values()], scripts };
+}
+
+// Which layout: the manifest's, unless the address bar names another —
+// `?placements=./tests/fixtures/package.placements.json`. Same idea as `?at=`:
+// the authored answer stands until the URL says otherwise. It is how a test
+// stands a fixture in the level at BOOT, which is the only time a packaged
+// asset's hole can be cut. Same-origin only; anything else is ignored.
+function placementsUrl() {
+  const asked = new URLSearchParams(location.search).get('placements');
+  if (!asked) return manifest.placements;
+  try {
+    const url = new URL(asked, location.href);
+    if (url.origin === location.origin) return url.href;
+  } catch { /* not a URL */ }
+  console.warn(`[scene] ?placements=${asked} is not a layout on this site — using ${manifest.placements}`);
+  return manifest.placements;
 }
 
 // One container asset per URL — a scattered prop placed 50 times downloads and
@@ -417,6 +480,7 @@ function placeProp(prop, asset, loaded) {
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root, rig, script);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
+    const volumes = hideVolumes(root);            // `_neg` / `_act`: read from the script long ago
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
     // Anything its script lets a player set off is now in reach of the E key.
     if (script) actions?.add(prop.name, root, script);
@@ -426,6 +490,7 @@ function placeProp(prop, asset, loaded) {
     console.log(`[prop ${prop.name}] placed @ ${root.getLocalPosition().toString()}`
       + ` scale ${sx === sy && sy === sz ? sx : `${sx},${sy},${sz}`}${solid}`
       + (proxies ? ` (${proxies} collision proxy mesh hidden)` : '')
+      + (volumes ? ` (${volumes} volume mesh hidden)` : '')
       + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
       + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : '')
       + (script ? ` (script: ${script.describe()})` : ''));
