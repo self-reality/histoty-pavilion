@@ -71,6 +71,9 @@ never exported. It is there so you can see where the ground is.
 wireframe primitives, each wired into the `REF` objects it overlaps by a Boolean
 modifier so the hole is visible while you place it. See below.
 
+**`ACT`** — action areas: volumes that say *where* the **E** for a prop's action
+appears. Green wireframes, any shape. See "Action areas" below.
+
 ## Adding a new prop
 
 1. Drop the GLB in `game/assets/`.
@@ -180,8 +183,13 @@ placement it writes carries a second path beside `glb`:
 `.blend` knows the object, the export knows what it does. Copy a new version of
 the folder in and the next export picks it up with nothing to edit.
 
-Three things the script decides so you do not have to:
+Four things the script decides so you do not have to:
 
+- **What E does.** A script may list `actions` — the dancer's is `dance` — and
+  the game offers the first of them, with an **E** on screen, to anyone within
+  two metres of the prop. Nothing to author: place him and it works. To say
+  *where* it is offered instead — from the terrace, from this side of a rail —
+  draw an action area; see below.
 - **It is not solid.** Collision is baked once at load, from the pose the mesh
   is in then, and a dancer would leave a statue of his first frame standing in
   the room. The script says `solid: false`; a `solid` custom property on the
@@ -279,6 +287,97 @@ tall opening cut 2 m deep through the wall.
 A cutter that carves nothing says so in the console at boot — that is the one
 failure mode with no other symptom, and it usually means the volume has been
 left somewhere the map has no geometry.
+
+## Action areas
+
+A prop whose script lists an action — see "Actions" in ANIMATED_PROPS.md — shows
+an **E** to anyone within two metres of it, and pressing E sets the action off.
+Two metres *of the prop* is the asset's guess, made without seeing the level.
+An action area is you knowing better: a volume, drawn where the player should be
+standing, that **replaces** the radius for that prop. Inside it the E shows;
+outside it, it does not, however close to the prop you are.
+
+It is the negative space's sibling and the flow is the same — a mesh in a
+collection, named for what it does, moved into place, exported. The difference
+is what the game asks of it. A cutter has to clip triangles, so it must be a
+convex primitive. An area is only ever asked *"is the player in here?"*, and
+that has an answer for any closed mesh. **So an area can be any shape.**
+
+### Adding one
+
+1. `Add > Mesh >` anything — a cube to start with — into the **`ACT`**
+   collection. As with `NEG`, the collection is what makes it an area. (A
+   `.blend` built before areas existed has no `ACT`; run the exporter once from
+   inside Blender and it appears in the Outliner, or rebuild with
+   `scene:import -- --force`.)
+2. Name it **`act_` + the prop's name**: `act_g-man-dance_01` offers
+   `g-man-dance_01`'s action. That is the whole link.
+3. Move, scale, turn — and if a box is not the shape you want, *edit it*. Save,
+   `npm run scene:export`.
+
+A few things follow from the name being the link:
+
+- **Several areas for one prop** are `Shift-D` and nothing else. Blender names
+  the copy `act_g-man-dance_01.001`, and the `.001` is ignored — both offer the
+  same prop, and the player is in reach inside either.
+- **A name of your own** (`act_terrace`) works with a **`target`** custom
+  property naming the prop.
+- **A prop with several actions** offers its first. An **`action`** custom
+  property on the area names another — which is also how two areas round one
+  prop offer different things.
+
+### What ships
+
+While the mesh is still the primitive it was added as — scaled, turned and moved
+in Object Mode, the way a cutter is — it ships as a shape and a transform, and
+moving it is a one-line diff:
+
+```json
+{ "name": "act_g-man-dance_01", "shape": "cylinder", "target": "g-man-dance_01",
+  "pos": [-43.5, 1.0, -3.2], "rot": [0, 0, 0, 1], "euler": [0, 0, 0],
+  "scale": [3.0, 1.0, 3.0], "sides": 32 }
+```
+
+`box`, `cylinder` and `sphere` are recognised, by their vertices actually being
+where the unit primitive has them. **Anything else ships as itself**: drag a
+corner in Edit Mode, extrude an L round a pillar, add a Bevel and leave it
+unapplied — what the viewport shows is what the game tests against, modifiers
+included.
+
+```json
+{ "name": "act_gallery", "shape": "mesh", "target": "g-man-dance_01",
+  "pos": [...], "rot": [...], "scale": [...],
+  "verts": [0, 0, 0, 4, 0, 0, ...], "tris": [0, 1, 7, ...] }
+```
+
+The vertices are in the area's own space, so moving a mesh area is still one
+changed `pos`; reshaping it is one changed line of `verts`.
+
+### Rules that bite
+
+- **It replaces the radius, it does not add to it.** Draw one area on the
+  terrace and the E no longer shows when you walk right up to him. If you want
+  both, that is two areas.
+- **Closed meshes only.** The game tells inside from outside by counting how
+  many times a ray out of the player crosses the surface, and a surface with a
+  hole in it has rays that escape uncounted — the area leaks. The exporter
+  counts open edges and says so. (Select the hole's rim, `F`.)
+- **The player is three points** — soles, belt, eyes — and is in the area if any
+  one of them is. So a slab 20 cm thick lying on the floor works as a "stand
+  here" pad, and so does a volume the size of the room.
+- **A mirrored box or cylinder is refused**, exactly as a mirrored cutter is, and
+  for the same reason. Use rotation. (A mirrored *mesh* is fine — crossings do
+  not care which way the faces point.)
+- **An area for a prop that has no action does nothing**, silently in game. The
+  exporter knows which names are props and warns about an area aimed at none;
+  it cannot know what a script offers, so an `action` the script does not list
+  is reported in the browser console at boot instead.
+- **It rebuilds.** `scene:import -- --force` brings every area back, a primitive
+  as the unit primitive and a mesh as the triangles it shipped as — same volume,
+  same export, but its quads are gone. `Alt-J` if the wireframe bothers you.
+
+`tests/areas.mjs` draws one of each in a scratch `.blend` and checks that points
+read off Blender's N-panel are inside or outside the same way in the game.
 
 ## Collision
 
@@ -407,7 +506,7 @@ reading diffs, and the game ignores it when `rot` is present.
 ## Rebuilding
 
 `npm run scene:import -- --force` recreates the `.blend` from the tracked files.
-It restores every prop, marker and negative exactly — the build→export→build loop is a
+It restores every prop, marker, negative and action area exactly — the build→export→build loop is a
 byte-identical no-op. What it does *not* restore is Blender-side work nothing
 exports: extra collections, lights, viewport layout, notes. Export first.
 
@@ -427,6 +526,9 @@ exports: extra collections, lights, viewport layout, notes. Export first.
 - **A cutter outside `NEG`** carves nothing, and looks entirely correct sitting
   in the viewport while it does so. The exporter names any `neg_*` object it
   finds filed somewhere else.
+- **An area outside `ACT`** is the same trap: the prop goes on offering its
+  action from two metres while your carefully drawn volume is ignored. Any
+  `act_*` object filed elsewhere is named in the export.
 - **A prop that shows in Blender but not in game** — you almost certainly moved
   the mesh instead of the Empty, or forgot `npm run scene:export`.
 - **Duplicate names**: Blender silently renames to `crate_01.001`, which exports

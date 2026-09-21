@@ -2,6 +2,7 @@
 
     npm run scene:import            # -> scene/pavilion.blend
     npm run scene:import -- --force # rebuild over an existing .blend
+    ... -- --out x.blend --placements y.json   # another layout, somewhere else (tests)
 
 The .blend is a *derived working file*, not the source of truth — it is 10 MB
 of imported GLB payload and is gitignored. Everything that matters comes from
@@ -29,6 +30,8 @@ Layout of the generated .blend:
           to it. Wireframe primitives, each wired into the REF objects it
           overlaps by a Boolean modifier, so the hole is visible while you place
           it. See tools/negatives.py.
+  ACT     action areas: volumes of any shape that say where the E for a prop's
+          action is on offer. Green wireframes. See tools/areas.py.
 
 Move the ANCHOR, never the mesh under it — only the anchor's transform is
 exported. The meshes are hide_select to make that hard to get wrong.
@@ -43,6 +46,7 @@ import bpy
 from mathutils import Matrix
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import areas  # noqa: E402
 import negatives  # noqa: E402
 from pc_axes import pc_to_blender, pc_trs_to_matrix  # noqa: E402
 
@@ -69,9 +73,14 @@ def read_manifest():
     return json.loads(out.stdout)
 
 
-def read_placements(manifest):
-    """Load the exported layout, if there is one. Absent on a first build."""
-    rel = manifest.get('placements')
+def read_placements(manifest, override=None):
+    """Load the exported layout, if there is one. Absent on a first build.
+
+    `override` is `--placements`: build from some other layout than the one the
+    manifest names. tests/areas.mjs uses it to push a scratch layout through the
+    real build instead of a copy of it.
+    """
+    rel = override or manifest.get('placements')
     if not rel:
         return {}
     path = os.path.join(GAME_DIR, rel)
@@ -104,6 +113,15 @@ def merged_markers(manifest, placements):
     """
     by_name = {entry['name']: entry for entry in manifest.get('markers', [])}
     for entry in placements.get('markers', []):
+        by_name[entry['name']] = entry
+    return [by_name[k] for k in sorted(by_name)]
+
+
+def merged_areas(manifest, placements):
+    """The same merge again, for action areas: hand-written ones in the manifest,
+    shadowed by same-named ones drawn in Blender."""
+    by_name = {entry['name']: entry for entry in manifest.get('areas', [])}
+    for entry in placements.get('areas', []):
         by_name[entry['name']] = entry
     return [by_name[k] for k in sorted(by_name)]
 
@@ -206,11 +224,27 @@ def build_negatives(entries, collection, ref):
     return cutters
 
 
+def build_areas(entries, collection):
+    """Recreate the action areas. A primitive comes back as the unit primitive;
+    a `mesh` area comes back as the triangles it shipped as."""
+    for entry in entries:
+        try:
+            area = areas.make_area(entry, collection)
+        except ValueError as err:
+            print(f'[build] SKIP {entry["name"]}: {err}')
+            continue
+        area.matrix_world = pc_to_blender(matrix_of(entry))
+        for key, value in (entry.get('extras') or {}).items():
+            area[key] = value
+        print(f'[build] area   {entry["name"]}  ({entry.get("shape", "box")}) -> {entry.get("target")}')
+
+
 def build(manifest, placements, out_path):
     reset_scene()
     ref = make_collection(REF_COLLECTION)
     scene = make_collection(SCENE_COLLECTION)
     neg = make_collection(negatives.NEG_COLLECTION)
+    act = make_collection(areas.ACT_COLLECTION)
 
     map_cfg = manifest['map']
     map_path = os.path.join(GAME_DIR, map_cfg['glb'])
@@ -244,6 +278,8 @@ def build(manifest, placements, out_path):
         anchor_for(marker['name'], matrix_of(marker), scene,
                    dict(marker.get('extras') or {}))
 
+    build_areas(merged_areas(manifest, placements), act)
+
     # Last, so the booleans are wired against a map that is fully imported.
     build_negatives(placements.get('negatives', []), neg, ref)
 
@@ -268,7 +304,8 @@ def main():
         )
 
     manifest = read_manifest()
-    build(manifest, read_placements(manifest), out_path)
+    placements = os.path.abspath(args[args.index('--placements') + 1]) if '--placements' in args else None
+    build(manifest, read_placements(manifest, placements), out_path)
 
 
 main()
