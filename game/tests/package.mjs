@@ -16,6 +16,9 @@
 // where the asset went rather than where they were modelled. Where that is, is
 // asked of the engine — the placed entity's world transform — not worked out
 // again the way the game worked it out.
+//
+// It also pins the rule that a cutter cuts the MAP and only the map: the well's
+// own kerb sits exactly on top of its own shaft, and comes through whole.
 import { chromium } from 'playwright';
 
 const LAYOUT = './tests/fixtures/package.placements.json';
@@ -61,6 +64,27 @@ const r = await page.evaluate(async () => {
   const lowest = Math.min(...own.flatMap((t) => [t.a.y, t.b.y, t.c.y]));
   const widest = Math.max(...own.flatMap((t) => [t.a, t.b, t.c]).map((p) => Math.hypot(p.x - root.getPosition().x, p.z - root.getPosition().z)));
 
+  // ---- 2b) a cutter cuts the MAP, and nothing else -------------------------------
+  // The well is the sharpest test of that there is: the bottom of its own kerb —
+  // and of the kerb's collision proxy — lies exactly in the top face of its own
+  // shaft, inside the shaft's radius. Anything that carved props would take a
+  // 0.7 m disc out of both. So: what the prop gave the collider is what a fresh
+  // read of the prop gives now, triangle for triangle and square metre for square
+  // metre, and what it draws is what an untouched second copy of its GLB draws.
+  const { propCollisionTriangles } = await import('/src/world.mjs');
+  const areaOf = (ts) => ts.reduce((sum, t) => sum + 0.5 * new Vec3().cross(new Vec3().sub2(t.b, t.a), new Vec3().sub2(t.c, t.a)).length(), 0);
+  const fresh = propCollisionTriangles(root);
+  const drawnTris = (entity) => Object.fromEntries(entity.findComponents('render').flatMap((rc) => rc.meshInstances)
+    .map((mi) => [mi.node.name, mi.mesh.primitive[0].count / 3]));
+  const container = g.app.assets.find('./tests/fixtures/well/well.glb', 'container');
+  const untouched = container.resource.instantiateRenderEntity();
+  const intact = {
+    collides: own.length, shouldCollide: fresh.length,
+    area: areaOf(own), shouldBe: areaOf(fresh),
+    drawn: drawnTris(root), shouldDraw: drawnTris(untouched),
+  };
+  untouched.destroy();
+
   // ---- 3) the area is where the well is, and it replaces the radius -------------
   const item = g.actions.items.find((i) => i.name === 'well_01');
   g.actions.items = [item];
@@ -103,7 +127,7 @@ const r = await page.evaluate(async () => {
   for (let i = 0; i < 20; i++) s.update(1 / 30);
   const home = angle(ball.getLocalRotation(), rest);
 
-  return { ground, cut, meshes, lowest, widest, collides: own.length, reach, levelWins, on, turned, stillOn, off, home, warnings: s.warnings };
+  return { ground, cut, meshes, lowest, widest, collides: own.length, intact, reach, levelWins, on, turned, stillOn, off, home, warnings: s.warnings };
 });
 
 await browser.close();
@@ -128,6 +152,12 @@ want(r.meshes.filter((x) => /_(neg|act)/.test(x.name)).length === 3, `volume mes
 want(r.meshes.find((x) => x.name.startsWith('well_ball'))?.visible, 'the ball is not drawn');
 want(r.collides > 0 && r.lowest > -0.01, `the prop collides down to y = ${r.lowest} — the shaft joined the collider`);
 want(r.widest < 1.2, `the prop collides ${r.widest} m out from its centre — the area or the channel joined the collider`);
+// 2b
+want(r.intact.collides === r.intact.shouldCollide && Math.abs(r.intact.area - r.intact.shouldBe) < 1e-6,
+  `a cutter cut the PROP's collision: ${r.intact.collides} triangles / ${r.intact.area.toFixed(3)} m2, `
+  + `a fresh read gives ${r.intact.shouldCollide} / ${r.intact.shouldBe.toFixed(3)}`);
+want(JSON.stringify(r.intact.drawn) === JSON.stringify(r.intact.shouldDraw),
+  `a cutter cut the PROP's meshes: ${JSON.stringify(r.intact.drawn)} vs an untouched copy ${JSON.stringify(r.intact.shouldDraw)}`);
 // 3
 const viaOwn = (o) => o?.name === 'well_01' && o.action === 'spin' && o.via === 'well_01/well_act';
 want(viaOwn(r.reach.corner) && viaOwn(r.reach.arm) && viaOwn(r.reach.otherArm), `inside the L: ${JSON.stringify(r.reach)}`);
