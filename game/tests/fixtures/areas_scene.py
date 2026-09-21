@@ -1,4 +1,5 @@
-"""A .blend with one prop anchor and an ACT collection holding every kind of action area.
+"""A .blend with one prop anchor, an ACT collection holding every kind of action area,
+and a NEG collection holding every kind of cutter.
 
     blender -b -P tests/fixtures/areas_scene.py -- out.blend
 
@@ -15,6 +16,10 @@ against its own idea of a cube.
     act_soft                 a cube under a Bevel modifier               -> mesh (what you see ships)
     act_nobody               a cube with its lid off, aimed at no prop   -> two warnings
     act_stray                named like an area, filed outside ACT       -> a warning, not exported
+
+    neg_plain                a cube, scaled                              -> box
+    neg_L                    an L-shaped pit, extruded: concave          -> mesh
+    neg_pulled               a cube with one corner dragged in Edit Mode -> mesh
 
 tests/areas.mjs knows these numbers: move something here and move it there.
 """
@@ -46,6 +51,7 @@ def file_under(coll, obj, name):
 
 scene = make_collection('SCENE')
 act = make_collection('ACT')
+neg = make_collection('NEG')
 
 # The prop the areas are for. An Empty under it stands in for the payload, so
 # the export does not warn that nobody can see what they are placing.
@@ -110,5 +116,32 @@ bm.free()
 
 bpy.ops.mesh.primitive_cube_add(size=2, location=(20, 20, 1))
 bpy.context.object.name = 'act_stray'          # left wherever Blender put it
+
+
+# ---- cutters: the same freedom, in the NEG collection ----
+def l_prism(name, height):
+    bm = bmesh.new()
+    base = bm.faces.new([bm.verts.new((x, y, 0)) for x, y in outline])
+    up = bmesh.ops.extrude_face_region(bm, geom=[base])
+    bmesh.ops.translate(bm, vec=(0, 0, height),
+                        verts=[e for e in up['geom'] if isinstance(e, bmesh.types.BMVert)])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    data = bpy.data.meshes.new(name)
+    bm.to_mesh(data)
+    bm.free()
+    return bpy.data.objects.new(name, data)
+
+
+bpy.ops.mesh.primitive_cube_add(size=2, location=(-20, 30, 1))
+plain = file_under(neg, bpy.context.object, 'neg_plain')
+plain.scale = (1.5, 0.5, 1)
+
+pit = l_prism('neg_L', 2.5)                    # the same 4 x 5 L with the 2 x 3 corner out: 14 m2
+neg.objects.link(pit)
+pit.location = (30, 30, 0)
+
+bpy.ops.mesh.primitive_cube_add(size=2, location=(-20, -30, 1))
+dragged = file_under(neg, bpy.context.object, 'neg_pulled')
+dragged.data.vertices[7].co.x += 0.8
 
 bpy.ops.wm.save_as_mainfile(filepath=out_path)

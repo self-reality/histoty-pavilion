@@ -9,7 +9,7 @@ source of truth — it reads and writes two git-tracked files:
 | `scene.placements.json` | yes | `scene:export` | where every prop sits |
 | `scene/pavilion.blend` | **no** (gitignored) | Blender | 10 MB of imported GLB, rebuildable |
 | `assets/*.glb` | yes | your modeller | the actual geometry |
-| `assets/<name>/` | yes | a producer | an object *and its script* — an animated character |
+| `assets/<name>/` | yes | a producer | a **package**: an object *and its script* — an animated character, or any prop that brings a hole or an action area with it |
 
 The `.blend` is a working file. It embeds copies of the prop GLBs purely so you
 can see what you are placing; nothing in it ships. Delete it whenever you like
@@ -68,11 +68,19 @@ never exported. It is there so you can see where the ground is.
   see Gotchas.)
 
 **`NEG`** — negative spaces: cutters that take geometry *out* of the map. Red
-wireframe primitives, each wired into the `REF` objects it overlaps by a Boolean
-modifier so the hole is visible while you place it. See below.
+wireframes, each wired into the `REF` objects it overlaps by a Boolean modifier
+so the hole is visible while you place it. See below.
 
 **`ACT`** — action areas: volumes that say *where* the **E** for a prop's action
 appears. Green wireframes, any shape. See "Action areas" below.
+
+`NEG` and `ACT` hold what belongs to the *level*. A prop can also bring its own
+— a well the hole it stands over, a lever the spot you work it from — modelled
+with the asset and shipped inside it. Those show up as the same red and green
+cages, but **under the prop's anchor**: select the anchor, move it, and the hole
+and the area go with it, along with its collision and its script. Nothing about
+them is exported from here, because they are the asset's. See "What a prop
+brings with it".
 
 ## Adding a new prop
 
@@ -119,6 +127,40 @@ parses each URL once, then instantiates per placement.
 
 Anything else you add as a custom property rides along into `extras` in the
 JSON, so you can invent conventions without touching the exporter.
+
+## What a prop brings with it
+
+An asset is a package. Besides what you see, a prop can carry:
+
+| it carries | as | which means |
+| --- | --- | --- |
+| collision | a `*_col` mesh, or `*_nocol` on the parts that should not collide | see "Collision" |
+| a **hole** | any number of closed `*_neg` meshes | whatever of the map is inside them is cut away, wherever the prop stands |
+| an **action area** | a closed `*_act` mesh | the E for its action shows to a player standing inside it |
+| what it does | `<name>.script.json` beside the GLB | a pose, a clip, an action — see ANIMATED_PROPS.md |
+
+All of it is modelled with the asset, in the asset kit — **not here** — and
+arrives in the package: `assets/well/well.glb` plus `well.script.json`, copied
+in whole. Import the GLB inside the folder like any prop. The `_neg` and `_act`
+meshes come in with the rest of the payload and are drawn as red and green
+cages hanging under the anchor. They are unselectable, like the rest of the
+payload, so the only way to move them is to move the prop — which is the point.
+
+Exporting from inside Blender previews the hole a carried `_neg` cuts in the map
+the same way it previews a cutter in `NEG`. The export writes **none** of these
+volumes: the game reads them from the asset's script at startup, places them by
+the prop's transform, and cuts the map once with every hole there is. A second
+copy in the layout would be a hole that stays behind when the prop moves.
+
+**When a prop becomes a package it moves house** — `assets/well.glb` becomes
+`assets/well/well.glb` the day it grows a script. Its anchors still name the
+old path. The export follows the asset to the one place it could have gone,
+says `moved well_01: ./assets/well.glb -> ./assets/well/well.glb`, and from
+inside Blender corrects the anchor too. Nothing to edit by hand.
+
+`tests/package.mjs` stands a packaged well in the level, turned a quarter, and
+checks that its hole, its area, its collision and its action are all where the
+well is. `tests/carried.mjs` checks this side of it in a scratch `.blend`.
 
 ## Moving the spawn
 
@@ -238,15 +280,21 @@ wall, a frame prop fills it. Naming them as a pair is worth the keystrokes.
 
 ### Adding one
 
-1. `Add > Mesh > Cube` (or Cylinder) — into the **`NEG`** collection. Which
-   collection is not a detail here, the way it is for a prop: `NEG` is what
-   makes it a cutter rather than a stray mesh nobody ships.
+1. `Add > Mesh >` anything — a cube to start with — into the **`NEG`**
+   collection. Which collection is not a detail here, the way it is for a prop:
+   `NEG` is what makes it a cutter rather than a stray mesh nobody ships.
 2. Name it `neg_something_01`.
-3. Move and scale it into the wall. Save, `npm run scene:export`.
+3. Move and scale it into the wall — and if a box is not the shape of the hole,
+   edit it. Save, `npm run scene:export`.
 
-Which primitive it is comes off the mesh — a cube has eight vertices and six
-faces, a cylinder does not — so there is nothing to declare. (A `neg` custom
-property still overrides that if you ever need it to.)
+**A cutter is any closed volume: what is inside it is what gets cut.** That is
+the only rule about its shape. Use as many as you like.
+
+This section is for a hole that belongs to the *level* — a doorway through a
+wall that is nobody's. A hole that belongs to a *prop* — the pit a cistern sits
+in, the shaft under a well — is better modelled with the prop, as a `*_neg`
+mesh in its asset, so that it moves when the prop does; see "What a prop brings
+with it".
 
 Exporting from inside Blender (Scripting ▸ Run Script) re-points the Boolean
 modifiers at whatever the cutter now overlaps, so drag a doorway two walls to
@@ -266,18 +314,23 @@ A prop entry with `shape` where `glb` would be. `scale` is a half-extent, which
 is what makes a default cube 2 m across: the entry above is a 1.2 m wide, 2.2 m
 tall opening cut 2 m deep through the wall.
 
+That is a cutter that is still the cube (or cylinder) it was added as, only
+moved, turned and scaled in Object Mode: the transform is all there is to say,
+and moving it is a one-line diff. **Anything else ships as itself** —
+`"shape": "mesh"` with the mesh's own `verts` and `tris`, modifiers applied —
+exactly as an action area does. Drag a corner, extrude an L, bevel it.
+
 ### Rules that bite
 
-- **Scale it in Object Mode, not Edit Mode.** Only the transform is exported, so
-  a vertex you dragged shows one volume in Blender and carves another in game.
-  The exporter compares the mesh against the unit primitive and says so.
-- **No mirroring.** Negative scale turns the faces inward, which reads as
-  "everywhere except here" — the game refuses such a cutter outright rather than
-  deleting the level. Use rotation.
-- **Convex only.** One cutter is one convex volume; an L-shaped hole is two
-  cutters. A cylinder is the flat-sided prism Blender draws, not the circle it
-  stands for, and both sides agree on that down to the ring's phase — its side
-  count is counted off the mesh and written into the entry.
+- **Closed.** The one rule. A mesh with a face missing has no inside, and the
+  exporter counts open edges and says so. (Select the hole's rim, `F`.)
+- **No mirroring a plain cube or cylinder.** Negative scale turns a primitive's
+  faces inward, which reads as "everywhere except here" — the game refuses such
+  a cutter outright rather than deleting the level. Use rotation. (A cutter that
+  ships as a mesh is wound whichever way its volume says, so it does not care.)
+- **A cylinder is the flat-sided prism Blender draws**, not the circle it stands
+  for, and both sides agree on that down to the ring's phase — its side count
+  is counted off the mesh and written into the entry.
 - **The map only.** Props are placed after the carve and keep all their
   geometry. A cutter over a crate does nothing to the crate.
 - **No cap.** The hole has no walls, floor or jamb — cut a cylinder through the
@@ -298,10 +351,18 @@ standing, that **replaces** the radius for that prop. Inside it the E shows;
 outside it, it does not, however close to the prop you are.
 
 It is the negative space's sibling and the flow is the same — a mesh in a
-collection, named for what it does, moved into place, exported. The difference
-is what the game asks of it. A cutter has to clip triangles, so it must be a
-convex primitive. An area is only ever asked *"is the player in here?"*, and
-that has an answer for any closed mesh. **So an area can be any shape.**
+collection, named for what it does, moved into place, exported. **Any closed
+shape**, like a cutter.
+
+There are three answers to "where is this prop's action offered?", each
+replacing the one before it:
+
+1. **Within its radius** — two metres of the prop, unless its script says
+   otherwise. Every prop with an action has this for free.
+2. **Inside the area it carries** — an `*_act` mesh modelled with the asset
+   (see "What a prop brings with it"). Goes where the prop goes.
+3. **Inside an area you draw here**, for one copy of it in one spot — this
+   section.
 
 ### Adding one
 
@@ -355,9 +416,9 @@ changed `pos`; reshaping it is one changed line of `verts`.
 
 ### Rules that bite
 
-- **It replaces the radius, it does not add to it.** Draw one area on the
-  terrace and the E no longer shows when you walk right up to him. If you want
-  both, that is two areas.
+- **It replaces, it does not add.** Draw one area on the terrace and the E no
+  longer shows when you walk right up to him — nor inside the area his asset
+  carries, if it carries one. If you want both, that is two areas.
 - **Closed meshes only.** The game tells inside from outside by counting how
   many times a ray out of the player crosses the surface, and a surface with a
   hole in it has rays that escape uncounted — the area leaks. The exporter

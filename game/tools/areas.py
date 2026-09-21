@@ -65,6 +65,15 @@ VERTEX_DECIMALS = 4        # a tenth of a millimetre, in the mesh's own units
 
 DEDUP_SUFFIX = re.compile(r'\.\d{3}$')
 
+# The volumes an ASSET carries, as opposed to the ones drawn in this level: a
+# `*_neg` or `*_act` mesh inside a prop's GLB (section 2 of the kit's contract).
+# They arrive under the prop's anchor with the rest of its payload, so they move
+# when the prop moves and nothing here exports them — the game reads them from
+# the asset's script. Same tolerance as the contract's patterns: glTF appends
+# `_0`, Blender `.001`.
+PAYLOAD_NEG = re.compile(r'_neg(?:[._]\d+)*$', re.I)
+PAYLOAD_ACT = re.compile(r'_act(?:[._]\d+)*$', re.I)
+
 
 def collection(create=False):
     """The ACT collection, optionally creating it if the .blend predates it."""
@@ -207,6 +216,35 @@ def geometry_for(entry):
     if shape in ('box', 'cylinder'):
         return negatives.unit_shape(shape, entry.get('sides', negatives.DEFAULT_SIDES))
     raise ValueError(f'unknown area shape "{shape}" (expected one of {", ".join(SHAPES)})')
+
+
+def style_payload_volumes(objs):
+    """Draw an imported prop's own volumes as what they are. Returns its `_neg` meshes.
+
+    Straight out of the importer a `_neg` is a grey box standing over the prop
+    it belongs to, hiding it. As a red cage it reads as the hole the prop will
+    cut, and an `_act` as the green cage its action is offered from — the same
+    colours the level's own cutters and areas wear, because they are the same
+    things; these ones just came with the asset and go where it goes.
+    """
+    cutters = []
+    for obj in objs:
+        if obj.type != 'MESH':
+            continue
+        if PAYLOAD_NEG.search(obj.name):
+            negatives.style_cutter(obj)
+            cutters.append(obj)
+        elif PAYLOAD_ACT.search(obj.name):
+            style_area(obj)
+    return cutters
+
+
+def payload_cutters(scene_collection):
+    """Every `_neg` mesh hanging under an anchor — the holes the placed props bring."""
+    if scene_collection is None:
+        return []
+    return [o for o in scene_collection.objects
+            if o.type == 'MESH' and o.parent is not None and PAYLOAD_NEG.search(o.name)]
 
 
 def style_area(obj):

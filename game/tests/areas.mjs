@@ -1,5 +1,6 @@
-// An action area drawn in Blender is the same volume in the game — for every
-// shape, across the axis conversion — and survives the rebuild round trip.
+// A volume drawn in Blender — an action area, or a cutter — is the same volume
+// in the game, for every shape, across the axis conversion, and survives the
+// rebuild round trip.
 //
 //   node tests/areas.mjs          # needs Blender; no server, no browser
 //
@@ -48,6 +49,8 @@ try {
 }
 
 const { collectAreas } = await import('../src/areas.mjs');
+const { collectVolumes, carve } = await import('../src/negatives.mjs');
+const { Vec3 } = await import('playcanvas');
 const warned = [];
 const warn = console.warn;
 console.warn = (...m) => warned.push(m.join(' '));
@@ -78,6 +81,32 @@ const said = (re) => first.some((l) => /WARNING/.test(l) && re.test(l));
 want(said(/act_nobody.*not closed/), 'an open mesh went unreported');
 want(said(/act_nobody.*no prop in the layout/), 'an area aimed at no prop went unreported');
 want(said(/act_stray.*not in the "ACT" collection/), 'a misfiled area went unreported');
+// ---- Cutters: any closed mesh, the same way -------------------------------------
+const cutter = Object.fromEntries(a.negatives.map((e) => [e.name, e]));
+console.log('cutters: ', a.negatives.map((e) => `${e.name} (${e.shape}${e.tris ? `, ${e.tris.length / 3} tris` : ''})`).join(', '));
+want(cutter.neg_plain?.shape === 'box' && cutter.neg_plain.verts === undefined, `neg_plain: ${cutter.neg_plain?.shape}`);
+want(cutter.neg_L?.shape === 'mesh' && cutter.neg_L.tris.length / 3 === 20, `neg_L: ${cutter.neg_L?.shape}`);
+want(cutter.neg_pulled?.shape === 'mesh', `neg_pulled: ${cutter.neg_pulled?.shape} — an edited cube must ship as itself, not as the cube it was`);
+{
+  // What a cutter removes from a floor laid through it is its footprint. The L
+  // is 4 x 5 with a 2 x 3 corner out, at Blender (30, 30): 14 m2, and none of
+  // it from the notch.
+  const V = (x, y, z) => new Vec3(x, y, z);
+  const tri = (p, q, r) => ({ a: p, b: q, c: r, n: new Vec3(0, 1, 0) });
+  const area = (ts) => ts.reduce((s, t) => s + 0.5 * new Vec3().cross(new Vec3().sub2(t.b, t.a), new Vec3().sub2(t.c, t.a)).length(), 0);
+  const floor = [tri(V(20, 1, -45), V(45, 1, -45), V(45, 1, -20)), tri(V(20, 1, -45), V(45, 1, -20), V(20, 1, -20))];
+  console.warn = (...m) => warned.push(m.join(' '));
+  const [L] = collectVolumes([cutter.neg_L].filter(Boolean));
+  console.warn = warn;
+  const removed = L ? area(floor) - area(carve(floor, [L])) : NaN;
+  console.log(`  neg_L took ${removed.toFixed(4)} m2 out of a floor laid through it (its footprint is 14)`);
+  want(Math.abs(removed - 14) < 1e-3, `neg_L removed ${removed} m2, want its 14 m2 footprint`);
+  // In the notch — Blender (33, 34), the game's (33, -34) — the floor is whole.
+  const notch = [tri(V(32.6, 1, -34.4), V(33.4, 1, -34.4), V(33, 1, -33.6))];
+  want(L && carve(notch, [L])[0] === notch[0], 'neg_L cut the floor inside its own notch');
+}
+want(JSON.stringify(a.negatives) === JSON.stringify(b.negatives), 'cutters changed across build -> export');
+
 want(first.filter((l) => /WARNING/.test(l)).length === 3, `expected exactly 3 warnings:\n  ${first.filter((l) => /WARNING/.test(l)).join('\n  ')}`);
 
 // ---- The same volume in the game ---------------------------------------------

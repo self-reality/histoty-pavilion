@@ -424,6 +424,7 @@ def attach(payload, root, anchor, rotation, placement, scene_coll):
         for c in list(obj.users_collection):
             c.objects.unlink(obj)
         scene_coll.objects.link(obj)
+    areas.style_payload_volumes(payload)  # the prop's own `_neg` / `_act`: cages, not boxes
 
     bpy.context.view_layer.update()
     drift = max(abs(a - b) for ra, rb in zip(placement, root.matrix_world)
@@ -490,33 +491,57 @@ def extras_of(obj, skip=()):
 
 
 def collect_negatives(collection):
-    """The NEG collection -> negatives[]. Shape and transform, nothing else."""
+    """The NEG collection -> negatives[].
+
+    A cutter is any closed volume: what is inside it is what is cut. One that
+    is still the unit cube or cylinder it was added as ships as a shape and a
+    transform — seven lines, and moving it is a one-line diff. Any other mesh —
+    a corner dragged in Edit Mode, an L round a pillar, a Bevel left unapplied —
+    ships as itself, vertices and triangles, exactly as an action area does and
+    through the same code. A `neg` custom property still forces a primitive, and
+    then the mesh is held to it.
+    """
     entries, warnings = [], []
     for obj in sorted(collection.objects, key=lambda o: o.name):
         if obj.parent is not None:
             continue
         if obj.type != 'MESH':
             warnings.append(f'{obj.name}: a top-level {obj.type.lower()} in '
-                            f'"{negatives.NEG_COLLECTION}" — a cutter has to be a mesh primitive')
-            continue
-        shape = negatives.shape_of(obj)
-        if shape not in negatives.SHAPES:
-            warnings.append(f'{obj.name}: "{negatives.SHAPE_KEY}" is "{shape}", which is not one '
-                            f'of {", ".join(negatives.SHAPES)} — the game will skip it')
+                            f'"{negatives.NEG_COLLECTION}" — a cutter has to be a mesh')
             continue
 
-        entry = {'name': obj.name, 'shape': shape}
-        entry.update(decompose_pc(obj.matrix_world))
-        sides = negatives.sides_of(obj) if shape == 'cylinder' else negatives.DEFAULT_SIDES
-        if shape == 'cylinder':
-            # Written out rather than assumed, so the game clips against the same
-            # prism the viewport booleaned with.
-            entry['sides'] = sides
+        declared = obj.get(negatives.SHAPE_KEY)
+        owner, mesh = areas.evaluated_mesh(obj)
+        try:
+            if declared is not None:
+                shape, sides = negatives.shape_of(obj), negatives.sides_of(obj)
+            else:
+                shape, sides = areas.classify(mesh)
+                if shape == 'sphere':
+                    shape = 'mesh'            # the game cuts with boxes, prisms and meshes
+            if shape not in negatives.SHAPES + ('mesh',):
+                warnings.append(f'{obj.name}: "{negatives.SHAPE_KEY}" is "{shape}", which is not one '
+                                f'of {", ".join(negatives.SHAPES)} — the game will skip it')
+                continue
 
-        problem = negatives.check_primitive(obj, shape, sides)
-        if problem:
-            warnings.append(problem)
-        if any(s < 0 for s in entry['scale']):
+            entry = {'name': obj.name, 'shape': shape}
+            entry.update(decompose_pc(obj.matrix_world))
+            if shape == 'cylinder':
+                # Written out rather than assumed, so the game clips against the
+                # same prism the viewport booleaned with.
+                entry['sides'] = sides
+            elif shape == 'mesh':
+                entry['verts'], entry['tris'], problem = areas.mesh_payload(mesh)
+                if problem:
+                    warnings.append(f'{obj.name}: {problem}')
+        finally:
+            owner.to_mesh_clear()
+
+        if declared is not None:
+            problem = negatives.check_primitive(obj, shape, sides or negatives.DEFAULT_SIDES)
+            if problem:
+                warnings.append(problem)
+        if shape != 'mesh' and any(s < 0 for s in entry['scale']):
             warnings.append(f'{obj.name}: negative scale — a mirrored cutter turns its faces '
                             'inward, which would mean "everywhere except here"; the game refuses '
                             'it. Use rotation instead')
@@ -622,6 +647,29 @@ def refresh_preview(cutters):
     return f'boolean preview: {added} modifier(s) on the map ({removed} replaced)'
 
 
+def resolve_glb(obj):
+    """Where an anchor's asset lives NOW. Returns (path, note, warning).
+
+    An asset that grows a script — a clip, an action, a volume it carries — stops
+    being `assets/well.glb` and becomes the package `assets/well/well.glb`
+    (contract section 6). The anchor still says the old path, and nobody should
+    have to find every anchor of a prop to tell it so: the file is not where the
+    anchor says, it is at the one place it could have moved to, so that is what
+    ships. From Blender the anchor is corrected too; a headless run leaves the
+    .blend alone, as ever, and simply resolves it again next time.
+    """
+    glb = obj['glb']
+    if os.path.isfile(os.path.join(GAME_DIR, glb)):
+        return glb, None, None
+    stem = os.path.splitext(os.path.basename(glb))[0]
+    moved = f'./assets/{stem}/{stem}.glb'
+    if os.path.isfile(os.path.join(GAME_DIR, moved)):
+        if not bpy.app.background:
+            obj['glb'] = moved
+        return moved, f'{obj.name}: {glb} -> {moved} (the asset became a package)', None
+    return glb, None, f'{obj.name}: {glb} is not in game/ — the game will fail to load this prop'
+
+
 def collect(collection):
     props, markers, warnings = [], [], []
     # Sorted so a layout-free re-export is a byte-identical no-op in git.
@@ -637,8 +685,12 @@ def collect(collection):
             warnings.append(f'{obj.name}: negative scale — mirrored props do not '
                             'survive the glTF round-trip, use rotation instead')
         if 'glb' in obj:
-            entry['glb'] = obj['glb']
-            script = script_beside(obj['glb'])
+            entry['glb'], moved, missing = resolve_glb(obj)
+            if moved:
+                print(f'[export] moved  {moved}')
+            if missing:
+                warnings.append(missing)
+            script = script_beside(entry['glb'])
             if script:
                 entry['script'] = script
             if not obj.children:
@@ -682,7 +734,9 @@ def main():
     neg_coll = negatives.collection()
     cutters, neg_warnings = collect_negatives(neg_coll) if neg_coll else ([], [])
     warnings += neg_warnings + stray_cutters(neg_coll)
-    preview = refresh_preview(list(neg_coll.objects) if neg_coll else [])
+    # The holes the level draws, and the ones the placed props brought with them.
+    preview = refresh_preview((list(neg_coll.objects) if neg_coll else [])
+                              + areas.payload_cutters(collection))
 
     # From Blender, make sure there is somewhere to put an area: a .blend built
     # before areas existed has no ACT collection, and "add a cube to ACT" is a
@@ -731,7 +785,8 @@ def main():
     for m in markers:
         print(f'[export] marker {m["name"]:<20} pos {m["pos"]}')
     for c in cutters:
-        print(f'[export] negative {c["name"]:<18} pos {c["pos"]}  ({c["shape"]})')
+        what = f'{c["shape"]}, {len(c["tris"]) // 3} triangles' if c['shape'] == 'mesh' else c['shape']
+        print(f'[export] negative {c["name"]:<18} pos {c["pos"]}  ({what})')
     for z in zones:
         what = f'{z["shape"]}, {len(z["tris"]) // 3} triangles' if z['shape'] == 'mesh' else z['shape']
         print(f'[export] area   {z["name"]:<20} pos {z["pos"]}  ({what}) -> {z["target"]}'

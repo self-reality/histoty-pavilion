@@ -192,9 +192,11 @@ def attach(children, anchor, selectable=False):
             # anchors only — silently writes the same numbers as before.
             for sub in child.children_recursive:
                 sub.hide_select = True
+            # A prop's own `_neg` / `_act` meshes: cages, not grey boxes over it.
+            areas.style_payload_volumes([child] + list(child.children_recursive))
 
 
-def build_negatives(entries, collection, ref):
+def build_negatives(entries, collection, ref, carried=()):
     """Recreate the cutters and re-point the Boolean modifiers at the map.
 
     Geometry is generated, never restored: an entry holds a shape name and a
@@ -206,8 +208,14 @@ def build_negatives(entries, collection, ref):
     for entry in entries:
         shape = entry.get('shape', 'box')
         try:
-            cutter = negatives.make_cutter(entry['name'], shape, collection,
-                                           entry.get('sides', negatives.DEFAULT_SIDES))
+            if shape == 'mesh':
+                # A cutter that shipped as itself comes back as itself — the
+                # same rebuild an action area gets, in a cutter's colours.
+                cutter = areas.make_area(entry, collection)
+                negatives.style_cutter(cutter)
+            else:
+                cutter = negatives.make_cutter(entry['name'], shape, collection,
+                                               entry.get('sides', negatives.DEFAULT_SIDES))
         except ValueError as err:
             print(f'[build] SKIP {entry["name"]}: {err}')
             continue
@@ -217,10 +225,14 @@ def build_negatives(entries, collection, ref):
         print(f'[build] negative {entry["name"]}  ({shape})')
         cutters.append(cutter)
 
-    added, _ = negatives.wire_booleans(cutters, list(ref.objects))
-    if cutters:
+    # `carried` are the holes the placed props brought with them — `_neg` meshes
+    # in their payload. Previewed exactly like the level's own, in one pass,
+    # because wire_booleans clears what it wired before.
+    every = cutters + list(carried)
+    added, _ = negatives.wire_booleans(every, list(ref.objects))
+    if every:
         print(f'[build] wired  {added} boolean modifier(s) across the map for '
-              f'{len(cutters)} cutter(s)')
+              f'{len(cutters)} cutter(s) and {len(every) - len(cutters)} carried by props')
     return cutters
 
 
@@ -281,7 +293,7 @@ def build(manifest, placements, out_path):
     build_areas(merged_areas(manifest, placements), act)
 
     # Last, so the booleans are wired against a map that is fully imported.
-    build_negatives(placements.get('negatives', []), neg, ref)
+    build_negatives(placements.get('negatives', []), neg, ref, areas.payload_cutters(scene))
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=out_path)
