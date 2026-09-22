@@ -5,11 +5,9 @@
 // for. This file is the pavilion's half, the part the kit's contract leaves to
 // the consumer on purpose:
 //
-//   who is in reach    inside one of the level's action areas for the prop (see
-//                      ./areas.mjs); or, when the level draws none, inside the
-//                      area the asset carries in its own package; or, when it
-//                      carries none, within the action's `radius` of the prop
-//                      itself, two metres by default
+//   who is in reach    inside the area the asset carries in its package (see
+//                      ./areas.mjs) — or, when it carries none, within the
+//                      action's `radius` of the prop itself, two metres by default
 //   which one          of several in reach, the one nearest the middle of the
 //                      view: you press E at what you are looking at
 //   the hint           an E and the action's label over every prop in reach, the
@@ -24,7 +22,7 @@
 // The bounds are read live, so a dancer who has walked off his spot is reached
 // where he is.
 import { Mat4, Vec3 } from 'playcanvas';
-import { areaFromAsset, collectAreas } from './areas.mjs';
+import { areaFromAsset } from './areas.mjs';
 
 // How far in from the edge of the screen a hint stops when the thing it
 // belongs to is off to one side or behind you, in CSS pixels. A hint you cannot
@@ -53,15 +51,8 @@ export class Actions {
     this.player = player;
     this.layer = layer;
     this.items = [];          // placed props whose script has actions
-    this.areas = [];          // every usable area in the layout
     this.offers = [];         // who is in reach this frame: [{ item, action, area, anchor, facing }]
     this.active = null;       // the offer E would act on, or null
-  }
-
-  /** The layout's `areas`, before or after the props they name have landed. */
-  setAreas(entries) {
-    this.areas = collectAreas(entries);
-    for (const item of this.items) this.claim(item);
   }
 
   /** A prop has landed whose script lists actions. */
@@ -79,16 +70,14 @@ export class Actions {
     return item;
   }
 
-  // Which areas are this prop's, and which action each offers: the level's, if
-  // it drew any for this prop, and otherwise the ones the asset brought with it.
-  // Placed by the prop's world transform as it stands now — after its pose has
-  // settled its seat offset — so the area is where the prop is.
+  // The areas the asset brought with it, and which action each offers. Placed
+  // by the prop's world transform as it stands now — after its pose has settled
+  // its seat offset — so the area is where the prop is.
   claim(item) {
     item.areas = [];
-    const drawn = this.areas.filter((area) => area.target === item.name);
-    const own = drawn.length ? [] : (item.script.script.areas ?? [])
+    const own = (item.script.script.areas ?? [])
       .map((entry) => areaFromAsset(entry, item.root.getWorldTransform(), item.name)).filter(Boolean);
-    for (const area of drawn.length ? drawn : own) {
+    for (const area of own) {
       const action = area.action ? item.script.actions.find((a) => a.name === area.action) : item.script.actions[0];
       if (!action) {
         console.warn(`[actions] ${area.name}: ${item.name} has no action named "${area.action}" `
@@ -99,7 +88,7 @@ export class Actions {
     }
     const first = item.script.actions[0];
     console.log(`[actions] ${item.name}: ` + (item.areas.length
-      ? item.areas.map(({ area, action }) => `"${action.name}" offered inside ${area.name} (${area.shape})`).join(', ')
+      ? item.areas.map(({ area, action }) => `"${action.name}" offered inside ${area.name}`).join(', ')
       : `"${first.name}" offered within ${first.radius} m`));
   }
 

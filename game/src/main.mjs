@@ -229,9 +229,8 @@ function boot() {
 
     // Who is in reach of what, and which of them E would act on (see
     // ./actions.mjs). Built before any prop lands, because the props
-    // register with it as they do; the areas ride in on the same layout.
+    // register with it as they do.
     actions = new Actions({ app, camera: cameraEntity, player, layer: ui.actions });
-    actions.setAreas(scene.areas);
 
     targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
 
@@ -339,8 +338,7 @@ function reportNegatives(volumes, before, after, shown) {
 // geometry added, the other geometry taken away — so they are fetched together
 // rather than each reaching for the layout on its own. Markers ride along on
 // the same terms: a transform with no geometry at either end of it — where the
-// player starts is one. So do action areas: a negative's sibling, a volume
-// that is asked whether the player is in it instead of being cut out of the map.
+// player starts is one.
 //
 // The scripts of the placed assets are fetched here too, JSON only. They are a
 // few KB each and the map is megabytes, so they are always in long before it
@@ -349,7 +347,6 @@ async function loadLayout() {
   const props = new Map(manifest.props.map((p) => [p.name, p]));
   const negatives = new Map((manifest.negatives ?? []).map((n) => [n.name, n]));
   const markers = new Map((manifest.markers ?? []).map((m) => [m.name, m]));
-  const areas = new Map((manifest.areas ?? []).map((a) => [a.name, a]));
   const placements = placementsUrl();
   if (placements) {
     try {
@@ -366,7 +363,6 @@ async function loadLayout() {
       for (const prop of data.props ?? []) props.set(prop.name, prop);
       for (const neg of data.negatives ?? []) negatives.set(neg.name, neg);
       for (const marker of data.markers ?? []) markers.set(marker.name, marker);
-      for (const area of data.areas ?? []) areas.set(area.name, area);
     } catch (err) {
       console.warn(`[scene] no Blender placements (${placements}):`, err.message);
     }
@@ -376,8 +372,7 @@ async function loadLayout() {
   await Promise.all([...props.values()].filter((p) => p.script).map(async (p) => {
     try { scripts.set(p.name, await loadScriptJson(p.script)); } catch { /* reported by loadProp */ }
   }));
-  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()],
-           areas: [...areas.values()], scripts };
+  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()], scripts };
 }
 
 // Which layout: the manifest's, unless the address bar names another —

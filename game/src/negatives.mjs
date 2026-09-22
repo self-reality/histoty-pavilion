@@ -129,20 +129,15 @@ export function matrixOf(entry) {
  * made into a volume. Rejecting is the safe direction: a volume whose normals
  * came out inward means "everything except this box", and applying one would
  * delete the level.
- *
- * `tag` is who is asking, for the console. An action area is the same convex
- * primitive put to the opposite use — asked whether the player is in it rather
- * than subtracted from anything — and reads its box and cylinder through here
- * so that the two agree on what a scaled cube encloses. See ./areas.mjs.
  */
-export function volumeFrom(entry, tag = 'negatives') {
+export function volumeFrom(entry) {
   const name = entry.name ?? '(unnamed)';
   // Anything that is not a unit primitive ships its own geometry, in its own
   // space under the entry's transform — the same thing an asset's `_neg` is.
-  if (entry.shape === 'mesh') return volumeFromMesh(entry, matrixOf(entry), tag);
+  if (entry.shape === 'mesh') return volumeFromMesh(entry, matrixOf(entry));
   const shape = shapeOf(entry);
   if (!shape) {
-    console.warn(`[${tag}] ${name}: unknown shape "${entry.shape}" — skipped`);
+    console.warn(`[negatives] ${name}: unknown shape "${entry.shape}" — skipped`);
     return null;
   }
 
@@ -162,7 +157,7 @@ export function volumeFrom(entry, tag = 'negatives') {
     const n = new Vec3().cross(_e1, _e2);
     const len = n.length();
     if (len < 1e-12) {
-      console.warn(`[${tag}] ${name}: a face collapsed — zero scale on an axis? — skipped`);
+      console.warn(`[negatives] ${name}: a face collapsed — zero scale on an axis? — skipped`);
       return null;
     }
     n.mulScalar(1 / len);
@@ -178,7 +173,7 @@ export function volumeFrom(entry, tag = 'negatives') {
   c.mulScalar(1 / verts.length);
   for (const p of planes) {
     if (p[0] * c.x + p[1] * c.y + p[2] * c.z + p[3] > -1e-9) {
-      console.warn(`[${tag}] ${name}: normals point inward — mirrored (negative scale)? — skipped`);
+      console.warn(`[negatives] ${name}: normals point inward — mirrored (negative scale)? — skipped`);
       return null;
     }
   }
@@ -280,11 +275,11 @@ function treeOf(polys) {
  * mirrored box from the level, that is nothing to refuse — the inside of a
  * closed mesh is the inside whichever way it is wound.
  */
-export function volumeFromMesh(entry, matrix, tag = 'negatives') {
+export function volumeFromMesh(entry, matrix) {
   const name = entry.name ?? '(unnamed)';
   const flat = entry.verts ?? [], index = entry.tris ?? [];
   if (flat.length % 3 || index.length % 3 || index.length < 12) {
-    console.warn(`[${tag}] ${name}: needs \`verts\` (x,y,z,…) and at least four \`tris\` — skipped`);
+    console.warn(`[negatives] ${name}: needs \`verts\` (x,y,z,…) and at least four \`tris\` — skipped`);
     return null;
   }
   const verts = [];
@@ -297,7 +292,7 @@ export function volumeFromMesh(entry, matrix, tag = 'negatives') {
     max.x = Math.max(max.x, v.x); max.y = Math.max(max.y, v.y); max.z = Math.max(max.z, v.z);
   }
   if (index.some((i) => !(i >= 0 && i < verts.length))) {
-    console.warn(`[${tag}] ${name}: \`tris\` points past the end of \`verts\` — skipped`);
+    console.warn(`[negatives] ${name}: \`tris\` points past the end of \`verts\` — skipped`);
     return null;
   }
 
@@ -309,7 +304,7 @@ export function volumeFromMesh(entry, matrix, tag = 'negatives') {
     if (planeOf([a, b, c])) polys.push([a, b, c]);
   }
   if (Math.abs(six) < 1e-9 || polys.length < 4) {
-    console.warn(`[${tag}] ${name}: encloses no volume — flattened by a zero scale, or not closed? — skipped`);
+    console.warn(`[negatives] ${name}: encloses no volume — flattened by a zero scale, or not closed? — skipped`);
     return null;
   }
   if (six < 0) polys = polys.map(([a, b, c]) => [a, c, b]);

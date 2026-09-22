@@ -1,5 +1,6 @@
-// Walk up to something, see an E, press it: the script's actions, the scene's
-// areas, and the rule for which of several props the key belongs to.
+// Walk up to something, see an E, press it: the script's actions, the reach,
+// and the rule for which of several props the key belongs to. (An area an
+// asset carries in place of the radius is tests/package.mjs's business.)
 //
 //   node tests/actions.mjs        # needs `npm start` running on :5173
 //
@@ -22,7 +23,7 @@ const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
 const errs = [];
 const logs = [];
 page.on('pageerror', (e) => errs.push(e.message));
-page.on('console', (m) => { if (/\[actions\]|\[areas\]/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
+page.on('console', (m) => { if (/\[actions\]/.test(m.text())) logs.push(`${m.type()}: ${m.text()}`); });
 await page.goto('http://localhost:5173/', { waitUntil: 'load' });
 await page.waitForFunction(() => window.game && window.game.player && window.game.actions, { timeout: 60000 });
 
@@ -179,53 +180,7 @@ r.machine = await page.evaluate(async () => {
            loop: s.actions[0].player.loop, warnings: s.warnings };
 });
 
-// ---- 3) Areas: every shape, and an area replacing the radius ----------------
-r.areas = await page.evaluate(async () => {
-  const g = window.game;
-  const { areaFrom } = await import('/src/areas.mjs');
-  const { stage } = T;
-  const inside = (area, pts) => pts.map(([x, y, z]) => area.contains(x, y, z));
-
-  // An L-shaped prism, 2 m tall: the unit square [0,2]x[0,2] on the ground plan
-  // with the [1,2]x[1,2] corner taken out. Concave — the case a negative cannot be.
-  const L = [[0, 0], [2, 0], [2, 1], [1, 1], [1, 2], [0, 2]];
-  const verts = [...L.flatMap(([x, z]) => [x, 0, z]), ...L.flatMap(([x, z]) => [x, 2, z])];
-  const tris = [];
-  for (let i = 0; i < 6; i++) { const j = (i + 1) % 6; tris.push(i, j, 6 + j, i, 6 + j, 6 + i); }
-  for (const [a, b, c] of [[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 5]]) tris.push(a, c, b, 6 + a, 6 + b, 6 + c);
-  const shapes = {
-    box: inside(areaFrom({ name: 't_box', target: 'x', shape: 'box', pos: [10, 1, 0], scale: [2, 1, 0.5] }),
-      [[11.9, 1, 0], [12.1, 1, 0], [10, 1, 0.6], [10, 1.9, -0.4]]),
-    boxTurned: inside(areaFrom({ name: 't_boxr', target: 'x', shape: 'box', pos: [0, 0, 0], euler: [0, 45, 0], scale: [2, 1, 0.2] }),
-      [[1.3, 0, -1.3], [1.3, 0, 1.3], [1.9, 0, 0]]),
-    cylinder: inside(areaFrom({ name: 't_cyl', target: 'x', shape: 'cylinder', sides: 32, pos: [0, 0, 0], scale: [3, 1, 3] }),
-      [[2.9, 0, 0], [2.2, 0, 2.2], [0, 1.1, 0], [0, -0.9, 2.9]]),
-    sphere: inside(areaFrom({ name: 't_sph', target: 'x', shape: 'sphere', pos: [5, 5, 5], scale: [2, 1, 2] }),
-      [[6.9, 5, 5], [5, 5.9, 5], [5, 6.1, 5], [6.5, 5, 6.5], [6.3, 5, 6.3]]),
-    mesh: inside(areaFrom({ name: 't_L', target: 'x', shape: 'mesh', verts, tris, pos: [20, 0, 20] }),
-      [[20.5, 1, 20.5], [21.5, 1, 20.5], [20.5, 1, 21.5], [21.5, 1, 21.5], [20.5, 2.1, 20.5], [19.9, 1, 20.5]]),
-    refused: [
-      areaFrom({ name: 't_none', shape: 'box', pos: [0, 0, 0] }),                                  // no target
-      areaFrom({ name: 't_flip', target: 'x', shape: 'box', pos: [0, 0, 0], scale: [-1, 1, 1] }),  // mirrored
-      areaFrom({ name: 't_open', target: 'x', shape: 'mesh', verts: [0, 0, 0, 1, 0, 0, 0, 1, 0], tris: [0, 1, 2] }),
-    ].map((a) => a === null),
-  };
-
-  // A pad 8 m up the street from dancer_a, and nothing around the man himself.
-  g.actions.setAreas([
-    { name: 'act_pad', target: 'dancer_a', shape: 'cylinder', sides: 16,
-      pos: [stage.x, stage.y + 0.1, stage.z + 8], scale: [1.5, 0.1, 1.5] },
-    { name: 'act_ghost', target: 'dancer_a', action: 'juggle', shape: 'box', pos: [0, -50, 0] },
-  ]);
-  const onPad = T.stand(stage.x, stage.z + 8);
-  const byHim = T.stand(stage.x, stage.z + 1.5);
-  const bStill = T.stand(stage.x + 3, stage.z + 1.5);      // dancer_b has no area: radius as before
-  g.actions.setAreas([]);
-  const back = T.stand(stage.x, stage.z + 1.5);
-  return { shapes, onPad, byHim, bStill, back };
-});
-
-// ---- 4) Two in reach: the one you are looking at ----------------------------
+// ---- 3) Two in reach: the one you are looking at ----------------------------
 r.two = await page.evaluate(() => {
   const g = window.game;
   const { stage } = T;
@@ -246,7 +201,7 @@ r.two = await page.evaluate(() => {
   return { atA, hintsA, atB, hintsB, set, acting, away, hintsAway, paused };
 });
 
-// ---- 5) The key itself, through the real loop --------------------------------
+// ---- 4) The key itself, through the real loop --------------------------------
 r.key = await page.evaluate(() => { T.stand(T.stage.x, T.stage.z + 1.5, 0); return T.offers(); });
 // Headless Chromium refuses a real pointer lock ("root document is not valid"),
 // so the page is told it has one: the game reads document.pointerLockElement
@@ -309,21 +264,8 @@ want(m.home.arm < 0.1 && m.home.pelvis < 1e-3 && !m.home.fading, `did not come h
 want(m.loop === false && m.ended.acting === null && m.ended.arm < 0.1, `a one-off did not end by itself: ${JSON.stringify(m.ended)}`);
 want(m.again.acting === 'dance' && m.again.time < 0.1, `did not restart from the top: ${JSON.stringify(m.again)}`);
 // 3
-const sh = r.areas.shapes;
-const same = (got, exp) => JSON.stringify(got) === JSON.stringify(exp);
-want(same(sh.box, [true, false, false, true]), `box: ${sh.box}`);
-want(same(sh.boxTurned, [true, false, false]), `turned box: ${sh.boxTurned}`);
-want(same(sh.cylinder, [true, false, false, true]), `cylinder: ${sh.cylinder}`);
-want(same(sh.sphere, [true, true, false, false, true]), `sphere: ${sh.sphere}`);
-want(same(sh.mesh, [true, true, true, false, false, false]), `L-shaped mesh: ${sh.mesh}`);
-want(same(sh.refused, [true, true, true]), `areas that should be refused: ${sh.refused}`);
-want(r.areas.onPad.active === 'dancer_a' && r.areas.onPad.via === 'act_pad', `on the pad: ${JSON.stringify(r.areas.onPad)}`);
-want(!r.areas.byHim.names.includes('dancer_a'), 'an area did not replace the radius: still offered beside him');
-want(r.areas.bStill.names.includes('dancer_b'), 'dancer_b lost his radius to dancer_a\'s area');
-want(r.areas.back.active === 'dancer_a', 'clearing the areas did not bring the radius back');
-want(logs.some((l) => /act_ghost.*no action named "juggle"/.test(l)), 'an area naming a missing action went unreported');
-// 4
 const t = r.two;
+const same = (got, exp) => JSON.stringify(got) === JSON.stringify(exp);
 want(same(t.atA.names, ['dancer_a', 'dancer_b']), `between the two, in reach of: ${t.atA.names}`);
 want(t.atA.active === 'dancer_a' && t.hintsA.a?.lit && t.hintsA.b && !t.hintsA.b.lit, `looking at a: ${JSON.stringify([t.atA, t.hintsA])}`);
 want(t.atB.active === 'dancer_b' && t.hintsB.b?.lit && t.hintsB.a && !t.hintsB.a.lit, `looking at b: ${JSON.stringify([t.atB, t.hintsB])}`);
@@ -332,7 +274,7 @@ want(t.hintsAway.a?.pinned && t.hintsAway.b?.pinned && t.hintsAway.a.onScreen &&
   `with your back turned: ${JSON.stringify(t.hintsAway)}`);
 want([t.hintsAway.a, t.hintsAway.b].filter((h) => h?.lit).length === 1, 'not exactly one hint lit with your back turned');
 want(t.paused.a === null && t.paused.b === null && t.paused.offers.length === 2, `paused: ${JSON.stringify(t.paused)}`);
-// 5
+// 4
 want(locked, 'the game did not start on pointerlockchange — the keyboard path went untested');
 if (locked) {
   want(r.pressed.acting === 'dance', `E on the keyboard set off ${r.pressed.acting}`);
@@ -345,4 +287,4 @@ if (problems.length) {
   for (const p of problems) console.log('  ' + p);
   process.exit(1);
 }
-console.log('\nOK — in reach shows an E, E sets it off and stops it, areas replace the radius, and the key goes to what you look at');
+console.log('\nOK — in reach shows an E, E sets it off and stops it, and the key goes to what you look at');

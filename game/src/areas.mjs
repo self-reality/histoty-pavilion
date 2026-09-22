@@ -1,47 +1,20 @@
-// Action areas — volumes that say WHERE an object's action is on offer.
+// Action areas — where an asset's action is on offer, as a volume it carries.
 //
 // An asset's script says what a player can set the object off to do, and how
 // near "near" is: a radius, two metres unless it says otherwise (see
-// ./script.mjs and section 6 of the kit's ASSET_CONTRACT.md). That is the
-// asset's guess for a scene that draws nothing better, and it is a sphere
-// because a sphere is all an asset can know about a room it has never seen.
-// The scene can know better — the dance is watched from the terrace, the lever
-// is worked from this side of the railing — and an area is how it says so.
+// ./script.mjs and section 6 of the kit's ASSET_CONTRACT.md). A radius is all
+// an asset can say in numbers about a room it has never seen. What it can do
+// is DRAW the answer: an `_act` mesh modelled with it — the terrace a dance is
+// watched from, this side of the railing a lever is worked from — shipped in
+// its package and copied into its script as `areas` (the kit's pack step). That
+// mesh needs no placing here: it stands where the prop stands and moves when
+// the prop moves. A prop that carries an area is offered ONLY inside it; the
+// radius is what a prop without one gets.
 //
-// Authored in Blender exactly like a negative space, and exported the same way:
-// a mesh in the ACT collection becomes one entry in scene.placements.json,
-//
-//   { "name": "act_g-man-dance_01", "shape": "cylinder", "sides": 32,
-//     "target": "g-man-dance_01", "pos": [...], "rot": [...], "scale": [...] }
-//
-// so `pos`/`rot`/`scale` mean what they mean everywhere else and moving an area
-// is the same one-line diff as moving a crate. `target` is the placement whose
-// action it offers, and `action` (optional) which one — the script's first
-// otherwise. A prop with any area at all is offered ONLY inside its areas: the
-// radius is a default, and an area is somebody having decided.
-//
-// An ASSET may carry its own, too: an `_act` mesh modelled with it, shipped in
-// its package and copied into its script (areaFromAsset below). That one needs
-// no placing — it stands where the prop stands and moves when the prop moves.
-// Three answers to "where is it offered?", then, each replacing the one before:
-// the script's radius, the asset's own area, an area the level draws for one
-// copy of it in one spot.
-//
-// Where an area differs from a negative is what is asked of the volume. A
-// negative has to clip triangles, which is why it is convex and a primitive. An
-// area is only ever asked "is this point inside?", and that question has an
-// answer for any closed mesh — so an area may be ANY shape:
-//
-//   box · cylinder   the unit primitives negatives use, read through the same
-//                    volumeFrom(), transform only
-//   sphere           the unit sphere, transform only — an ellipsoid once scaled
-//   mesh             anything else: the mesh's own vertices and triangles ship
-//                    in the entry, and a point is inside if a ray out of it
-//                    crosses the surface an odd number of times
+// An area is any closed mesh, because all it is ever asked is "is this point
+// inside?" — and a point is inside a closed surface if a ray out of it crosses
+// the surface an odd number of times. Convex or not, one shell or several.
 import { Mat4, Vec3 } from 'playcanvas';
-import { matrixOf, volumeFrom } from './negatives.mjs';
-
-export const AREA_SHAPES = ['box', 'cylinder', 'sphere', 'mesh'];
 
 const TAG = 'areas';
 const _p = new Vec3();
@@ -59,39 +32,6 @@ function boundsOf(points) {
     box[3] = Math.max(box[3], v.x); box[4] = Math.max(box[4], v.y); box[5] = Math.max(box[5], v.z);
   }
   return box;
-}
-
-function convexArea(entry) {
-  const volume = volumeFrom(entry, TAG);
-  if (!volume) return null;
-  const planes = volume.planes;
-  return {
-    box: volume.box,
-    contains(x, y, z) {
-      for (const p of planes) if (p[0] * x + p[1] * y + p[2] * z + p[3] > 0) return false;
-      return true;
-    },
-  };
-}
-
-function sphereArea(entry, name) {
-  const m = matrixOf(entry);
-  const inverse = new Mat4().copy(m);
-  if (!inverse.invert()) {
-    console.warn(`[${TAG}] ${name}: zero scale on an axis — skipped`);
-    return null;
-  }
-  // The unit sphere through an affine map is an ellipsoid whose extent along
-  // world axis i is the length of row i of the 3x3 — no corners to transform.
-  const d = m.data;
-  const half = [0, 1, 2].map((i) => Math.hypot(d[i], d[4 + i], d[8 + i]));
-  return {
-    box: [d[12] - half[0], d[13] - half[1], d[14] - half[2], d[12] + half[0], d[13] + half[1], d[14] + half[2]],
-    contains(x, y, z) {
-      inverse.transformPoint(_p.set(x, y, z), _p);
-      return _p.lengthSq() <= 1;
-    },
-  };
 }
 
 // Does the ray from (ox, oy, oz) along RAY cross triangle abc? Möller–Trumbore,
@@ -113,7 +53,7 @@ function crosses(ox, oy, oz, v, ia, ib, ic) {
   return (e2x * qx + e2y * qy + e2z * qz) * inv > 0;
 }
 
-function meshArea(entry, name, m = matrixOf(entry)) {
+function meshArea(entry, name, m) {
   const verts = Float64Array.from(entry.verts ?? []);
   const tris = Uint32Array.from(entry.tris ?? []);
   const count = verts.length / 3;
@@ -185,20 +125,10 @@ export function areaFromAsset(entry, matrix, target) {
   if (!volume) return null;
   const { box, contains } = volume;
   return {
-    name, target, action: entry.action ?? null, shape: 'mesh', box,
+    name, target, action: entry.action ?? null, box,
     contains(x, y, z) {
       if (x < box[0] || y < box[1] || z < box[2] || x > box[3] || y > box[4] || z > box[5]) return false;
       return contains(x, y, z);
     },
   };
-}
-
-/** Every entry that made it into a usable area, in order. */
-export function collectAreas(entries) {
-  const out = [];
-  for (const entry of entries ?? []) {
-    const area = areaFrom(entry);
-    if (area) out.push(area);
-  }
-  return out;
 }

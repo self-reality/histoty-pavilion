@@ -74,8 +74,8 @@ try {
   const exported = blender(at('carried.blend'), '-P', 'tools/export_scene.py', '--', '--out', at('carried.json'));
   const layout = JSON.parse(readFileSync(at('carried.json'), 'utf8'));
   const asked = JSON.parse(readFileSync(fixture, 'utf8'));
-  want(layout.negatives.length === 0 && layout.areas.length === 0,
-    `the export wrote the prop's own volumes into the layout: ${layout.negatives.length} negatives, ${layout.areas.length} areas`);
+  want(layout.negatives.length === 0 && layout.areas === undefined,
+    `the export wrote the prop's own volumes into the layout: ${layout.negatives.length} negatives, ${layout.areas?.length ?? 0} areas`);
   want(JSON.stringify(layout.props) === JSON.stringify(asked.props), `the prop did not round-trip:\n${JSON.stringify(layout.props)}`);
   want(!/WARNING/.test(exported), `the export warned:\n${exported.split('\n').filter((l) => /WARNING/.test(l)).join('\n')}`);
 

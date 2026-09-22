@@ -1,23 +1,28 @@
 """Negative spaces — the Blender half. Shared by build_blend.py and export_scene.py.
 
-A negative is a convex cutter placed in the NEG collection. It is authored the
-way a prop is (drop it in, move it, export) and it exports the way a prop does
-— a name and a transform, no geometry — but it works in the opposite direction:
-the game subtracts it from the map's triangles instead of adding a GLB.
+A negative is a closed volume placed in the NEG collection: what is inside it
+is cut out of the map. It is authored the way a prop is (drop it in, move it,
+export) and it works in the opposite direction: the game subtracts it from the
+map's triangles instead of adding a GLB.
 
-    NEG collection ▸ mesh primitive named `neg_*`, `neg` custom property
-                     naming the shape ('box' or 'cylinder')
+    NEG collection ▸ a closed mesh named `neg_*`
 
-Two things have to agree for a cutter to mean the same thing on both sides:
+What ships depends on what the mesh still is. One that is still the unit cube
+or cylinder it was added as — moved, turned and scaled in Object Mode — ships
+as a shape and a transform, seven lines, and the unit primitives below are
+generated with the same vertex formulas as src/negatives.mjs so that the mesh
+you boolean against in the viewport and the volume the game clips with are the
+same, down to which way a cylinder's ring is phased. Anything else — a dragged
+corner, an L, a Bevel left unapplied — ships as itself: its vertices and
+triangles, modifiers applied (mesh_payload). classify() decides which, off the
+vertices. A `neg` custom property still forces a primitive, and check_primitive()
+then holds the mesh to it.
 
-  1. The shape. The unit primitives below are generated with the same vertex
-     formulas as src/negatives.mjs, so the mesh you boolean against in the
-     viewport and the planes the game clips with enclose the same volume — down
-     to which way a cylinder's ring is phased.
-  2. The transform, and only the transform. Nothing about the mesh is exported,
-     so a cutter must be scaled in Object Mode; edit its vertices and Blender
-     shows one volume while the game carves another. check_primitive() is what
-     notices.
+A prop can carry cutters of its own — `*_neg` meshes modelled with the asset,
+which arrive under its anchor with the rest of its payload and are never
+exported from here; the game reads them from the asset's script. What this
+module does for those is draw them as cutters (style_payload_volumes) and put
+them in the boolean preview (payload_cutters).
 
 The Boolean modifiers are what make the hole visible while you place it. They
 live on the REF map objects, not on the cutter, and are wired here rather than
@@ -25,8 +30,10 @@ by hand — the map is 39 objects, all hide_select, and which of them a doorway
 straddles changes every time you drag it.
 """
 
+import re
 from math import cos, pi, sin
 
+import bmesh
 import bpy
 from mathutils import Vector
 
@@ -229,3 +236,165 @@ def collection(create=False):
         coll = bpy.data.collections.new(NEG_COLLECTION)
         bpy.context.scene.collection.children.link(coll)
     return coll
+
+
+# --- reading a cutter that is no longer a primitive -------------------------
+
+# How far a vertex may sit from the unit primitive and still be it. Blender
+# stores coordinates as float32, so this is slack for arithmetic, not for a
+# nudge: a vertex pulled in Edit Mode moves by centimetres, and the mesh then
+# ships as itself.
+UNIT_TOLERANCE = 1e-4
+
+VERTEX_DECIMALS = 4        # a tenth of a millimetre, in the mesh's own units
+
+
+def evaluated_mesh(obj):
+    """The mesh as the viewport shows it — modifiers applied — in the object's own space.
+
+    What you see is what ships: an area rounded off with a Bevel or cut to shape
+    with a Boolean is that shape in game, without anyone having to remember to
+    apply the stack first. Returns (owner, mesh); call owner.to_mesh_clear() after.
+    """
+    owner = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    return owner, owner.to_mesh()
+
+
+def classify(mesh):
+    """Which unit primitive a mesh still is, if any: (shape, sides) — or ('mesh', None).
+
+    Judged on the vertices themselves, not on counts or a bounding box, because
+    a miss is harmless — the mesh ships as itself and means exactly what it
+    looks like — while a false hit would replace a shape somebody drew with the
+    primitive it started as. Every vertex has to be where the primitive has one:
+    a cube's at (±1, ±1, ±1), a cylinder's on the unit circle at z = ±1.
+    """
+    verts = [v.co for v in mesh.vertices]
+    faces = len(mesh.polygons)
+    near = lambda a, b: abs(a - b) <= UNIT_TOLERANCE  # noqa: E731
+
+    if len(verts) == 8 and faces == 6 and all(near(abs(c), 1) for v in verts for c in v):
+        return 'box', None
+
+    sides = sum(1 for p in mesh.polygons if abs(p.normal.z) < 0.5)
+    if (sides >= 3 and len(verts) == 2 * sides and faces == sides + 2
+            and all(near(abs(v.z), 1) and near(v.x * v.x + v.y * v.y, 1) for v in verts)):
+        return 'cylinder', sides
+
+    return 'mesh', None
+
+
+def mesh_payload(mesh):
+    """(verts, tris, problem) — a mesh's geometry in the GAME's local space.
+
+    Blender (x, y, z) is PlayCanvas (x, z, -y), and because the entry's
+    transform is the object's converted by conjugation (pc_axes.py), the
+    vertices under it convert by that same rotation and nothing else. A
+    rotation, so the winding survives — not that the game's inside test reads
+    it. Flat lists, because that is what the exporter keeps on one line: a
+    reshaped area is a changed line of `verts`, a moved one is a changed `pos`.
+
+    `problem` is set when the surface is not closed. The game decides "inside"
+    by counting how many times a ray out of the point crosses the surface, and
+    a surface with a hole in it has rays that leave without crossing anything.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bm.verts.ensure_lookup_table()
+
+    def r(v):
+        return round(v, VERTEX_DECIMALS) + 0.0   # +0.0 folds -0.0 into 0.0
+
+    verts = []
+    for v in bm.verts:
+        verts += [r(v.co.x), r(v.co.z), r(-v.co.y)]
+    tris = [v.index for f in bm.faces for v in f.verts]
+    open_edges = sum(1 for e in bm.edges if len(e.link_faces) != 2)
+    bm.free()
+
+    problem = None
+    if len(tris) < 12:
+        problem = 'fewer than four triangles — not a volume'
+    elif open_edges:
+        problem = (f'{open_edges} edge(s) not shared by exactly two faces — the surface is not '
+                   'closed, and the game tells inside from outside by counting crossings of it. '
+                   'Fill the hole (select it, F) or the cutter will leak')
+    return verts, tris, problem
+
+
+def make_mesh_cutter(entry, collection):
+    """Recreate a cutter that shipped as itself, from its `verts` and `tris`.
+
+    Triangulated — the triangles are what shipped, and the quads they were cut
+    from did not. Same volume, same export; tidy it with Alt-J if the wireframe
+    bothers you.
+    """
+    flat, idx = entry.get('verts') or [], entry.get('tris') or []
+    if len(flat) % 3 or len(idx) % 3 or not idx:
+        raise ValueError('a mesh cutter with no usable `verts`/`tris`')
+    # PlayCanvas (x, y, z) back to Blender (x, -z, y).
+    verts = [(flat[i], -flat[i + 2], flat[i + 1]) for i in range(0, len(flat), 3)]
+    faces = [tuple(idx[i:i + 3]) for i in range(0, len(idx), 3)]
+    mesh = bpy.data.meshes.new(entry['name'])
+    mesh.from_pydata([Vector(v) for v in verts], [], [list(f) for f in faces])
+    mesh.validate()
+    mesh.update()
+    obj = bpy.data.objects.new(entry['name'], mesh)
+    style_cutter(obj)
+    collection.objects.link(obj)
+    return obj
+
+
+# --- the volumes a prop carries ---------------------------------------------
+
+# `*_neg` and `*_act` meshes inside a prop's GLB (section 2 of the kit's
+# contract). Same tolerance as the contract's patterns: glTF appends `_0`,
+# Blender `.001`.
+PAYLOAD_NEG = re.compile(r'_neg(?:[._]\d+)*$', re.I)
+PAYLOAD_ACT = re.compile(r'_act(?:[._]\d+)*$', re.I)
+
+
+def style_carried_area(obj):
+    """A prop's own action area: a green cage, where a cutter is red."""
+    obj.display_type = 'WIRE'
+    obj.show_in_front = True
+    obj.hide_render = True
+    obj.color = (0.25, 1.0, 0.45, 1.0)
+
+
+def style_payload_volumes(objs):
+    """Draw an imported prop's own volumes as what they are. Returns its `_neg` meshes.
+
+    Straight out of the importer a `_neg` is a grey box standing over the prop
+    it belongs to, hiding it. As a red cage it reads as the hole the prop will
+    cut, and an `_act` as the green cage its action is offered from. The red is
+    the same red a cutter drawn in NEG wears, because it is the same thing; this
+    one just came with the asset and goes where it goes.
+    """
+    cutters = []
+    for obj in objs:
+        if obj.type != 'MESH':
+            continue
+        if PAYLOAD_NEG.search(obj.name):
+            style_cutter(obj)
+            cutters.append(obj)
+        elif PAYLOAD_ACT.search(obj.name):
+            style_carried_area(obj)
+    return cutters
+
+
+def payload_cutters(scene_collection):
+    """Every `_neg` mesh hanging under an anchor — the holes the placed props bring."""
+    if scene_collection is None:
+        return []
+    return [o for o in scene_collection.objects
+            if o.type == 'MESH' and o.parent is not None and PAYLOAD_NEG.search(o.name)]
+
+
+def payload_cutters(scene_collection):
+    """Every `_neg` mesh hanging under an anchor — the holes the placed props bring."""
+    if scene_collection is None:
+        return []
+    return [o for o in scene_collection.objects
+            if o.type == 'MESH' and o.parent is not None and PAYLOAD_NEG.search(o.name)]

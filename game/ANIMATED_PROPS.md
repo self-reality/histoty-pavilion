@@ -114,12 +114,11 @@ cut short, and a looped action would be a switch.
 Who may press the key, and when, is not the asset's business and lives
 elsewhere, in `src/actions.mjs`:
 
-- **In reach** means inside one of the level's **action areas** for the prop
-  (drawn in Blender's `ACT` collection — BLENDER_SCENE.md, "Action areas"); or,
-  when the level draws none, inside the area the asset **carries** — an `_act`
+- **In reach** means inside the **action area** the asset carries — an `_act`
   mesh modelled with it, read from its script and placed by the prop's own
-  transform, so it goes where the prop goes; or, when it carries none, within
-  the action's `radius`. The radius is
+  transform, so it goes where the prop goes (BLENDER_SCENE.md, "What a prop
+  brings with it") — or, when it carries none, within the action's `radius`.
+  The radius is
   measured from the prop's live *bounds* to the player's whole standing height,
   not from origin to eye: g-man's origin is between his shoes, 1.6 m under the
   camera, so two metres origin-to-eye would be one metre across the floor. And

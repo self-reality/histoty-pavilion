@@ -116,7 +116,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's script or from `rigs` in the manifest |
 | `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose, the actions a player can set off |
 | `src/actions.mjs` | The E: which props are in reach, which one you are looking at, the hint over each, and the trigger |
-| `src/areas.mjs` | Action areas: volumes of any shape — carried by an asset, or drawn in Blender for one copy of it — that say where a prop's E is on offer |
+| `src/areas.mjs` | Action areas: the volume an asset carries — its `_act` mesh, read from its script — that says where its E is on offer instead of a radius |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
@@ -295,14 +295,13 @@ pressing it makes him dance — once through, or until you press it again.
 
 What he does is the asset's: his script lists an action (`dance`, a label, a
 clip). Everything about *offering* it is this side's, in `src/actions.mjs`. By
-default the E shows within two metres of a prop. To say where instead, draw an
-**action area** in Blender — a mesh of any shape in the `ACT` collection, named
-`act_<prop>` — and it replaces the radius; it exports beside the props and the
-negatives, and `src/areas.mjs` answers "is the player inside?" for a box, a
-cylinder, a sphere or any closed mesh. With several props in reach each gets a
-hint, and the key belongs to the one you are looking at, whose hint is lit.
-ANIMATED_PROPS.md ("Actions") and BLENDER_SCENE.md ("Action areas") have the
-detail; `tests/actions.mjs` and `tests/areas.mjs` the proof.
+default the E shows within two metres of a prop. An asset that knows better —
+the spot a lever is worked from — carries an **action area**: a closed `_act`
+mesh modelled with it, shipped in its package (next section), and it replaces
+the radius; `src/areas.mjs` answers "is the player inside?" for any closed
+mesh. With several props in reach each gets a hint, and the key belongs to the
+one you are looking at, whose hint is lit. ANIMATED_PROPS.md ("Actions") has
+the detail; `tests/actions.mjs` and `tests/package.mjs` the proof.
 
 ### Sound
 
@@ -488,9 +487,9 @@ node tests/negatives.mjs # a cutter opens a doorway in the picture and the colli
 node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
-node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, areas replace the radius, the key goes to what you look at
+node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
-node tests/areas.mjs   # an area or a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
+node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
 node tests/carried.mjs # a prop's own volumes show under its anchor and are never exported; an anchor follows its asset into a package (Blender)
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
 ```

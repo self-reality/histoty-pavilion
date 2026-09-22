@@ -14,7 +14,6 @@ handful of numbers per prop instead of a re-baked binary.
   anchor WITH a `glb` custom property  -> props[]      (loaded + placed)
   anchor WITHOUT one                   -> markers[]    (transform only)
   cutter in the NEG collection         -> negatives[]  (subtracted from the map)
-  mesh in the ACT collection           -> areas[]      (where a prop's action is on offer)
 
 A prop entry also carries `script` when the asset ships one beside its GLB —
 `assets/<name>/<name>.script.json` next to `assets/<name>/<name>.glb`, the
@@ -23,13 +22,9 @@ at export time, never stored on the anchor: the .blend knows the object, the
 export knows what it does.
 
 A negative is the mirror of a prop and exports on the same terms — a name, a
-shape and a transform, no geometry. See tools/negatives.py.
-
-An action area is the negative's sibling: a volume that says where the E for a
-prop's action appears, instead of the two metres around the prop its script
-asks for. Same terms again while it is still a unit cube, cylinder or sphere;
-any other mesh ships its own vertices, because "is the player inside?" has an
-answer for any closed shape. See tools/areas.py.
+shape and a transform, no geometry — while it is still the unit cube or
+cylinder it was added as; any other closed mesh ships its own vertices. See
+tools/negatives.py.
 
 Any other custom properties ride along in `extras`, so Blender-side conventions
 (spawn_*, painting_*, ...) can grow without touching this script.
@@ -89,7 +84,6 @@ def resolve_tools_dir():
 
 TOOLS_DIR = resolve_tools_dir()
 sys.path.insert(0, TOOLS_DIR)
-import areas  # noqa: E402
 import negatives  # noqa: E402
 from pc_axes import decompose_pc  # noqa: E402
 
@@ -343,19 +337,16 @@ def loose_roots():
     ref = bpy.data.collections.get(REF_COLLECTION)
     scene_coll = bpy.data.collections.get(SCENE_COLLECTION)
     neg_coll = negatives.collection()
-    act_coll = areas.collection()
     managed = set(ref.objects) if ref else set()
     managed.update(scene_coll.objects if scene_coll else ())
     managed.update(neg_coll.objects if neg_coll else ())
-    managed.update(act_coll.objects if act_coll else ())
 
     # A cutter is geometry with no GLB behind it, so adoption would go looking
     # for the file it came from and report not finding one. Judge it by name:
     # a misfiled cutter is reported as a misfiled cutter, by stray_cutters().
-    # An action area is the same case and gets the same treatment.
     roots = [o for o in bpy.context.scene.collection.objects
              if o.parent is None and o not in managed and 'glb' not in o
-             and not o.name.startswith((negatives.NEG_PREFIX, areas.ACT_PREFIX))]
+             and not o.name.startswith(negatives.NEG_PREFIX)]
     if scene_coll:
         roots += [o for o in sorted(scene_coll.objects, key=lambda o: o.name)
                   if o.parent is None and 'glb' not in o
@@ -424,7 +415,7 @@ def attach(payload, root, anchor, rotation, placement, scene_coll):
         for c in list(obj.users_collection):
             c.objects.unlink(obj)
         scene_coll.objects.link(obj)
-    areas.style_payload_volumes(payload)  # the prop's own `_neg` / `_act`: cages, not boxes
+    negatives.style_payload_volumes(payload)  # the prop's own `_neg` / `_act`: cages, not boxes
 
     bpy.context.view_layer.update()
     drift = max(abs(a - b) for ra, rb in zip(placement, root.matrix_world)
@@ -497,9 +488,8 @@ def collect_negatives(collection):
     is still the unit cube or cylinder it was added as ships as a shape and a
     transform — seven lines, and moving it is a one-line diff. Any other mesh —
     a corner dragged in Edit Mode, an L round a pillar, a Bevel left unapplied —
-    ships as itself, vertices and triangles, exactly as an action area does and
-    through the same code. A `neg` custom property still forces a primitive, and
-    then the mesh is held to it.
+    ships as itself, vertices and triangles. A `neg` custom property still
+    forces a primitive, and then the mesh is held to it.
     """
     entries, warnings = [], []
     for obj in sorted(collection.objects, key=lambda o: o.name):
@@ -511,14 +501,12 @@ def collect_negatives(collection):
             continue
 
         declared = obj.get(negatives.SHAPE_KEY)
-        owner, mesh = areas.evaluated_mesh(obj)
+        owner, mesh = negatives.evaluated_mesh(obj)
         try:
             if declared is not None:
                 shape, sides = negatives.shape_of(obj), negatives.sides_of(obj)
             else:
-                shape, sides = areas.classify(mesh)
-                if shape == 'sphere':
-                    shape = 'mesh'            # the game cuts with boxes, prisms and meshes
+                shape, sides = negatives.classify(mesh)
             if shape not in negatives.SHAPES + ('mesh',):
                 warnings.append(f'{obj.name}: "{negatives.SHAPE_KEY}" is "{shape}", which is not one '
                                 f'of {", ".join(negatives.SHAPES)} — the game will skip it')
@@ -531,7 +519,7 @@ def collect_negatives(collection):
                 # same prism the viewport booleaned with.
                 entry['sides'] = sides
             elif shape == 'mesh':
-                entry['verts'], entry['tris'], problem = areas.mesh_payload(mesh)
+                entry['verts'], entry['tris'], problem = negatives.mesh_payload(mesh)
                 if problem:
                     warnings.append(f'{obj.name}: {problem}')
         finally:
@@ -566,70 +554,6 @@ def stray_cutters(collection):
             f'"{negatives.NEG_COLLECTION}" collection — it will not carve anything'
             for o in sorted(bpy.context.scene.objects, key=lambda o: o.name)
             if o.name.startswith(negatives.NEG_PREFIX) and o not in inside]
-
-
-def collect_areas(collection, placed):
-    """The ACT collection -> areas[]. `placed` is every prop name in the layout.
-
-    A mesh that is still the unit cube, cylinder or sphere ships as a shape and
-    a transform, exactly as a cutter does. Anything else ships as itself — so
-    unlike a cutter, an area may be edited in Edit Mode, and what classify()
-    finds decides how it is written down rather than whether it is allowed.
-    """
-    entries, warnings = [], []
-    for obj in sorted(collection.objects, key=lambda o: o.name):
-        if obj.parent is not None:
-            continue
-        if obj.type != 'MESH':
-            warnings.append(f'{obj.name}: a top-level {obj.type.lower()} in '
-                            f'"{areas.ACT_COLLECTION}" — an action area has to be a mesh')
-            continue
-
-        target = areas.target_of(obj)
-        entry = {'name': obj.name}
-        owner, mesh = areas.evaluated_mesh(obj)
-        try:
-            shape, sides = areas.classify(mesh)
-            entry.update({'shape': shape, 'target': target})
-            action = areas.action_of(obj)
-            if action:
-                entry['action'] = action
-            entry.update(decompose_pc(obj.matrix_world))
-            if shape == 'cylinder':
-                entry['sides'] = sides
-            elif shape == 'mesh':
-                entry['verts'], entry['tris'], problem = areas.mesh_payload(mesh)
-                if problem:
-                    warnings.append(f'{obj.name}: {problem}')
-        finally:
-            owner.to_mesh_clear()
-
-        if target not in placed:
-            warnings.append(f'{obj.name}: offers the action of "{target}", and no prop in the layout '
-                            f'is called that — name the area `{areas.ACT_PREFIX}<prop>`, or give it '
-                            f'a `{areas.TARGET_KEY}` custom property. It will do nothing in game')
-        if shape in ('box', 'cylinder') and any(s < 0 for s in entry['scale']):
-            warnings.append(f'{obj.name}: negative scale — a mirrored {shape} reads as "everywhere '
-                            'except here" and the game refuses it. Use rotation instead')
-
-        extras = extras_of(obj, skip=(areas.TARGET_KEY, areas.ACTION_KEY))
-        if extras:
-            entry['extras'] = extras
-        entries.append(entry)
-    return entries, warnings
-
-
-def stray_areas(collection):
-    """`act_*` objects filed somewhere other than ACT — the stray_cutters() of areas.
-
-    Silent in the same direction: it sits in the viewport looking like an area,
-    and the prop it was drawn for goes on offering its action from two metres.
-    """
-    inside = set(collection.objects) if collection else set()
-    return [f'{o.name}: named like an action area but not in the '
-            f'"{areas.ACT_COLLECTION}" collection — it will not offer anything'
-            for o in sorted(bpy.context.scene.objects, key=lambda o: o.name)
-            if o.name.startswith(areas.ACT_PREFIX) and o not in inside]
 
 
 def refresh_preview(cutters):
@@ -736,14 +660,7 @@ def main():
     warnings += neg_warnings + stray_cutters(neg_coll)
     # The holes the level draws, and the ones the placed props brought with them.
     preview = refresh_preview((list(neg_coll.objects) if neg_coll else [])
-                              + areas.payload_cutters(collection))
-
-    # From Blender, make sure there is somewhere to put an area: a .blend built
-    # before areas existed has no ACT collection, and "add a cube to ACT" is a
-    # poor first step when ACT is not in the Outliner. Nothing is saved for it.
-    act_coll = areas.collection(create=not bpy.app.background)
-    zones, act_warnings = collect_areas(act_coll, {p['name'] for p in props}) if act_coll else ([], [])
-    warnings += act_warnings + stray_areas(act_coll)
+                              + negatives.payload_cutters(collection))
 
     payload = {
         '_generated': 'tools/export_scene.py — do not hand-edit; edit the .blend',
@@ -752,7 +669,6 @@ def main():
         'props': props,
         'markers': markers,
         'negatives': cutters,
-        'areas': zones,
     }
 
     # indent=2, except numeric arrays stay on one line — a moved prop should be
@@ -787,15 +703,11 @@ def main():
     for c in cutters:
         what = f'{c["shape"]}, {len(c["tris"]) // 3} triangles' if c['shape'] == 'mesh' else c['shape']
         print(f'[export] negative {c["name"]:<18} pos {c["pos"]}  ({what})')
-    for z in zones:
-        what = f'{z["shape"]}, {len(z["tris"]) // 3} triangles' if z['shape'] == 'mesh' else z['shape']
-        print(f'[export] area   {z["name"]:<20} pos {z["pos"]}  ({what}) -> {z["target"]}'
-              + (f' : {z["action"]}' if 'action' in z else ''))
     if preview:
         print(f'[export] {preview}')
 
-    summary = (f'{len(props)} props, {len(markers)} markers, {len(cutters)} negatives, '
-               f'{len(zones)} areas -> {os.path.relpath(out_path, GAME_DIR)}')
+    summary = (f'{len(props)} props, {len(markers)} markers, {len(cutters)} negatives -> '
+               f'{os.path.relpath(out_path, GAME_DIR)}')
     print(f'[export] wrote {summary}')
 
     lines = [f'adopted {name} <- {glb}' for name, glb in adopted] \

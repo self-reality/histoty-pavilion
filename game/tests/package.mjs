@@ -105,13 +105,6 @@ const r = await page.evaluate(async () => {
     notch: stand(world(1.6, 0, -1.6)),          // 1.2 m from the kerb: inside any 2 m radius, outside the L
     far: stand(world(8, 0, 8)),
   };
-  // The level draws its own for this copy: that one wins, and the asset's is set aside.
-  g.actions.setAreas([{ name: 'act_level', target: 'well_01', shape: 'box', pos: [root.getPosition().x + 8, 1, root.getPosition().z + 8], scale: [1, 1, 1] }]);
-  g.actions.items = [item];
-  const levelWins = { inLevelArea: stand(world(0, 0, 0).add(new Vec3(8, 0, 8))), inOwnArea: stand(world(-1.5, 0, 1.5)) };
-  g.actions.setAreas([]);
-  g.actions.items = [item];
-
   // ---- 4) E sets its action off: a looped one is a switch -----------------------
   const s = item.script;
   const ball = matchNodes(root, 'well_ball*')[0];
@@ -127,7 +120,7 @@ const r = await page.evaluate(async () => {
   for (let i = 0; i < 20; i++) s.update(1 / 30);
   const home = angle(ball.getLocalRotation(), rest);
 
-  return { ground, cut, meshes, lowest, widest, collides: own.length, intact, reach, levelWins, on, turned, stillOn, off, home, warnings: s.warnings };
+  return { ground, cut, meshes, lowest, widest, collides: own.length, intact, reach, on, turned, stillOn, off, home, warnings: s.warnings };
 });
 
 await browser.close();
@@ -163,7 +156,6 @@ const viaOwn = (o) => o?.name === 'well_01' && o.action === 'spin' && o.via === 
 want(viaOwn(r.reach.corner) && viaOwn(r.reach.arm) && viaOwn(r.reach.otherArm), `inside the L: ${JSON.stringify(r.reach)}`);
 want(r.reach.notch === null, `offered in the notch — the asset's area did not replace the radius: ${JSON.stringify(r.reach.notch)}`);
 want(r.reach.far === null, 'offered from 11 m away');
-want(r.levelWins.inLevelArea?.via === 'act_level' && r.levelWins.inOwnArea === null, `a level area did not replace the asset's: ${JSON.stringify(r.levelWins)}`);
 // 4
 want(r.on?.running === true && r.turned > 60, `E did not spin the ball: ${JSON.stringify([r.on, r.turned])}`);
 want(r.stillOn === 'spin', `a looped action stopped by itself (${r.stillOn})`);
