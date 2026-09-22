@@ -134,6 +134,12 @@ to a self-contained binary glTF with:
 npx obj2gltf -i de_dust2.obj -o assets/de_dust2.glb --binary
 ```
 
+That conversion happened once, and its inputs are not here. The `.obj`, the `.mtl`
+and both sets of textures live with every other raw source, in the kit's
+`source/de_dust2-cs-map-pancakesbassoondonut/`. `assets/de_dust2.glb` is the tracked
+delivery, same as any other asset — redoing the conversion means fetching that folder
+from the kit first.
+
 At load it's rotated -90° about X (Z-up → Y-up) and scaled by `MAP_SCALE` (0.025) to roughly
 human proportions (~112 m across). Collision triangles are extracted from the loaded mesh in
 world space and indexed into a 2 m grid.
