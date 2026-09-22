@@ -9,7 +9,8 @@
       "rot": [0.0, 0.70736, 0.0, 0.70685],
       "euler": [0.0095, 90.0413, 0.0095],
       "scale": [0.76184, 0.76184, 0.76184],
-      "glb": "./assets/cisterna.glb"
+      "glb": "./assets/cisterna/cisterna.glb",
+      "script": "./assets/cisterna/cisterna.script.json"
     },
     {
       "name": "g-man-dance_01",
@@ -199,14 +200,5 @@
       "scale": [1.0, 1.0, 1.0]
     }
   ],
-  "negatives": [
-    {
-      "name": "neg_door_01",
-      "shape": "box",
-      "pos": [-49.75188, -0.92912, -4.48131],
-      "rot": [0.0, 0.0, 0.0, 1.0],
-      "euler": [0.0, 0.0, 0.0],
-      "scale": [5.02524, 3.02359, 8.21404]
-    }
-  ]
+  "negatives": []
 }
