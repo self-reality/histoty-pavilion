@@ -114,7 +114,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
 | `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's manifest or from `rigs` in the scene manifest |
-| `src/script.mjs` | An asset's package: its manifest applied (a node hung off another, its own pose) and its script run — code handed an `object` that plays clips, sounds, videos and canvases, ticks, offers actions and opens links |
+| `src/script.mjs` | *Copied from the kit's `runtime/` (`npm run runtime:pull`) — edit it there.* An asset's package: its manifest applied (a node hung off another, its own pose) and its script run — code handed an `object` that plays clips, sounds, videos and canvases, ticks, offers actions and opens links |
 | `src/actions.mjs` | The E: which props are in reach, which one you are looking at, the hint over each, and the trigger |
 | `src/areas.mjs` | Action areas: the volume an asset carries — its `_act` mesh, read from its manifest — that says where its E is on offer instead of a radius |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL |
@@ -502,6 +502,7 @@ node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere y
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
+node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
 node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)

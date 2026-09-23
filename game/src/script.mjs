@@ -1,12 +1,20 @@
 // An asset's script — what a placed object does, run as the code it is.
 //
+// The REFERENCE RUNTIME of script API 1. It lives in the asset kit
+// (singularity-development-kit/runtime/, with ./rig.mjs beside it) and is
+// copied verbatim into every consumer that runs scripts — the pavilion's
+// src/script.mjs, and the kit's own viewer, which imports it from here. Edit it
+// here and copy it out (`npm run runtime:pull` in the pavilion), so an asset
+// previewed in the kit does exactly what it does in the pavilion.
+// PlayCanvas; it imports 'playcanvas' and ./rig.mjs and nothing else.
+//
 // A package is three things (section 6 of the asset kit's ASSET_CONTRACT.md):
 // the OBJECT, a .glb; its MANIFEST, a .manifest.json saying what the object is
 // — its clips, its rig, the pose it stands in, the volumes it carries; and its
 // SCRIPT, a .script.js saying what it does. Static props have none of it and
-// nothing here runs for them. The scene exporter writes the manifest's path
-// into the placement beside the GLB's, and the manifest names the script, so
-// this side never guesses at a file.
+// nothing here runs for them. A consumer hands over the manifest's URL — the
+// pavilion's scene exporter writes it into the placement beside the GLB's —
+// and the manifest names the script, so this side never guesses at a file.
 //
 // The manifest is read at boot with the layout (loadManifest) — the level is
 // cut by the holes it carries before the objects that carry them have landed.
@@ -31,19 +39,20 @@
 // that means is the script's to say: this side never ends a run by itself.
 // Ended, everything the run started stops, and what it was waiting on
 // rejects, so an async start ends where it stood. Who presses the key — which
-// key, from how near — is ./actions.mjs's business, not this file's: here an
-// action is a method somebody calls.
+// key, from how near — is the consumer's business (the pavilion's actions.mjs,
+// the viewer's buttons), not this file's: here an action is a method somebody
+// calls.
 //
 // A script sees only `object`. It imports nothing and touches no engine, which
-// is what lets an asset built for this pavilion run in another. And it is code
-// with the page's rights, so only a script served from this origin is run —
-// the ones this repo ships in assets/.
+// is what lets an asset built for one pavilion run in another. And it is code
+// with the page's rights, so only a script served from the page's own origin
+// is run — the ones the consumer ships.
 //
 // The manifest's pose is how the object STANDS: applied once, here, before
-// collision is baked and before the script runs. The manifest's `rigs` entry
-// in scene.manifest.mjs goes on top of it, the way placements shadow
-// hand-written props: the asset says what it is anywhere, the pavilion says
-// what this copy is here.
+// collision is baked and before the script runs. A consumer's own
+// per-placement pose (the pavilion's `rigs` in scene.manifest.mjs) goes on top
+// of it: the asset says what it is anywhere, the consumer says what this copy
+// is here.
 //
 // ---- Clips are deltas on the bind pose, composed the OTHER way round ----
 //
@@ -63,7 +72,7 @@ export const MANIFEST_VERSION = 1;
 export const SCRIPT_API = 1;
 
 // One fetch per URL, shared by every placement of the asset — the same dedup
-// the container cache in main.mjs does for the GLB.
+// a consumer's container cache does for the GLB.
 const manifests = new Map();
 const packages = new Map();
 
@@ -112,7 +121,7 @@ export function loadManifest(url) {
  * real file name in a stack trace.
  */
 async function loadScriptModule(url) {
-  if (url.origin !== location.origin) throw new Error(`${url.href} is not on this site — only a script this pavilion ships is run`);
+  if (url.origin !== location.origin) throw new Error(`${url.href} is not on this site — only a script the page's own site ships is run`);
   const res = await fetch(url, { cache: 'no-cache' });
   if (!res.ok) throw new Error(`${url.pathname.split('/').pop()}: HTTP ${res.status}`);
   const source = `${await res.text()}\n//# sourceURL=${url.href}\n`;
@@ -350,7 +359,7 @@ export const EASE_SECONDS = 0.35;
 export const DEFAULT_ACTION_RADIUS = 2;
 
 // How far a script's sound carries, in metres: full volume within REF, fading
-// with distance, silent past MAX. The pavilion's call, not the asset's — an
+// with distance, silent past MAX. The consumer's call, not the asset's — an
 // asset cannot know how big the room it stands in is.
 const SOUND_REF = 2;
 const SOUND_MAX = 40;
@@ -515,7 +524,7 @@ export class PropScript {
     } catch (err) {
       this.fail('setup', err);
     }
-    // What is on offer is read once, as the object is placed (./actions.mjs).
+    // What is on offer is read once, as the object is placed.
     this.offered = true;
   }
 
@@ -751,7 +760,7 @@ export class PropScript {
       soundAssets.set(url, asset);
     }
     // One positional sound component per object, a slot per file. The listener
-    // is on the camera (audio.mjs); the entity's position is where it plays from.
+    // is the consumer's, on its camera; the entity's position is where it plays from.
     const sound = this.root.sound ?? this.root.addComponent('sound', {
       positional: true, refDistance: SOUND_REF, maxDistance: SOUND_MAX, rollOffFactor: 1, distanceModel: 'inverse',
     });
