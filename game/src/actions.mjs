@@ -14,6 +14,8 @@
 //   the hint           an E and the action's label over every prop in reach, the
 //                      one the key would act on lit and the rest dimmed
 //   the key            E — bound in main.mjs, which calls trigger()
+//   the aim            the camera's line of sight, handed over with the key, so
+//                      the script's run.aim says where on the prop you looked
 //
 // The default reach is measured from the prop's bounds, not its origin, and to
 // the player's whole standing height, not their eyes. An origin is wherever the
@@ -167,7 +169,8 @@ export class Actions {
     if (!offer) return null;
     const { item, action } = offer;
     const was = !!action.run;
-    item.script.trigger(action.name);
+    const ray = { origin: this.camera.getPosition().clone(), direction: this.camera.forward.clone() };
+    item.script.trigger(action.name, { ray });
     const running = !!action.run;
     console.log(`[actions] ${item.name}: ${action.name} ${!was ? (running ? 'started' : 'started and done')
       : running ? 'asked to stop — still running' : 'stopped'}`);

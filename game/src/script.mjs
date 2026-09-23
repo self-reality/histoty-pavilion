@@ -37,6 +37,9 @@
 // label — and the action runs until what start returned settles or the script
 // ends the run. The key on a running action calls its `stop(run)`, and what
 // that means is the script's to say: this side never ends a run by itself.
+// A press may carry the player's view as a world-space ray, trigger(name,
+// { ray }); where it first meets what the object draws is `run.aim` —
+// material, uv, point and normal — so a script can act on the spot looked at.
 // Ended, everything the run started stops, and what it was waiting on
 // rejects, so an async start ends where it stood. Who presses the key — which
 // key, from how near — is the consumer's business (the pavilion's actions.mjs,
@@ -567,7 +570,7 @@ export class PropScript {
   }
 
   // What a run hands its action: the same members, each playback tied to it.
-  makeRun(action) {
+  makeRun(action, aim = null) {
     const self = this;
     const live = new Set();
     const tie = (playback) => {
@@ -579,8 +582,10 @@ export class PropScript {
       action,
       over: false,
       label: action.stop,
+      aim,
       api: Object.freeze({
         action: action.name,
+        get aim() { return run.aim; },
         get ended() { return run.over; },
         get label() { return run.label; },
         set label(word) { run.label = word == null ? null : String(word); },
@@ -636,17 +641,24 @@ export class PropScript {
    * does is the script's decision. A run ends when what start returned
    * settles or the script ends it — never because of the key alone. Returns
    * the action, or null if the script offers none by that name.
+   *
+   * `ray` is the player's view at the press, `{ origin, direction }` in world
+   * space (Vec3s or [x, y, z]): what it hits becomes `run.aim`, on the press
+   * that starts a run and on every press that asks it to stop. Without one,
+   * `run.aim` is null — a consumer that has no view to give says so.
    */
-  trigger(name) {
+  trigger(name, { ray = null } = {}) {
     const action = name ? this.actions.find((a) => a.name === name) : this.actions[0];
     if (!action) return null;
+    const aim = this.aimAt(ray);
     if (action.run) {
+      action.run.aim = aim;
       if (action.onStop) {
         try { action.onStop(action.run.api); } catch (err) { this.fail(`action ${action.name}: stop`, err); }
       }
       return action;
     }
-    const run = this.makeRun(action);
+    const run = this.makeRun(action, aim);
     action.run = run;
     this.running.push(action);
     let out;
@@ -663,6 +675,67 @@ export class PropScript {
       this.finish(run);
     }
     return action;
+  }
+
+  /**
+   * Where a world-space ray first meets what this object draws, in the
+   * object's own space: `{ material, uv, point, normal }`, or null on a miss.
+   *
+   * On the CPU, against each mesh's own vertices, and only on a key press —
+   * the engine's picking works in screen space and gives no uv. What is not
+   * drawn is not aimed at: a hidden `_col` stand-in never catches the ray in
+   * front of the surface it stands in for. A skinned mesh is tested in its
+   * bind pose. `uv` is the file's, glTF's (0, 0) the top-left of an image on
+   * that material, so on a canvas it is x = u * width, y = v * height. The
+   * normal is the face's, turned to face the viewer.
+   */
+  aimAt(ray) {
+    if (!ray?.origin || !ray?.direction) return null;
+    const origin = toVec3(ray.origin);
+    const direction = toVec3(ray.direction);
+    if (!direction.lengthSq()) return null;
+    const toLocal = new Mat4();
+    const o = new Vec3();
+    const d = new Vec3();
+    let best = null;
+    for (const rc of this.root.findComponents('render')) {
+      if (!rc.enabled || !rc.entity.enabled) continue;
+      for (const mi of rc.meshInstances) {
+        if (!mi.visible) continue;
+        const geometry = geometryOf(mi.mesh);
+        if (!geometry) continue;
+        toLocal.copy(mi.node.getWorldTransform()).invert();
+        toLocal.transformPoint(origin, o);
+        // Not normalised, so t along it is t along the world ray: one scale for every mesh.
+        toLocal.transformVector(direction, d);
+        const hit = intersect(geometry, o, d, best ? best.t : Infinity);
+        if (hit) best = { ...hit, mi, geometry };
+      }
+    }
+    if (!best) return null;
+
+    const { mi, geometry: { pos, uv }, t, a, b, c, u, v } = best;
+    // The world hit, then into the object's space: the root's inverse.
+    const toObject = new Mat4().copy(this.root.getWorldTransform()).invert();
+    const point = toObject.transformPoint(new Vec3().copy(direction).mulScalar(t).add(origin));
+    const view = toObject.transformVector(direction);
+    // Mesh space to the object's. An affine map carries edges to edges, so
+    // their cross is the face's normal there.
+    const meshToObject = new Mat4().mul2(toObject, mi.node.getWorldTransform());
+    const corner = (i) => new Vec3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+    const pa = corner(a);
+    const e1 = meshToObject.transformVector(corner(b).sub(pa));
+    const e2 = meshToObject.transformVector(corner(c).sub(pa));
+    const normal = new Vec3().cross(e1, e2).normalize();
+    if (normal.dot(view) > 0) normal.mulScalar(-1);
+    const w = 1 - u - v;
+    const at = (i, k) => uv[i * 2 + k];
+    return {
+      material: mi.material?.name ?? null,
+      uv: uv ? [w * at(a, 0) + u * at(b, 0) + v * at(c, 0), w * at(a, 1) + u * at(b, 1) + v * at(c, 1)] : null,
+      point: [point.x, point.y, point.z],
+      normal: [normal.x, normal.y, normal.z],
+    };
   }
 
   /** Label for the key while an action runs: the script's word, if it has one. */
@@ -944,3 +1017,54 @@ export class PropScript {
 
 // One audio asset per URL, however many objects play it.
 const soundAssets = new Map();
+
+const toVec3 = (v) => (Array.isArray(v) ? new Vec3(v[0], v[1], v[2]) : new Vec3(v.x, v.y, v.z));
+
+// A mesh's positions, first uv set and triangle indices, read back once and
+// kept: what aimAt() casts against. Null for anything that is not triangles.
+const geometries = new WeakMap();
+function geometryOf(mesh) {
+  if (!mesh) return null;
+  if (geometries.has(mesh)) return geometries.get(mesh);
+  let geometry = null;
+  const primitive = mesh.primitive?.[0];
+  if (primitive?.type === pc.PRIMITIVE_TRIANGLES) {
+    const pos = [];
+    if (mesh.getPositions(pos)) {
+      const uv = [];
+      const all = [];
+      const indexed = mesh.getIndices(all) > 0;
+      const idx = indexed ? all.slice(primitive.base, primitive.base + primitive.count)
+        : Array.from({ length: primitive.count }, (_, i) => primitive.base + i);
+      geometry = { pos, uv: mesh.getUvs(0, uv) ? uv : null, idx };
+    }
+  }
+  geometries.set(mesh, geometry);
+  return geometry;
+}
+
+// Möller–Trumbore over every triangle, both faces: the nearest hit closer than
+// `far`, as { t, a, b, c, u, v } — its corners' indices and barycentrics.
+function intersect({ pos, idx }, o, d, far) {
+  let best = null;
+  for (let i = 0; i + 2 < idx.length; i += 3) {
+    const a = idx[i] * 3, b = idx[i + 1] * 3, c = idx[i + 2] * 3;
+    const e1x = pos[b] - pos[a], e1y = pos[b + 1] - pos[a + 1], e1z = pos[b + 2] - pos[a + 2];
+    const e2x = pos[c] - pos[a], e2y = pos[c + 1] - pos[a + 1], e2z = pos[c + 2] - pos[a + 2];
+    const px = d.y * e2z - d.z * e2y, py = d.z * e2x - d.x * e2z, pz = d.x * e2y - d.y * e2x;
+    const det = e1x * px + e1y * py + e1z * pz;
+    if (Math.abs(det) < 1e-12) continue;
+    const inv = 1 / det;
+    const sx = o.x - pos[a], sy = o.y - pos[a + 1], sz = o.z - pos[a + 2];
+    const u = (sx * px + sy * py + sz * pz) * inv;
+    if (u < 0 || u > 1) continue;
+    const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+    const v = (d.x * qx + d.y * qy + d.z * qz) * inv;
+    if (v < 0 || u + v > 1) continue;
+    const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+    if (t <= 0 || t >= far) continue;
+    far = t;
+    best = { t, a: idx[i], b: idx[i + 1], c: idx[i + 2], u, v };
+  }
+  return best;
+}
