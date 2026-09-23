@@ -1,9 +1,9 @@
 // Actions — walk up to something, see an E, press it.
 //
-// WHAT a prop can be set off to do is the asset's: its script lists `actions`,
-// each a name, a label and a clip, and ./script.mjs runs the one that is asked
-// for. This file is the pavilion's half, the part the kit's contract leaves to
-// the consumer on purpose:
+// WHAT a prop can be set off to do is the asset's: its script offers actions,
+// each a name, a label and a function, and ./script.mjs runs the one that is
+// asked for. This file is the pavilion's half, the part the kit's contract
+// leaves to the consumer on purpose:
 //
 //   who is in reach    inside the area the asset carries in its package (see
 //                      ./areas.mjs) — or, when it carries none, within the
@@ -55,7 +55,7 @@ export class Actions {
     this.active = null;       // the offer E would act on, or null
   }
 
-  /** A prop has landed whose script lists actions. */
+  /** A prop has landed whose script offers actions. */
   add(name, root, script) {
     if (!script?.actions.length) return null;
     const item = {
@@ -75,7 +75,7 @@ export class Actions {
   // its seat offset — so the area is where the prop is.
   claim(item) {
     item.areas = [];
-    const own = (item.script.script.areas ?? [])
+    const own = (item.script.manifest.areas ?? [])
       .map((entry) => areaFromAsset(entry, item.root.getWorldTransform(), item.name)).filter(Boolean);
     for (const area of own) {
       const action = area.action ? item.script.actions.find((a) => a.name === area.action) : item.script.actions[0];

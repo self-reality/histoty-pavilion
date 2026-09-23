@@ -1,37 +1,46 @@
-// An asset's script — what a placed object does, read from the file beside its GLB.
+// An asset's script — what a placed object does, run as the code it is.
 //
-// A prop is two things: an OBJECT, the .glb, and its SCRIPT, a .script.json that
-// says what the object does. Static props have no script and nothing here runs
-// for them. An animated one ships as a folder — `assets/<name>/<name>.glb` and
-// `assets/<name>/<name>.script.json`, plus the clips the script lists — built by
-// a producer that knows the rig (today the motion-capture tool; see
-// ANIMATED_PROPS.md), and the scene exporter writes the script's path into the
-// placement beside the GLB's, so this side never guesses at a file.
+// A package is three things (section 6 of the asset kit's ASSET_CONTRACT.md):
+// the OBJECT, a .glb; its MANIFEST, a .manifest.json saying what the object is
+// — its clips, its rig, the pose it stands in, the volumes it carries; and its
+// SCRIPT, a .script.js saying what it does. Static props have none of it and
+// nothing here runs for them. The scene exporter writes the manifest's path
+// into the placement beside the GLB's, and the manifest names the script, so
+// this side never guesses at a file.
 //
-// The script is DATA, never code, and its vocabulary is the whole contract:
+// The manifest is read at boot with the layout (loadManifest) — the level is
+// cut by the holes it carries before the objects that carry them have landed.
+// The script is loaded with the object (loadPackage) and run once it is on
+// stage: its default export is called with `object`, and everything the
+// script can do is a member of that — Script API 1:
 //
-//   pose / hide / offset / move    what a `rigs` entry in scene.manifest.mjs
-//                                  says, applied once — see PropRig in rig.mjs
-//   rig.attach                     what to hang where before a clip can play
-//   clips + play                   which clip, looped or not, at what speed
-//   actions                        what a player standing by it can set it off to
-//                                  do — each a name, a label and a `play` of its own
-//   negatives / areas              the volumes it carries, copied out of its `_neg`
-//                                  and `_act` meshes: what it cuts out of the map,
-//                                  and where its action is offered from. Not run
-//                                  here — see negatives.mjs and areas.mjs
-//   solid                          the asset's own answer to "can you walk into it"
+//   object.play(clip, opts)             a manifest clip on the rig, at rest
+//   object.sound(file, opts)            an audio file of the folder, from where it stands
+//   object.video(file, { material })    a video on one of its materials
+//   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
+//   object.on('tick', fn)               fn(dt) every frame, in game time
+//   object.wait(seconds)                a promise, in game time
+//   object.action(options, fn)          what a player standing by it can set off
+//   object.open(url, { newTab })        a link out of the page
 //
-// The top level is what the object does AT REST, from the moment it lands. An
-// action is what it does instead, for a while: set off at rest it starts, set
-// off while running it stops, and a clip that does not loop stops by itself.
-// Stopped, the object goes back to rest. That is the whole state machine, and
-// who sets an action off — which key, from how near — is ../src/actions.mjs's
+// Each of play / sound / video / wait hands back a PLAYBACK: a promise with a
+// stop(). An action's fn gets a RUN — the same four, tied to that one time the
+// action was set off — and the action runs for as long as what fn returned is
+// pending. Set off again, it stops: everything the run started stops, and
+// what it was waiting on rejects, so an async sequence ends where it stood.
+// Who sets an action off — which key, from how near — is ./actions.mjs's
 // business, not this file's: here an action is a method somebody calls.
 //
-// The manifest's `rigs` entry for a placement is applied on top of the script's
-// own pose, the way placements shadow hand-written props: the asset says what
-// it does anywhere, the pavilion says what this copy does here.
+// A script sees only `object`. It imports nothing and touches no engine, which
+// is what lets an asset built for this pavilion run in another. And it is code
+// with the page's rights, so only a script served from this origin is run —
+// the ones this repo ships in assets/.
+//
+// The manifest's pose is how the object STANDS: applied once, here, before
+// collision is baked and before the script runs. The manifest's `rigs` entry
+// in scene.manifest.mjs goes on top of it, the way placements shadow
+// hand-written props: the asset says what it is anywhere, the pavilion says
+// what this copy is here.
 //
 // ---- Clips are deltas on the bind pose, composed the OTHER way round ----
 //
@@ -45,79 +54,102 @@
 import * as pc from 'playcanvas';
 import { PropRig, matchNodes } from './rig.mjs';
 
-const { Quat, Vec3, Mat4 } = pc;
+const { Quat, Vec3, Mat4, Color, Texture, Asset } = pc;
 
-export const SCRIPT_VERSION = 1;
+export const MANIFEST_VERSION = 1;
+export const SCRIPT_API = 1;
 
-// One fetch per script URL, shared by every placement of the asset — the same
-// dedup the container cache in main.mjs does for the GLB.
-const loaded = new Map();
-const fetched = new Map();
+// One fetch per URL, shared by every placement of the asset — the same dedup
+// the container cache in main.mjs does for the GLB.
+const manifests = new Map();
+const packages = new Map();
 
 /**
- * The script's JSON and nothing else — no clips.
+ * The manifest's JSON and nothing else — no clips, no script.
  *
- * This is what startup waits for. A packaged asset's script carries the
+ * This is what startup waits for. A packaged asset's manifest carries the
  * negative spaces it cuts out of the map, and the map is cut before its
- * collision is built, so every placed asset's script is read before the level
- * is walkable. That is only affordable because a script is a few KB: a
- * dancer's clip is a few hundred, and nothing at startup needs it.
- */
-export function loadScriptJson(url) {
-  let pending = fetched.get(url);
-  if (!pending) {
-    pending = (async () => {
-      const res = await fetch(url, { cache: 'no-cache' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const script = await res.json();
-      if (script.version !== SCRIPT_VERSION) {
-        console.warn(`[script ${url}] version ${script.version}, this loader reads ${SCRIPT_VERSION}`);
-      }
-      return script;
-    })();
-    fetched.set(url, pending);
-  }
-  return pending;
-}
-
-/**
- * Fetch a script and every clip it can play. Resolves to { url, script, clip,
- * clips } — `clip` the one the script plays at rest, null when it plays
- * nothing; `clips` a Map by name of that and whatever its actions play — or
- * rejects with why.
- *
- * An action's clip is fetched up front with the rest rather than when the
- * player first presses the key: a dance that starts a round trip late is a
- * dance that ignored you, and the clips are a few hundred KB beside a GLB of
- * a megabyte.
+ * collision is built, so every placed asset's manifest is read before the
+ * level is walkable. That is only affordable because a manifest is a few KB:
+ * a dancer's clip is a few hundred, and nothing at startup needs it.
  *
  * `no-cache` rather than the placements file's `no-store`: an asset changes
  * when it is copied in again, not on every export, so a revalidated cache is
  * the right fit. The dev server answers a conditional GET with 304.
  */
-export function loadScript(url) {
-  let pending = loaded.get(url);
+export function loadManifest(url) {
+  let pending = manifests.get(url);
   if (!pending) {
     pending = (async () => {
-      const script = await loadScriptJson(url);
-      const wanted = new Map();   // clip name -> who asked, for the error
-      if (script.play?.clip) wanted.set(script.play.clip, 'play.clip');
-      for (const action of script.actions ?? []) {
-        if (action?.play?.clip && !wanted.has(action.play.clip)) wanted.set(action.play.clip, `action ${action.name}`);
+      const res = await fetch(url, { cache: 'no-cache' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const manifest = await res.json();
+      if (manifest.version !== MANIFEST_VERSION) {
+        console.warn(`[manifest ${url}] version ${manifest.version}, this loader reads ${MANIFEST_VERSION}`);
       }
-      const clips = new Map();
-      await Promise.all([...wanted].map(async ([name, asker]) => {
-        const entry = (script.clips ?? []).find((c) => c.name === name);
-        if (!entry) throw new Error(`${asker} "${name}" is not one of the script's clips`);
-        // Relative to the script, not the page: the folder is the unit that moves.
-        const clipUrl = new URL(entry.file, new URL(url, location.href));
-        const r = await fetch(clipUrl, { cache: 'no-cache' });
-        if (!r.ok) throw new Error(`${entry.file}: HTTP ${r.status}`);
-        clips.set(name, await r.json());
-      }));
-      return { url, script, clip: clips.get(script.play?.clip) ?? null, clips };
+      for (const key of ['play', 'actions']) {
+        if (manifest[key] !== undefined) {
+          console.warn(`[manifest ${url}] carries \`${key}\`, which is ignored — what an object does is its script's`);
+        }
+      }
+      return manifest;
     })();
-    loaded.set(url, pending);
+    manifests.set(url, pending);
+  }
+  return pending;
+}
+
+/**
+ * The script's module, loaded from its source text rather than by URL.
+ *
+ * Fetched like the manifest — revalidated, so a script copied in again is the
+ * one that runs on the next reload, which an `import()` by URL does not
+ * promise — and imported from a Blob. A script imports nothing, so there is
+ * nothing for a Blob URL to fail to resolve; the `sourceURL` comment puts the
+ * real file name in a stack trace.
+ */
+async function loadScriptModule(url) {
+  if (url.origin !== location.origin) throw new Error(`${url.href} is not on this site — only a script this pavilion ships is run`);
+  const res = await fetch(url, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(`${url.pathname.split('/').pop()}: HTTP ${res.status}`);
+  const source = `${await res.text()}\n//# sourceURL=${url.href}\n`;
+  const blob = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+  try {
+    const mod = await import(blob);
+    if (typeof mod.default !== 'function') throw new Error(`${url.pathname.split('/').pop()} has no default export to call`);
+    return mod.default;
+  } finally {
+    URL.revokeObjectURL(blob);
+  }
+}
+
+/**
+ * Fetch a package: its manifest, every clip the manifest lists, and its script.
+ * Resolves to { url, manifest, clips, setup } — `clips` a Map by name, `setup`
+ * the script's default export or null — or rejects with why.
+ *
+ * Every clip is fetched up front rather than when a script first plays it: a
+ * dance that starts a round trip late is a dance that ignored you, the clips
+ * are a few hundred KB beside a GLB of a megabyte, and which of them a script
+ * plays is only known by running it.
+ */
+export function loadPackage(url) {
+  let pending = packages.get(url);
+  if (!pending) {
+    pending = (async () => {
+      const manifest = await loadManifest(url);
+      // Relative to the manifest, not the page: the folder is the unit that moves.
+      const base = new URL(url, location.href);
+      const clips = new Map();
+      const script = manifest.script ? loadScriptModule(new URL(manifest.script, base)) : Promise.resolve(null);
+      await Promise.all((manifest.clips ?? []).map(async (entry) => {
+        const r = await fetch(new URL(entry.file, base), { cache: 'no-cache' });
+        if (!r.ok) throw new Error(`${entry.file}: HTTP ${r.status}`);
+        clips.set(entry.name, await r.json());
+      }));
+      return { url: base.href, manifest, clips, setup: await script };
+    })();
+    packages.set(url, pending);
   }
   return pending;
 }
@@ -195,11 +227,11 @@ const _tmp = new Vec3();
  */
 export class ClipPlayer {
   /**
-   * `play` is who is asking — `{ loop, speed }` from the script's own `play`
-   * at rest, or from the action that plays this clip. The rig and the bind pose
-   * are the script's either way.
+   * `play` is how the script asked for it — `{ loop, speed }`, from
+   * object.play at rest or from a run's play. The rig and the bind pose are
+   * the manifest's either way.
    */
-  constructor(root, clip, script, bind, label = '', play = script.play ?? {}) {
+  constructor(root, clip, manifest, bind, label = '', play = {}) {
     this.label = label;
     this.name = clip.name;
     this.times = Float32Array.from(clip.times ?? []);
@@ -221,9 +253,9 @@ export class ClipPlayer {
     // and the track is turned through the character's axes on every seek.
     this.root = null;
     if (clip.root?.t) {
-      const rootBone = shallowest(matchNodes(root, script.rig?.root ?? clip.root.bone));
+      const rootBone = shallowest(matchNodes(root, manifest.rig?.root ?? clip.root.bone));
       const pelvis = rootBone && shallowest(matchNodes(root, clip.root.bone).filter((n) => isUnder(n, rootBone)));
-      const axes = rootBone && readAxes(root, rootBone, script.rig);
+      const axes = rootBone && readAxes(root, rootBone, manifest.rig);
       if (pelvis && axes) {
         this.root = { node: pelvis, rest: bind.get(pelvis).p, t: Float32Array.from(clip.root.t), axes };
         // A walk turns the pelvis too: its delta composes onto the bind rotation like any bone's.
@@ -235,8 +267,8 @@ export class ClipPlayer {
       }
     }
     // Every node this clip writes to, the pelvis it walks included. Nothing is
-    // posed here: binding a clip and playing it are separate, because an
-    // action's clip is bound at load and must not move a bone until it is set off.
+    // posed here: binding a clip and playing it are separate — the ease into
+    // it is PropScript's, and it poses from the clip's first update().
     this.nodes = new Set(this.root ? [this.root.node] : []);
     for (const track of this.tracks) for (const node of track.nodes) this.nodes.add(node);
   }
@@ -314,23 +346,85 @@ export const EASE_SECONDS = 0.35;
 // action nor the scene says otherwise — the contract's default.
 export const DEFAULT_ACTION_RADIUS = 2;
 
+// How far a script's sound carries, in metres: full volume within REF, fading
+// with distance, silent past MAX. The pavilion's call, not the asset's — an
+// asset cannot know how big the room it stands in is.
+const SOUND_REF = 2;
+const SOUND_MAX = 40;
+
 const NO_NODES = new Set();
 
 /**
- * PropScript — one placed prop, doing what its script says.
+ * What a pending playback rejects with when the run that started it is
+ * stopped. A consumer swallows it (the contract, rule 2), so a script that
+ * awaits a clip needs no try/catch to be cut short.
+ */
+export class Stopped extends Error {
+  constructor(what = 'stopped') { super(what); this.name = 'AbortError'; }
+}
+
+/**
+ * Where the browser goes when a script opens a link — one place, so a test
+ * can see what a script asked for without leaving the page.
+ */
+export const page = {
+  open(url, newTab) {
+    document.exitPointerLock?.();
+    if (newTab) window.open(url, '_blank', 'noopener');
+    else location.assign(url);
+  },
+};
+
+/**
+ * A playback: a promise with a stop(). `halt` is what stopping means for the
+ * thing it plays — a clip eases out, a sound falls silent, a timer is dropped —
+ * and it runs at most once, however the playback ends.
+ */
+function makePlayback(halt = () => {}) {
+  let resolve, reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  // Handled from birth: a looped sound nobody awaits must not surface as an
+  // unhandled rejection when its run is stopped.
+  promise.catch(() => {});
+  let settled = false;
+  const finish = (ok, value, halting = true) => {
+    if (settled) return false;
+    settled = true;
+    if (halting) {
+      try { halt(); } catch (err) { console.warn('[script] stopping a playback threw:', err); }
+    }
+    if (ok) resolve(value); else reject(value);
+    return true;
+  };
+  return Object.assign(promise, {
+    stop() { finish(true); },
+    // For the runtime, never the script: ended by itself — `halting` false
+    // when what it played should stay as it ended, a one-off holding its last
+    // key — or cut short by the run that started it.
+    end(halting = true) { return finish(true, undefined, halting); },
+    cancel(reason = new Stopped()) { return finish(false, reason); },
+    get settled() { return settled; },
+  });
+}
+
+/**
+ * PropScript — one placed object: its manifest applied, its script running.
  *
  * Order matters and is fixed here: capture every node's bind transform first,
- * then hang what the script says where (measured against that bind), then the
- * script's own pose, then the clip — which composes onto the captured bind, so
- * a pose on a bone the clip also drives is simply overwritten every frame.
- * Actions are bound last and move nothing until one is set off.
+ * then hang what the manifest says where (measured against that bind), then
+ * the manifest's pose. The script runs later, in start(), once the placement
+ * has put its own pose on top and collision has been baked — so nothing a
+ * script plays can end up frozen into the collider.
  */
 export class PropScript {
-  constructor(root, { url, script, clip, clips }, label = '') {
+  constructor(root, { url, manifest, clips, setup }, label = '', { app = null } = {}) {
     this.root = root;
     this.url = url;
     this.label = label;
-    this.script = script;
+    this.manifest = manifest;
+    this.clips = clips ?? new Map();
+    this.setup = setup ?? null;
+    this.app = app;
     this.warnings = [];
     this.attached = [];   // [{ node, to }] as actually done
 
@@ -342,39 +436,29 @@ export class PropScript {
     };
     walk(root);
 
-    for (const entry of script.rig?.attach ?? []) this.attach(entry?.node, entry?.to);
+    for (const entry of manifest.rig?.attach ?? []) this.attach(entry?.node, entry?.to);
 
-    const posed = ['pose', 'hide', 'offset', 'move'].some((k) => script[k] !== undefined);
-    this.rig = posed ? new PropRig(root, script, label) : null;
+    const posed = ['pose', 'hide', 'offset', 'move'].some((k) => manifest[k] !== undefined);
+    this.rig = posed ? new PropRig(root, manifest, label) : null;
     if (this.rig?.missing.length) this.warnings.push(`no node matched: ${this.rig.missing.join(', ')}`);
 
-    // What it does at rest, from the moment it lands.
-    this.player = clip ? new ClipPlayer(root, clip, script, this.bind, label) : null;
-    if (this.player?.missing.length) this.warnings.push(`clip ${clip.name}: no node matched ${this.player.missing.join(', ')}`);
-    this.player?.seek(0);
-
-    // What a player can set it off to do instead. Each action binds its own
-    // clip now, so the key is answered on the frame it is pressed.
-    this.actions = [];    // [{ name, label, stop, radius, player }]
-    for (const entry of script.actions ?? []) {
-      const source = entry?.play?.clip ? clips?.get(entry.play.clip) : null;
-      if (!entry?.name || !source) {
-        this.warnings.push(`action ${entry?.name ?? '(unnamed)'}: ${!entry?.name ? 'no name' : 'no clip to play'} — dropped`);
-        continue;
-      }
-      const player = new ClipPlayer(root, source, script, this.bind, label, entry.play);
-      if (player.missing.length) this.warnings.push(`action ${entry.name}, clip ${source.name}: no node matched ${player.missing.join(', ')}`);
-      this.actions.push({
-        name: entry.name,
-        label: entry.label ?? entry.name,
-        stop: entry.stop ?? null,
-        radius: entry.radius > 0 ? entry.radius : DEFAULT_ACTION_RADIUS,
-        player,
-      });
-    }
-    this.acting = null;   // the action running now; null at rest
-    this.rest = null;     // Map(node -> { q, p }): where a stopped action's bones go back to
-    this.fade = null;     // { from: Map(node -> { q, p }), t } while easing between the two
+    this.time = 0;          // game seconds since the script started
+    this.player = null;     // the clip it plays at rest — object.play
+    this.resting = null;    // ...and that clip's playback
+    this.clip = null;       // the clip a run plays instead — run.play
+    this.clipping = null;   // ...and its playback
+    this.rest = null;       // Map(node -> { q, p }): where a run's bones go back to
+    this.fade = null;       // { from: Map(node -> { q, p }), t } while easing between the two
+    this.actions = [];      // [{ name, label, stop, radius, fn }]
+    this.acting = null;     // the action running now; null at rest
+    this.run = null;        // ...and the run it is
+    this.ticks = [];        // object.on('tick') handlers
+    this.timers = [];       // [{ at, playback }] for wait()
+    this.videos = new Set();  // [{ element, texture }] uploaded every frame they play
+    this.sounds = [];       // how many a script started — for the placement log
+    this.surfaces = new Map();  // material name -> [{ mi, material }] this copy owns
+    this.started = false;
+    this.object = this.makeObject();
   }
 
   /**
@@ -413,75 +497,390 @@ export class PropScript {
   }
 
   /** The asset's own answer, or undefined when it does not say. */
-  get solid() { return this.script.solid; }
+  get solid() { return this.manifest.solid; }
 
-  /** A mesh the script's pose hid is gone from collision too. */
+  /** A mesh the manifest's pose hid is gone from collision too. */
   collides(name) { return this.rig ? this.rig.collides(name) : true; }
 
-  /** Does anything here need the game loop? A pose alone does not. */
-  get ticks() { return !!(this.player || this.actions.length); }
+  /** Run the script: call its default export with the object. Once. */
+  start() {
+    if (this.started) return;
+    this.started = true;
+    if (!this.setup) return;
+    try {
+      const out = this.setup(this.object);
+      if (out && typeof out.then === 'function') out.then(null, (err) => this.fail('setup', err));
+    } catch (err) {
+      this.fail('setup', err);
+    }
+    // What is on offer is read once, as the object is placed (./actions.mjs).
+    this.offered = true;
+  }
+
+  fail(where, err) {
+    if (err instanceof Stopped) return;
+    const line = `${where} threw: ${err?.message ?? err}`;
+    this.warnings.push(line);
+    console.error(`[script ${this.label}] ${line}`, err);
+  }
+
+  warn(line) {
+    this.warnings.push(line);
+    console.warn(`[script ${this.label}] ${line}`);
+  }
+
+  // ---- The object, as the script sees it --------------------------------------
+
+  makeObject() {
+    const self = this;
+    return Object.freeze({
+      api: SCRIPT_API,
+      name: this.label,
+      play: (clip, opts) => self.playClip(clip, opts, null),
+      sound: (file, opts) => self.playSound(file, opts, null),
+      video: (file, opts) => self.playVideo(file, opts, null),
+      canvas: (material, opts) => self.canvas(material, opts),
+      wait: (seconds) => self.wait(seconds, null),
+      on(event, fn) {
+        if (event !== 'tick') { self.warn(`on("${event}"): script API ${SCRIPT_API} has only "tick"`); return; }
+        if (typeof fn === 'function') self.ticks.push(fn);
+      },
+      action: (options, fn) => self.offer(options, fn),
+      open(url, { newTab = false } = {}) {
+        if (!/^https?:\/\//i.test(String(url))) { self.warn(`open: ${url} is not an http(s) address`); return; }
+        console.log(`[script ${self.label}] opening ${url}${newTab ? ' in a new tab' : ''}`);
+        page.open(String(url), !!newTab);
+      },
+      log: (...args) => console.log(`[script ${self.label}]`, ...args),
+    });
+  }
+
+  // What a run hands its action: the same members, each playback tied to it.
+  makeRun(action) {
+    const self = this;
+    const live = new Set();
+    const tie = (playback) => {
+      if (run.over) playback.cancel();
+      else { live.add(playback); playback.then(() => live.delete(playback), () => live.delete(playback)); }
+      return playback;
+    };
+    const run = {
+      action,
+      over: false,
+      api: Object.freeze({
+        action: action.name,
+        get stopped() { return run.over; },
+        play: (clip, opts) => tie(self.playClip(clip, opts, run)),
+        sound: (file, opts) => tie(self.playSound(file, opts, run)),
+        video: (file, opts) => tie(self.playVideo(file, opts, run)),
+        wait: (seconds) => tie(self.wait(seconds, run)),
+      }),
+      // Rule 3: what a run started stops with it, however it ends.
+      end() {
+        run.over = true;
+        for (const playback of [...live]) playback.cancel();
+        live.clear();
+      },
+    };
+    return run;
+  }
+
+  // ---- Actions ----------------------------------------------------------------
+
+  offer(options, fn) {
+    const name = options?.name;
+    if (typeof name !== 'string' || !name) { this.warn('action: no name — dropped'); return; }
+    if (this.actions.some((a) => a.name === name)) { this.warn(`action ${name}: offered twice — the second dropped`); return; }
+    if (typeof fn !== 'function') { this.warn(`action ${name}: nothing to call — dropped`); return; }
+    if (this.offered) this.warn(`action ${name}: offered after the object was placed — nothing offers it`);
+    this.actions.push({
+      name,
+      label: options.label ?? name,
+      stop: options.stop ?? null,
+      radius: options.radius > 0 ? options.radius : DEFAULT_ACTION_RADIUS,
+      fn,
+    });
+  }
 
   /**
-   * Set an action off — the first one the script lists, unless named.
+   * Set an action off — the first one the script offers, unless named.
    *
-   * The contract's three rules, and the only place they live: at rest it
-   * starts, running it stops, and update() stops a one-off that has played
-   * through. Returns the action, or null if the script has none by that name.
+   * The contract's rules, and the only place they live: at rest it starts,
+   * running it stops, and a run whose function has settled ends by itself.
+   * Another action running is stopped first — one run at a time. Returns the
+   * action, or null if the script offers none by that name.
    */
   trigger(name) {
     const action = name ? this.actions.find((a) => a.name === name) : this.actions[0];
     if (!action) return null;
     if (this.acting === action) { this.stop(); return action; }
-    // Where a stopped action's bones go back to is wherever they are now —
-    // bind, the script's pose, a `rigs` entry on top, a slider dragged since —
-    // provided now is rest, and not the tail of the last action easing out.
-    if (!this.rest || (!this.acting && !this.fade)) {
-      this.rest = new Map();
-      for (const a of this.actions) {
-        for (const node of a.player.nodes) {
-          this.rest.set(node, { q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() });
-        }
-      }
-    }
-    this.ease((this.acting?.player ?? this.player)?.nodes ?? NO_NODES, action.player.nodes);
-    action.player.rewind();
+    if (this.acting) this.stop();
+    const run = this.makeRun(action);
     this.acting = action;
+    this.run = run;
+    let out;
+    try {
+      out = action.fn(run.api);
+    } catch (err) {
+      this.fail(`action ${action.name}`, err);
+      this.finish(run);
+      return action;
+    }
+    if (out && typeof out.then === 'function') {
+      out.then(() => this.finish(run), (err) => { this.fail(`action ${action.name}`, err); this.finish(run); });
+    } else {
+      this.finish(run);
+    }
     return action;
   }
 
-  /** End the running action, and ease back to what the script does at rest. */
+  /** End the running action; the object goes back to what it does at rest. */
   stop() {
-    if (!this.acting) return;
-    this.ease(this.acting.player.nodes, this.player?.nodes ?? NO_NODES);
+    if (this.run) this.finish(this.run);
+  }
+
+  finish(run) {
+    if (run !== this.run) return;
+    this.run = null;
     this.acting = null;
+    run.end();
+  }
+
+  // ---- Clips on the rig -------------------------------------------------------
+
+  /**
+   * Play a manifest clip. Without a run it is what the object does at rest,
+   * replacing whatever it did before; with one it takes the rig over from
+   * that until the run lets go. Either way the bones ease from wherever they
+   * are into it.
+   */
+  playClip(name, opts = {}, run) {
+    const clip = this.clips.get(name);
+    if (!clip) {
+      this.warn(`play: ${name} is not one of the manifest's clips`);
+      const nothing = makePlayback();
+      nothing.end();
+      return nothing;
+    }
+    const player = new ClipPlayer(this.root, clip, this.manifest, this.bind, this.label, opts ?? {});
+    if (player.missing.length) this.warn(`clip ${clip.name}: no node matched ${player.missing.join(', ')}`);
+
+    if (!run) {
+      const before = this.player;
+      const playback = makePlayback(() => {
+        if (this.player !== player) return;
+        if (!this.clip) this.ease(player.nodes, NO_NODES);
+        this.player = null;
+        this.resting = null;
+      });
+      this.resting?.end();
+      if (!this.clip) this.ease(before?.nodes ?? NO_NODES, player.nodes);
+      this.player = player;
+      this.resting = playback;
+      return playback;
+    }
+
+    // Where the run's bones go back to is wherever they are now — bind, the
+    // manifest's pose, a `rigs` entry on top, a slider dragged since —
+    // provided now is rest, and not the tail of an earlier run easing out.
+    if (!this.rest || (!this.clip && !this.fade)) this.rest = new Map();
+    for (const node of player.nodes) {
+      if (!this.rest.has(node)) this.rest.set(node, { q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() });
+    }
+    this.ease((this.clip ?? this.player)?.nodes ?? NO_NODES, player.nodes);
+    const playback = makePlayback(() => {
+      if (this.clip !== player) return;
+      this.ease(player.nodes, this.player?.nodes ?? NO_NODES);
+      this.clip = null;
+      this.clipping = null;
+    });
+    // A second clip in the same run replaces the first, which has not ended —
+    // it was handed over, so it resolves rather than rejecting.
+    if (this.clipping) { const was = this.clipping; this.clipping = null; this.clip = null; was.end(); }
+    this.clip = player;
+    this.clipping = playback;
+    return playback;
   }
 
   // Start easing every node either side drives, from wherever it is this
   // instant — which, part-way through an earlier ease, is already a blend, so
   // pressing the key twice in a hurry never snaps.
   ease(leaving, arriving) {
-    const from = new Map();
+    const from = new Map(this.fade?.from ?? []);
     for (const nodes of [leaving, arriving]) {
-      for (const node of nodes) {
-        if (!from.has(node)) from.set(node, { q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() });
-      }
+      for (const node of nodes) from.set(node, { q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() });
     }
     this.fade = from.size ? { from, t: 0 } : null;
   }
 
-  update(dt) {
-    (this.acting?.player ?? this.player)?.update(dt);
-    // The last key has been posed this frame; ease away from it, not from the one before.
-    if (this.acting?.player.ended) this.stop();
-    if (!this.fade) return;
+  // ---- Sound, video, canvas ---------------------------------------------------
 
+  /** A file of the asset's folder, as a URL. */
+  fileUrl(file) { return new URL(file, this.url).href; }
+
+  playSound(file, { loop = false, volume = 1 } = {}, run) {
+    if (!this.app) { this.warn(`sound ${file}: no app to play it through`); return makePlayback(); }
+    const url = this.fileUrl(file);
+    let asset = soundAssets.get(url);
+    if (!asset) {
+      asset = new Asset(`script-sound:${url}`, 'audio', { url });
+      asset.on('error', (err) => this.warn(`sound ${file} failed to load: ${err}`));
+      this.app.assets.add(asset);
+      this.app.assets.load(asset);
+      soundAssets.set(url, asset);
+    }
+    // One positional sound component per object, a slot per file. The listener
+    // is on the camera (audio.mjs); the entity's position is where it plays from.
+    const sound = this.root.sound ?? this.root.addComponent('sound', {
+      positional: true, refDistance: SOUND_REF, maxDistance: SOUND_MAX, rollOffFactor: 1, distanceModel: 'inverse',
+    });
+    if (!sound.slot(url)) sound.addSlot(url, { asset, overlap: true, autoPlay: false, loop: false });
+    let instance = null;
+    const playback = makePlayback(() => instance?.stop());
+    this.sounds.push(file);
+    asset.ready(() => {
+      if (playback.settled) return;
+      instance = sound.slot(url).play();
+      if (!instance) { playback.end(); return; }
+      instance.loop = !!loop;
+      instance.volume = Math.max(0, Math.min(1, volume));
+      instance.on('end', () => playback.end());
+    });
+    return playback;
+  }
+
+  /**
+   * The mesh instances drawing a material of this object, with a copy of the
+   * material this placement owns: a second copy of the asset shows its own
+   * picture, not this one's.
+   */
+  surface(name) {
+    let owned = this.surfaces.get(name);
+    if (owned) return owned;
+    const instances = this.root.findComponents('render').flatMap((rc) => rc.meshInstances)
+      .filter((mi) => mi.material?.name === name);
+    if (!instances.length) return null;
+    const copies = new Map();
+    owned = instances.map((mi) => {
+      let material = copies.get(mi.material);
+      if (!material) { material = mi.material.clone(); material.name = name; copies.set(mi.material, material); }
+      mi.material = material;
+      return { mi, material };
+    });
+    this.surfaces.set(name, owned);
+    return owned;
+  }
+
+  // Put a texture on a material: emitted like a screen (`glow`), or lit like paint.
+  paint(name, texture, glow) {
+    const owned = this.surface(name);
+    if (!owned) {
+      const have = [...new Set(this.root.findComponents('render').flatMap((rc) => rc.meshInstances).map((mi) => mi.material?.name))];
+      this.warn(`no material named ${JSON.stringify(name)} to paint (the object has ${have.map((n) => JSON.stringify(n)).join(', ')})`);
+      return false;
+    }
+    for (const material of new Set(owned.map((o) => o.material))) {
+      if (glow) {
+        material.emissiveMap = texture;
+        material.emissive = new Color(1, 1, 1);
+        material.diffuseMap = null;
+        material.diffuse = new Color(0, 0, 0);
+      } else {
+        material.diffuseMap = texture;
+        material.diffuse = new Color(1, 1, 1);
+      }
+      material.update();
+    }
+    return true;
+  }
+
+  makeTexture(name, { width = 4, height = 4, smooth = true } = {}) {
+    const filter = smooth ? pc.FILTER_LINEAR : pc.FILTER_NEAREST;
+    return new Texture(this.app.graphicsDevice, {
+      name, width, height, format: pc.PIXELFORMAT_RGBA8, mipmaps: false,
+      minFilter: filter, magFilter: filter, addressU: pc.ADDRESS_CLAMP_TO_EDGE, addressV: pc.ADDRESS_CLAMP_TO_EDGE,
+    });
+  }
+
+  playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true } = {}, run) {
+    if (!this.app) { this.warn(`video ${file}: no app to play it through`); return makePlayback(); }
+    const element = document.createElement('video');
+    element.crossOrigin = 'anonymous';
+    element.loop = !!loop;
+    element.muted = muted !== false;
+    element.playsInline = true;
+    element.preload = 'auto';
+    element.src = this.fileUrl(file);
+    const texture = this.makeTexture(`${this.label}/${file}`, { smooth });
+    texture.setSource(element);
+    const entry = { element, texture };
+    const playback = makePlayback(() => {
+      this.videos.delete(entry);
+      element.pause();
+      element.removeAttribute('src');
+      element.load();
+    });
+    if (!this.paint(material, texture, glow)) { playback.end(); return playback; }
+    element.addEventListener('ended', () => playback.end());
+    element.addEventListener('error', () => { this.warn(`video ${file} failed to play`); playback.end(); });
+    this.videos.add(entry);
+    element.play().catch((err) => this.warn(`video ${file}: ${err.message}`));
+    return playback;
+  }
+
+  canvas(material, { width = 256, height = 256, smooth = true, glow = true } = {}) {
+    const element = document.createElement('canvas');
+    element.width = width;
+    element.height = height;
+    const context = element.getContext('2d');
+    const texture = this.app ? this.makeTexture(`${this.label}/${material}`, { width, height, smooth }) : null;
+    texture?.setSource(element);
+    if (texture) this.paint(material, texture, glow);
+    return { canvas: element, context, width, height, update() { texture?.upload(); } };
+  }
+
+  // ---- Time -------------------------------------------------------------------
+
+  wait(seconds, run) {
+    const timer = { at: this.time + Math.max(0, Number(seconds) || 0), playback: null };
+    timer.playback = makePlayback(() => { this.timers = this.timers.filter((t) => t !== timer); });
+    this.timers.push(timer);
+    return timer.playback;
+  }
+
+  update(dt) {
+    this.time += dt;
+    (this.clip ?? this.player)?.update(dt);
+    // The last key has been posed this frame; ease away from it, not from the one before.
+    if (this.clip?.ended) this.clipping?.end();
+    if (this.player?.ended && this.resting) {
+      // A one-off at rest holds its last key: it has ended, and stays posed.
+      const done = this.resting;
+      this.resting = null;
+      done.end(false);
+    }
+    for (const timer of this.timers.filter((t) => t.at <= this.time)) timer.playback.end();
+    for (const fn of this.ticks) {
+      try { fn(dt); } catch (err) {
+        this.fail('tick', err);
+        this.ticks = this.ticks.filter((f) => f !== fn);   // once, not every frame from now on
+      }
+    }
+    for (const { element, texture } of this.videos) {
+      if (element.readyState >= 2 && !element.paused) texture.upload();
+    }
+    this.easeStep(dt);
+  }
+
+  easeStep(dt) {
+    if (!this.fade) return;
     const fade = this.fade;
     fade.t += dt;
     const x = Math.min(fade.t / EASE_SECONDS, 1);
     const f = x * x * (3 - 2 * x);
     // What a node is easing TOWARDS: what the clip now playing just wrote to
     // it, or — for a bone nothing drives any more — where it rests.
-    const driven = (this.acting?.player ?? this.player)?.nodes ?? NO_NODES;
+    const driven = (this.clip ?? this.player)?.nodes ?? NO_NODES;
     for (const [node, was] of fade.from) {
       const to = driven.has(node)
         ? { q: node.getLocalRotation(), p: node.getLocalPosition() }
@@ -503,11 +902,15 @@ export class PropScript {
         + `${p.speed !== 1 ? ` at ${p.speed}x` : ''} on ${p.count} nodes${p.root ? ' + root motion' : ''}`);
     }
     if (this.rig) parts.push(`${this.rig.count} bones posed`);
-    for (const a of this.actions) {
-      parts.push(`action ${a.name} "${a.label}" plays ${a.player.name} ${a.player.duration.toFixed(1)} s`
-        + `${a.player.loop ? ' looped' : ' once'}`);
-    }
+    for (const a of this.actions) parts.push(`offers ${a.name} "${a.label}"`);
+    if (this.ticks.length) parts.push(`${this.ticks.length} tick handler${this.ticks.length > 1 ? 's' : ''}`);
+    if (this.surfaces.size) parts.push(`paints ${[...this.surfaces.keys()].join(', ')}`);
+    if (this.sounds.length) parts.push(`${this.sounds.length} sound${this.sounds.length > 1 ? 's' : ''}`);
     for (const a of this.attached) parts.push(`${a.node} hung off ${a.to}`);
+    if (!this.setup && this.manifest.script) parts.push('script failed to load');
     return parts.join(', ') || 'nothing to do';
   }
 }
+
+// One audio asset per URL, however many objects play it.
+const soundAssets = new Map();

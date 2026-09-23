@@ -1,9 +1,9 @@
 // An animated asset does what its script says: the clip ticks, the head skin
 // follows the spine, the pelvis walks, and the prop never joins the collider.
 //
-// The dancer's clip is an ACTION these days — he stands until somebody sets it
-// off (tests/actions.mjs is the test of that) — so this sets it off by hand
-// and then measures the clip exactly as it did when it played from the start.
+// The dancer's clip is played by an ACTION — his script offers `dance`, and he
+// stands until somebody sets it off (tests/actions.mjs is the test of that) —
+// so this sets it off by hand and then measures the clip it plays.
 //
 //   node tests/anim.mjs        # needs `npm start` running on :5173
 //
@@ -31,8 +31,8 @@ const r = await page.evaluate(async (ASSET) => {
   const g = window.game;
   const { matchNodes } = await import('/src/rig.mjs');
   const s0 = g.player.spawn;
-  const place = (name, script) => g.loadProp({
-    name, glb: `${ASSET}.glb`, ...(script ? { script: `${ASSET}.script.json` } : { solid: false }),
+  const place = (name, packaged) => g.loadProp({
+    name, glb: `${ASSET}.glb`, ...(packaged ? { manifest: `${ASSET}.manifest.json` } : { solid: false }),
     pos: [s0.x + 3, s0.y, s0.z], rot: [0, 0, 0, 1], scale: [0.02978, 0.02978, 0.02978],
   });
   place('g-man-dance_test', true);
@@ -52,8 +52,8 @@ const r = await page.evaluate(async (ASSET) => {
   const s = g.scripted.find((x) => x.label === 'g-man-dance_test');
   const restPlayer = s.player;              // what the script plays at rest: nothing
   s.trigger('dance');
-  const player = s.acting?.player;
-  if (!player) throw new Error(`the script has no "dance" action: ${s.actions.map((a) => a.name)}`);
+  const player = s.clip;                    // what the run it set off plays
+  if (!player) throw new Error(`"dance" played no clip — the script offers ${s.actions.map((a) => a.name)}`);
   const depth = (n) => { let d = 0; for (let p = n.parent; p; p = p.parent) d++; return d; };
   const shallowest = (list) => list.reduce((a, b) => (!a || depth(b) < depth(a) ? b : a), null);
   const find = (r, pattern) => shallowest(matchNodes(r, pattern));
@@ -101,6 +101,8 @@ const r = await page.evaluate(async (ASSET) => {
   const before = player.loop;
   for (let i = 0; i < 30 * 30; i++) s.update(1 / 30);      // 30 s more, past 22.6 s
   const timeAfter = player.time;
+  // The run ends when the clip it returned resolves — a promise, so a turn later.
+  await new Promise((r) => setTimeout(r, 0));
 
   return {
     warnings: s.warnings,

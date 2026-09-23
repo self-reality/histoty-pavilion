@@ -113,10 +113,10 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
 | `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
-| `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's script or from `rigs` in the manifest |
-| `src/script.mjs` | An asset's script: what its object does — a clip played, a node hung off another, its own pose, the actions a player can set off |
+| `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's manifest or from `rigs` in the scene manifest |
+| `src/script.mjs` | An asset's package: its manifest applied (a node hung off another, its own pose) and its script run — code handed an `object` that plays clips, sounds, videos and canvases, ticks, offers actions and opens links |
 | `src/actions.mjs` | The E: which props are in reach, which one you are looking at, the hint over each, and the trigger |
-| `src/areas.mjs` | Action areas: the volume an asset carries — its `_act` mesh, read from its script — that says where its E is on offer instead of a radius |
+| `src/areas.mjs` | Action areas: the volume an asset carries — its `_act` mesh, read from its manifest — that says where its E is on offer instead of a radius |
 | `src/debugmode.mjs` | The one rule for what counts as a debug URL |
 | `src/debug.mjs` | Debug tweak panel: view modes, live readouts, live sliders — its own CSS and markup, loaded only in debug mode |
 
@@ -270,7 +270,8 @@ code path in *both* entry points, a new authoring convention, and its own test.
 ### Animated characters
 
 An animated character is a prop that arrives as a **folder** rather than a file:
-the object, a *script* saying what it does, and the clips the script plays.
+the object, a *manifest* saying what it is, a *script* saying what it does, and
+the clips the script plays.
 Like every other asset it is **not built here** — it comes out of the
 **motion-capture-4** tool (`/Volumes/Smartbuy/Projects/motion-capture-4`), where
 a phone video of a performer is tracked, its camera motion undone, and the
@@ -279,28 +280,33 @@ motion retargeted onto the rig's own bind pose:
 ```
 input/keep-it-gangsta-3.mov          ← a video of somebody dancing
         ↓  motion-capture-4: Pavilion export
-output/pavilion/g-man-dance/         ← g-man-dance.glb + g-man-dance.script.json + the clip
+output/pavilion/g-man-dance/         ← g-man-dance.glb + .manifest.json + .script.js + the clip
         ↓  cp -R
 assets/g-man-dance/                  ← place the GLB inside it in Blender like any prop
 ```
 
-The script is data, in a vocabulary the kit's `ASSET_CONTRACT.md` (section 6,
-"Scripts") fixes: which clip plays and how — from the moment the prop lands, or
-as an **action** when a player presses E at it — what the loader has to hang
-where first (g-man's head is a second skeleton), and that the prop is not solid —
-collision is baked once at load, and a dancer would leave a statue of his first
-frame in the room. `tools/export_scene.py` writes the script's path into the
-placement beside the GLB's; `src/script.mjs` reads it and ticks the clip onto
-the bones. ANIMATED_PROPS.md is the whole story, BLENDER_SCENE.md the placing
-steps, and `tests/anim.mjs` the proof.
+The manifest is data: the clips, the pose he waits in, what the loader has to
+hang where first (g-man's head is a second skeleton), and that the prop is not
+solid — collision is baked once at load, and a dancer would leave a statue of
+his first frame in the room. The script is **code** — an ES module whose
+default export is handed an `object`, and the kit's `ASSET_CONTRACT.md`
+(section 6, "Script API 1") is the list of what that object can do: play a clip
+on the rig, a sound from where it stands, a video or a live canvas on one of
+its materials, run something every frame, offer an **action** to a player who
+presses E at it, open a link. The dancer's is five lines: it offers `dance`,
+which plays his clip once. `tools/export_scene.py` writes the manifest's path
+into the placement beside the GLB's; `src/script.mjs` applies the manifest and
+runs the script. ANIMATED_PROPS.md is the whole story, BLENDER_SCENE.md the
+placing steps, and `tests/anim.mjs` and `tests/script.mjs` the proof.
 
 ### Actions
 
 Walk up to the g-man standing by the cistern: an **E** appears on him, and
 pressing it makes him dance — once through, or until you press it again.
 
-What he does is the asset's: his script lists an action (`dance`, a label, a
-clip). Everything about *offering* it is this side's, in `src/actions.mjs`. By
+What he does is the asset's: his script offers an action (`dance`, a label, a
+function that plays his clip). Everything about *offering* it is this side's,
+in `src/actions.mjs`. By
 default the E shows within two metres of a prop. An asset that knows better —
 the spot a lever is worked from — carries an **action area**: a closed `_act`
 mesh modelled with it, shipped in its package (next section), and it replaces
@@ -392,8 +398,8 @@ move when it moves. Neither is ever drawn or collided with.
 **The map is cut once, at startup, with every hole there is.** That needs every
 hole known before the collision is built — and props stream in afterwards, a
 megabyte at a time. So the kit copies each asset's volumes out of its GLB into
-the script beside it (`npm run pack`, which its build runs), and this side
-fetches the scripts of every placed prop with the layout: a few KB each, always
+the manifest beside it (`npm run pack`, which its build runs), and this side
+fetches the manifests of every placed prop with the layout: a few KB each, always
 in long before the map is. `packagedNegatives()` in `src/main.mjs` puts
 each where its prop will stand, and they join the level's own cutters in one
 carve.
@@ -493,6 +499,7 @@ node tests/negatives.mjs # a cutter opens a doorway in the picture and the colli
 node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
+node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
 node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)

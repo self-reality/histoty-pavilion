@@ -82,10 +82,10 @@ export const manifest = {
 
   // ---- Hand-placed props: imported GLBs placed in the world ----
   // Escape hatch for props not authored in Blender. Same shape as a placements
-  // entry: { name, glb, script?, pos, euler|rot, scale } in PlayCanvas space.
-  // `script` is the asset's own script when it ships one beside its GLB — an
-  // animated character does (see ANIMATED_PROPS.md); the exporter fills it in
-  // for Blender-placed props.
+  // entry: { name, glb, manifest?, pos, euler|rot, scale } in PlayCanvas space.
+  // `manifest` is the asset's own manifest when it ships as a package — an
+  // animated character does (see ANIMATED_PROPS.md), and the manifest names
+  // its script; the exporter fills it in for Blender-placed props.
   //
   // tent_01 used to live here; it now lives in scene/pavilion.blend and comes
   // back through scene.placements.json. Anything listed here is a *second*
@@ -129,11 +129,11 @@ export const manifest = {
   // the exporter learning what a bone is. The .blend says where the prop is;
   // this says how it is folded. See src/rig.mjs for the axis convention.
   //
-  // This is the pavilion's half of "an object and its script": what THIS copy
-  // does HERE. An asset that ships its own script (assets/<name>/<name>.script.json)
-  // says what it does anywhere, in the same pose vocabulary plus clips, and an
-  // entry here goes on top of that. A placement whose script plays a clip wants
-  // no entry here — the clip rewrites its bones every frame. See src/script.mjs.
+  // This is the pavilion's half of "an object and its manifest": how THIS copy
+  // stands HERE. An asset that ships its own manifest (assets/<name>/<name>.manifest.json)
+  // says how it stands anywhere, in the same pose vocabulary, and an entry here
+  // goes on top of that. A placement whose script plays a clip wants no entry
+  // here — the clip rewrites its bones every frame. See src/script.mjs.
   //
   // Angles are DELTAS on the bind pose in degrees, in each bone's own frame.
   // On a ValveBiped rig +X runs down the bone, so Z is the hinge (hip flex,
@@ -143,8 +143,8 @@ export const manifest = {
   //
   // EMPTY, and that is the point. The meditating g-man's sukhasana used to live
   // here as `g-man_01`; it now ships with the asset, in
-  // assets/g-man-sit/g-man-sit.script.json, so both g-men arrive the same way —
-  // an object and its script — and the pose travels with the model instead of
+  // assets/g-man-sit/g-man-sit.manifest.json, so both g-men arrive the same way —
+  // an object and its manifest — and the pose travels with the model instead of
   // being re-dialled by whoever places it next. See ANIMATED_PROPS.md.
   //
   // What still belongs here is what the asset cannot know: a second copy of the

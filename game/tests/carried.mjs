@@ -11,10 +11,10 @@
 //     as cages, and previews the hole a carried `_neg` will cut exactly as it
 //     previews a cutter drawn in the level
 //   - the export writes NONE of them: they are the asset's, the game reads them
-//     from the asset's script, and a second copy in the layout would be a hole
+//     from the asset's manifest, and a second copy in the layout would be a hole
 //     that stays behind when the prop is moved
 //   - an anchor still naming `assets/x.glb` after the asset became the package
-//     `assets/x/x.glb` follows it there, and picks up the script beside it
+//     `assets/x/x.glb` follows it there, and picks up the manifest beside it
 //   - an anchor naming a file that is simply gone says so
 //
 // Skips without Blender. Never touches scene/pavilion.blend.
@@ -84,7 +84,7 @@ try {
   const moved = blender(at('moved.blend'), '-P', 'tools/export_scene.py', '--', '--out', at('moved.json'));
   const props = Object.fromEntries(JSON.parse(readFileSync(at('moved.json'), 'utf8')).props.map((p) => [p.name, p]));
   want(props.dancer_01?.glb === './assets/g-man-dance/g-man-dance.glb', `the anchor did not follow its asset: ${props.dancer_01?.glb}`);
-  want(props.dancer_01?.script === './assets/g-man-dance/g-man-dance.script.json', `...or did not pick up its script: ${props.dancer_01?.script}`);
+  want(props.dancer_01?.manifest === './assets/g-man-dance/g-man-dance.manifest.json', `...or did not pick up its manifest: ${props.dancer_01?.manifest}`);
   want(/moved\s+dancer_01/.test(moved), 'the export did not say the asset had moved');
   want(props.lost_01?.glb === './assets/no_such_prop.glb' && /WARNING lost_01.*not in game/.test(moved), 'a prop whose file is gone went unreported');
 } finally {

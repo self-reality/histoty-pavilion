@@ -1,4 +1,4 @@
-// Walk up to something, see an E, press it: the script's actions, the reach,
+// Walk up to something, see an E, press it: what the script offers, the reach,
 // and the rule for which of several props the key belongs to. (An area an
 // asset carries in place of the radius is tests/package.mjs's business.)
 //
@@ -52,7 +52,7 @@ const stage = await page.evaluate(async (ASSET) => {
   if (!spot) throw new Error('no flat 6 x 11 m patch of floor to stage the test on');
   const at = { x: spot.x, y: spot.y, z: spot.z };
   const place = (name, dx) => g.loadProp({
-    name, glb: `${ASSET}.glb`, script: `${ASSET}.script.json`,
+    name, glb: `${ASSET}.glb`, manifest: `${ASSET}.manifest.json`,
     pos: [at.x + dx, at.y, at.z], rot: [0, 0, 0, 1], scale: [0.02461, 0.02461, 0.02461],
   });
   place('dancer_a', 0);
@@ -139,11 +139,13 @@ r.machine = await page.evaluate(async () => {
   const arm = matchNodes(item.root, 'ValveBiped.Bip01_L_UpperArm*')[0];
   const pelvis = matchNodes(item.root, 'ValveBiped.Bip01_Pelvis*')[0];
   const tick = (seconds, step = 1 / 30) => { for (let t = 0; t < seconds - 1e-9; t += step) s.update(step); };
+  // An action ends when the promise its function returned settles: a turn later.
+  const settle = () => new Promise((r) => setTimeout(r, 0));
   T.stand(T.stage.x, T.stage.z + 1.5, 0);
 
   const rest = arm.getLocalRotation().clone();
   const restPelvis = pelvis.getLocalPosition().clone();
-  const restFromBind = T.angle(rest, s.bind.get(arm).q);      // the script's pose is on
+  const restFromBind = T.angle(rest, s.bind.get(arm).q);      // the manifest's pose is on
   const before = { acting: s.acting?.name ?? null, label: T.hint('dancer_a')?.label };
 
   const set = g.actions.trigger();
@@ -153,7 +155,7 @@ r.machine = await page.evaluate(async () => {
   g.actions.update(true);
   const dancing = {
     acting: s.acting?.name ?? null, label: T.hint('dancer_a')?.label,
-    armFromRest: T.angle(arm.getLocalRotation(), rest), time: s.acting?.player.time,
+    armFromRest: T.angle(arm.getLocalRotation(), rest), time: s.clip?.time,
   };
   tick(3);
   const pelvisWalked = pelvis.getLocalPosition().distance(restPelvis);
@@ -166,18 +168,21 @@ r.machine = await page.evaluate(async () => {
 
   // A one-off stops by itself, and the next press starts it from the top.
   g.actions.trigger();
-  tick(s.actions[0].player.duration + 1);
+  const duration = s.clip.duration;
+  const loop = s.clip.loop;
+  tick(duration + 1);
+  await settle();
   const ended = { acting: s.acting?.name ?? null };
   tick(EASE_SECONDS + 0.1);
   ended.arm = T.angle(arm.getLocalRotation(), rest);
   g.actions.trigger();
   s.update(1 / 30);
-  const again = { acting: s.acting?.name ?? null, time: s.acting?.player.time };
+  const again = { acting: s.acting?.name ?? null, time: s.clip?.time };
   g.actions.trigger();
   tick(EASE_SECONDS + 0.1);
 
   return { restFromBind, before, set, firstFrame, dancing, pelvisWalked, stopped, afterStop, home, ended, again,
-           loop: s.actions[0].player.loop, warnings: s.warnings };
+           loop, warnings: s.warnings };
 });
 
 // ---- 3) Two in reach: the one you are looking at ----------------------------
@@ -251,7 +256,7 @@ want(Math.abs(r.reach.edge - r.reach.radius) < 0.1, `reach ends ${r.reach.edge} 
 // 2
 const m = r.machine;
 want(!m.warnings.length, `script warnings: ${m.warnings.join(' | ')}`);
-want(m.restFromBind > 20, `at rest the arm is ${m.restFromBind}° off bind — the script's pose is not on`);
+want(m.restFromBind > 20, `at rest the arm is ${m.restFromBind}° off bind — the manifest's pose is not on`);
 want(m.before.acting === null && m.before.label === 'Dance', `before: ${JSON.stringify(m.before)}`);
 want(m.set?.running === true && m.set?.action === 'dance', `trigger returned ${JSON.stringify(m.set)}`);
 want(m.firstFrame < 5, `the arm snapped ${m.firstFrame}° on the first frame — no ease`);

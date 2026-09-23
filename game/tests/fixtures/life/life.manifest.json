@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "generator": "singularity-development-kit",
+  "object": {
+    "file": "life.glb",
+    "root": "life_root",
+    "sha256": "d540baccbe13c325c0c331158e363fe39738c03df8ca9ab230c2e0f7735ef9a1"
+  },
+  "script": "life.script.js"
+}

@@ -7,8 +7,8 @@
 // (tests/fixtures/well/ — see the kit's test/fixtures/well_source.py for what
 // was modelled): a kerb with a `_col` proxy, a ball on top, a shaft (`well_neg`)
 // and a channel (`well_neg.001`) to cut out of the ground, and an L-shaped
-// place to stand (`well_act`). Its script had an action added by hand — E spins
-// the ball — which the kit's pack step kept.
+// place to stand (`well_act`). It was given a script by hand — E spins the
+// ball — which the kit's pack step named in its manifest.
 //
 // It is stood in the level by a layout of its own, named in the address bar,
 // because a hole can only be cut at boot. And it is stood there TURNED a

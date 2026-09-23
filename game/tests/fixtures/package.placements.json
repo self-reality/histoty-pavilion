@@ -10,7 +10,7 @@
       "euler": [0.0, 90.0, 0.0],
       "scale": [1.0, 1.0, 1.0],
       "glb": "./tests/fixtures/well/well.glb",
-      "script": "./tests/fixtures/well/well.script.json"
+      "manifest": "./tests/fixtures/well/well.manifest.json"
     }
   ],
   "markers": [],

@@ -35,6 +35,8 @@
     "ValveBiped.Bip01_R_Forearm*": [-63.5, -7.5, -39],
     "ValveBiped.Bip01_Spine1*": [0, 0, 4]
   },
-  "hide": ["briefcase_reference*"],
+  "hide": [
+    "briefcase_reference*"
+  ],
   "offset": [0, -0.93, 0]
 }

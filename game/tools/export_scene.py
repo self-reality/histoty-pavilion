@@ -15,11 +15,11 @@ handful of numbers per prop instead of a re-baked binary.
   anchor WITHOUT one                   -> markers[]    (transform only)
   cutter in the NEG collection         -> negatives[]  (subtracted from the map)
 
-A prop entry also carries `script` when the asset ships one beside its GLB —
-`assets/<name>/<name>.script.json` next to `assets/<name>/<name>.glb`, the
-folder an animated character arrives as (see ANIMATED_PROPS.md). Found on disk
-at export time, never stored on the anchor: the .blend knows the object, the
-export knows what it does.
+A prop entry also carries `manifest` when the asset ships as a package —
+`assets/<name>/<name>.manifest.json` next to `assets/<name>/<name>.glb`, the
+folder an animated character arrives as, whose manifest names its script (see
+ANIMATED_PROPS.md). Found on disk at export time, never stored on the anchor:
+the .blend knows the object, the export knows what comes with it.
 
 A negative is the mirror of a prop and exports on the same terms — a name, a
 shape and a transform, no geometry — while it is still the unit cube or
@@ -138,15 +138,15 @@ def base_names(names):
     return {DEDUP_SUFFIX.sub('', n) for n in names}
 
 
-SCRIPT_SUFFIX = '.script.json'
+MANIFEST_SUFFIX = '.manifest.json'
 
 
 def asset_glbs():
     """Every GLB an anchor may point at, as `./assets/...` paths.
 
-    A bare `assets/<name>.glb` is a static prop. A folder is an asset with a
-    script — an object and what it does, shipped together — and counts only
-    when it holds one, which is what keeps `assets/source/` (raw downloads,
+    A bare `assets/<name>.glb` is a static prop. A folder is a package — an
+    object, its manifest and what it does, shipped together — and counts only
+    when it holds a manifest, which is what keeps `assets/source/` (raw downloads,
     untracked) and `assets/sounds/` out of the running. One level down: that
     is the convention, and a deeper search would be guessing.
     """
@@ -160,7 +160,7 @@ def asset_glbs():
             found.append(f'./assets/{entry}')
         elif os.path.isdir(path):
             inside = sorted(os.listdir(path))
-            if not any(f.endswith(SCRIPT_SUFFIX) for f in inside):
+            if not any(f.endswith(MANIFEST_SUFFIX) for f in inside):
                 continue
             found += [f'./assets/{entry}/{f}' for f in inside
                       if not f.startswith('.') and f.lower().endswith('.glb')
@@ -168,15 +168,16 @@ def asset_glbs():
     return found
 
 
-def script_beside(glb):
-    """The asset's script, if its GLB ships one: `<stem>.script.json` beside `<stem>.glb`.
+def manifest_beside(glb):
+    """The asset's manifest, if its GLB ships as a package: `<stem>.manifest.json` beside `<stem>.glb`.
 
     Found at export time rather than stored on the anchor, so the .blend carries
-    one property per prop and a script added to an asset later is picked up by
-    the next export without touching the scene.
+    one property per prop and a package an asset becomes later is picked up by
+    the next export without touching the scene. The script is the manifest's to
+    name, so it is not looked for here.
     """
     stem, _ = os.path.splitext(glb)
-    rel = stem + SCRIPT_SUFFIX
+    rel = stem + MANIFEST_SUFFIX
     return rel if os.path.isfile(os.path.join(GAME_DIR, rel)) else None
 
 
@@ -574,7 +575,7 @@ def refresh_preview(cutters):
 def resolve_glb(obj):
     """Where an anchor's asset lives NOW. Returns (path, note, warning).
 
-    An asset that grows a script — a clip, an action, a volume it carries — stops
+    An asset that grows a package — a script, a clip, a volume it carries — stops
     being `assets/well.glb` and becomes the package `assets/well/well.glb`
     (contract section 6). The anchor still says the old path, and nobody should
     have to find every anchor of a prop to tell it so: the file is not where the
@@ -614,9 +615,9 @@ def collect(collection):
                 print(f'[export] moved  {moved}')
             if missing:
                 warnings.append(missing)
-            script = script_beside(entry['glb'])
-            if script:
-                entry['script'] = script
+            package = manifest_beside(entry['glb'])
+            if package:
+                entry['manifest'] = package
             if not obj.children:
                 warnings.append(f'{obj.name}: no geometry parented under it — exports '
                                 'fine, but nobody in Blender can see what they are placing')
@@ -697,7 +698,7 @@ def main():
               '`npm run scene:import -- --force`) to make it permanent there')
     for p in props:
         print(f'[export] prop   {p["name"]:<20} pos {p["pos"]}  <- {p["glb"]}'
-              + (f' + {os.path.basename(p["script"])}' if 'script' in p else ''))
+              + (f' + {os.path.basename(p["manifest"])}' if 'manifest' in p else ''))
     for m in markers:
         print(f'[export] marker {m["name"]:<20} pos {m["pos"]}')
     for c in cutters:

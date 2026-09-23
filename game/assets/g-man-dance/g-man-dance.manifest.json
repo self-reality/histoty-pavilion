@@ -8,6 +8,7 @@
     "source": "rigs/g-man.glb",
     "sha256": "a3cd7469e4160083ca2c17537f795fbd96138eee741f53564ff13658a187737c"
   },
+  "script": "g-man-dance.script.js",
   "solid": false,
   "rig": {
     "root": "ValveBiped.Bip01_Pelvis*",
@@ -37,17 +38,5 @@
     "ValveBiped.Bip01_R_UpperArm*": [0, -33, 0],
     "ValveBiped.Bip01_L_Forearm*": [0, 0, -10],
     "ValveBiped.Bip01_R_Forearm*": [0, 0, -6]
-  },
-  "actions": [
-    {
-      "name": "dance",
-      "label": "Dance",
-      "stop": "Stop",
-      "play": {
-        "clip": "keep_it_gangsta_3",
-        "loop": false,
-        "speed": 1
-      }
-    }
-  ]
+  }
 }

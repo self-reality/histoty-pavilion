@@ -17,18 +17,7 @@
       "sha256": "bd44e6d0e3f496c7e3323d9988d8b656b74661d14e35c0b57d13047cb3eb22f7"
     }
   ],
-  "actions": [
-    {
-      "name": "spin",
-      "label": "Spin",
-      "stop": "Stop",
-      "play": {
-        "clip": "spin",
-        "loop": true,
-        "speed": 1
-      }
-    }
-  ],
+  "script": "well.script.js",
   "negatives": [
     {
       "name": "well_neg",

@@ -1,12 +1,12 @@
 // Action areas — where an asset's action is on offer, as a volume it carries.
 //
-// An asset's script says what a player can set the object off to do, and how
+// An asset's script offers what a player can set the object off to do, and how
 // near "near" is: a radius, two metres unless it says otherwise (see
 // ./script.mjs and section 6 of the kit's ASSET_CONTRACT.md). A radius is all
 // an asset can say in numbers about a room it has never seen. What it can do
 // is DRAW the answer: an `_act` mesh modelled with it — the terrace a dance is
 // watched from, this side of the railing a lever is worked from — shipped in
-// its package and copied into its script as `areas` (the kit's pack step). That
+// its package and copied into its manifest as `areas` (the kit's pack step). That
 // mesh needs no placing here: it stands where the prop stands and moves when
 // the prop moves. A prop that carries an area is offered ONLY inside it; the
 // radius is what a prop without one gets.
@@ -114,7 +114,7 @@ export function areaFrom(entry) {
 }
 
 /**
- * An area an ASSET carries — an `areas` entry of its script, the copy of an
+ * An area an ASSET carries — an `areas` entry of its manifest, the copy of an
  * `_act` mesh modelled with it — put where the asset stands. `matrix` is the
  * placed prop's world transform, so the area is wherever the prop is, however
  * it got there; `target` is that prop.

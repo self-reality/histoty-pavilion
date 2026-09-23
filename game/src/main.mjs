@@ -15,7 +15,7 @@ import { TargetManager, extractTriangles, findFloors, isNonColliding,
 import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
 import { applyFog, disableFogOn, SurfaceLook } from './atmosphere.mjs';
 import { rigForProp } from './rig.mjs';
-import { loadScript, loadScriptJson, PropScript } from './script.mjs';
+import { loadManifest, loadPackage, PropScript } from './script.mjs';
 import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './negatives.mjs';
 import { Actions } from './actions.mjs';
 import { SoundBank } from './audio.mjs';
@@ -159,8 +159,8 @@ let audio = null;
 let rescue = null;
 let actions = null;
 let started = false;
-// Props whose script ticks — a clip playing, or an action that may be set off —
-// in placement order. See ./script.mjs.
+// Placed objects whose package has a manifest — and so, perhaps, a script that
+// ticks, plays or may be set off — in placement order. See ./script.mjs.
 const scripted = [];
 
 // ---- Boot ----
@@ -280,22 +280,22 @@ function boot() {
 
 // The negative spaces placed assets carry, put where the assets stand.
 //
-// An asset's `_neg` meshes are copied into its script by the kit's pack step,
+// An asset's `_neg` meshes are copied into its manifest by the kit's pack step,
 // in the asset's own space, which is what lets them be known HERE — with the
 // layout, before the map's collision exists — rather than whenever a megabyte
 // of GLB finishes arriving. The prop itself is not on stage yet, so where it
 // will stand is worked out from the same numbers placeProp() will use: its
-// placement, plus the seat offset of its script's pose and of any `rigs` entry,
-// which both move the prop root.
+// placement, plus the seat offset of its manifest's pose and of any `rigs`
+// entry, which both move the prop root.
 function packagedNegatives(scene) {
   const volumes = [];
   for (const prop of scene.props) {
-    const script = scene.scripts.get(prop.name);
-    if (!script?.negatives?.length) continue;
+    const own = scene.manifests.get(prop.name);
+    if (!own?.negatives?.length) continue;
     const [px, py, pz] = prop.pos ?? [0, 0, 0];
-    const lift = [script.offset, manifest.rigs?.[prop.name]?.offset].filter(Array.isArray);
+    const lift = [own.offset, manifest.rigs?.[prop.name]?.offset].filter(Array.isArray);
     const at = matrixOf({ ...prop, pos: lift.reduce((p, o) => [p[0] + o[0], p[1] + o[1], p[2] + o[2]], [px, py, pz]) });
-    for (const entry of script.negatives) {
+    for (const entry of own.negatives) {
       const volume = volumeFromMesh({ ...entry, name: `${prop.name}/${entry.name}` }, at);
       if (volume) volumes.push(volume);
     }
@@ -340,8 +340,8 @@ function reportNegatives(volumes, before, after, shown) {
 // the same terms: a transform with no geometry at either end of it — where the
 // player starts is one.
 //
-// The scripts of the placed assets are fetched here too, JSON only. They are a
-// few KB each and the map is megabytes, so they are always in long before it
+// The manifests of the placed assets are fetched here too, JSON only. They are
+// a few KB each and the map is megabytes, so they are always in long before it
 // is — and they have to be, because an asset may carry a hole for the map.
 async function loadLayout() {
   const props = new Map(manifest.props.map((p) => [p.name, p]));
@@ -367,12 +367,12 @@ async function loadLayout() {
       console.warn(`[scene] no Blender placements (${placements}):`, err.message);
     }
   }
-  // A script that fails here fails again, loudly, when its prop is placed.
-  const scripts = new Map();
-  await Promise.all([...props.values()].filter((p) => p.script).map(async (p) => {
-    try { scripts.set(p.name, await loadScriptJson(p.script)); } catch { /* reported by loadProp */ }
+  // A manifest that fails here fails again, loudly, when its prop is placed.
+  const manifests = new Map();
+  await Promise.all([...props.values()].filter((p) => p.manifest).map(async (p) => {
+    try { manifests.set(p.name, await loadManifest(p.manifest)); } catch { /* reported by loadProp */ }
   }));
-  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()], scripts };
+  return { props: [...props.values()], negatives: [...negatives.values()], markers: [...markers.values()], manifests };
 }
 
 // Which layout: the manifest's, unless the address bar names another —
@@ -409,21 +409,26 @@ function loadContainer(url) {
 // Place one authored prop. Kept in world space (child of root) so its numbers
 // match what the exporter wrote.
 //
-// A prop is an object and, optionally, its script: `glb` names the one, `script`
-// the other, and the scene exporter writes both paths when the asset ships a
-// script beside its GLB (an animated character does — see ANIMATED_PROPS.md).
-// The script is fetched alongside the GLB rather than after it, so the two
-// downloads overlap instead of queueing; a script that fails is reported and
-// the object still lands, as a statue.
+// A prop is an object and, when it ships as a package, its manifest and
+// script: `glb` names the object, `manifest` the manifest, and the manifest
+// names the script. The scene exporter writes both paths when the asset ships
+// a manifest beside its GLB (an animated character does — see
+// ANIMATED_PROPS.md). The package is fetched alongside the GLB rather than
+// after it, so the downloads overlap instead of queueing; a package that fails
+// is reported and the object still lands, as a statue.
 function loadProp(prop) {
   const asset = loadContainer(prop.glb);
-  const script = prop.script
-    ? loadScript(prop.script).catch((err) => {
-      console.error(`[prop ${prop.name}] script ${prop.script} failed to load: ${err.message}`);
+  if (prop.script && !prop.manifest) {
+    console.warn(`[prop ${prop.name}] names a script (${prop.script}) and no manifest — a layout from before `
+      + 'scripts were code; run `npm run scene:export` again');
+  }
+  const pkg = prop.manifest
+    ? loadPackage(prop.manifest).catch((err) => {
+      console.error(`[prop ${prop.name}] package ${prop.manifest} failed to load: ${err.message}`);
       return null;
     })
     : Promise.resolve(null);
-  asset.ready(() => script.then((loaded) => placeProp(prop, asset, loaded)).catch((err) => {
+  asset.ready(() => pkg.then((loaded) => placeProp(prop, asset, loaded)).catch((err) => {
     // Same reason boot() does this: inside a promise chain a throw is a silent
     // rejection, and a prop that failed to place should fail the smoke test.
     console.error(`[prop ${prop.name}] failed to place:`, err);
@@ -448,23 +453,23 @@ function placeProp(prop, asset, loaded) {
     const [sx, sy, sz] = prop.scale ?? [1, 1, 1];
     root.setLocalScale(sx, sy, sz);
     app.root.addChild(root);
-    // The asset's own script first — what the object does wherever it stands:
-    // its bind pose captured, anything it says to hang hung, its own pose, and
-    // its clip bound. Then the manifest's per-placement pose on top, the way
-    // placements shadow hand-written props.
-    const script = loaded ? new PropScript(root, loaded, prop.name) : null;
+    // The asset's own manifest first — how the object stands wherever it
+    // stands: its bind pose captured, anything it says to hang hung, its own
+    // pose. Then the scene manifest's per-placement pose on top, the way
+    // placements shadow hand-written props. The script runs last, below.
+    const script = loaded ? new PropScript(root, loaded, prop.name, { app }) : null;
     if (script) {
       for (const w of script.warnings) console.warn(`[script ${prop.name}] ${w}`);
-      if (script.ticks) scripted.push(script);
+      scripted.push(script);
       if (script.rig) debug?.addRig(script.rig);
     }
     // Fold the rig before the hierarchy syncs: the pose moves the prop root
     // (its seat offset), and that has to be settled before collision bakes
     // world-space triangles out of it.
     const rig = rigForProp(root, prop, manifest.rigs);
-    if (rig && script?.player) {
-      console.warn(`[rig ${prop.name}] a pose in scene.manifest.mjs and a clip from ${prop.script} `
-        + 'both drive this prop — the clip rewrites its bones every frame, so the pose only '
+    if (rig && loaded?.manifest.clips?.length) {
+      console.warn(`[rig ${prop.name}] a pose in scene.manifest.mjs and clips from ${prop.manifest} `
+        + 'may both drive this prop — a clip rewrites its bones every frame, so the pose only '
         + 'holds on bones the clip leaves alone');
     }
     if (rig) debug?.addRig(rig);
@@ -472,10 +477,15 @@ function placeProp(prop, asset, loaded) {
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root, rig, script);
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
-    const volumes = hideVolumes(root);            // `_neg` / `_act`: read from the script long ago
+    const volumes = hideVolumes(root);            // `_neg` / `_act`: read from the manifest long ago
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
-    // Anything its script lets a player set off is now in reach of the E key.
-    if (script) actions?.add(prop.name, root, script);
+    // Now the script: on stage, posed, collision baked, so nothing it plays is
+    // frozen into the collider. Whatever it offers a player is then in reach
+    // of the E key.
+    if (script) {
+      script.start();
+      actions?.add(prop.name, root, script);
+    }
     // Scale is in the line because "is my Blender edit actually in this tab?" is
     // the question you ask most while placing, and a stale placements file
     // answers it silently and wrongly. Read it, compare with the .blend.
@@ -485,7 +495,7 @@ function placeProp(prop, asset, loaded) {
       + (volumes ? ` (${volumes} volume mesh hidden)` : '')
       + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
       + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : '')
-      + (script ? ` (script: ${script.describe()})` : ''));
+      + (script ? ` (package: ${script.describe()})` : ''));
     return script;
   }
 }
@@ -500,10 +510,10 @@ function placeProp(prop, asset, loaded) {
  * `_nocol` name suffix; see isNonColliding in ./world.mjs. A prop shipping
  * a `_col` proxy collides with that instead of its visual mesh entirely.
  *
- * An asset's script may answer too — an animated one says `solid: false`,
+ * An asset's manifest may answer too — an animated one says `solid: false`,
  * because collision is baked once at load and a dancer would leave a statue
  * of his first frame standing in the room. The placement's own word wins
- * over the script's: the asset says what it is, the pavilion says what this
+ * over the manifest's: the asset says what it is, the pavilion says what this
  * copy is here.
  */
 function propIsSolid(prop, script) {
@@ -518,7 +528,7 @@ function addPropCollision(prop, root, rig, script) {
   if (!collider) return ' (no collider yet)';
   if (!propIsSolid(prop, script)) {
     const own = prop.solid ?? prop.extras?.solid;
-    return ` — walk-through (solid: false${own === undefined || own === null ? ', from its script' : ''})`;
+    return ` — walk-through (solid: false${own === undefined || own === null ? ', from its manifest' : ''})`;
   }
   // A rig that hid geometry vetoes it here too, so nothing the pose removed is
   // left standing as an invisible obstacle.
@@ -638,7 +648,7 @@ app.on('update', (dt) => {
   if (weapon) weapon.update(d);
   if (targets) targets.update(d);
 
-  // Clips tick on the same clamped step as the controller, so a tab switch
+  // Scripts tick on the same clamped step as the controller, so a tab switch
   // does not fast-forward a dance any more than it fast-forwards a fall.
   for (const s of scripted) s.update(d);
 

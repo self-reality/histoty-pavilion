@@ -196,7 +196,7 @@ Every GLB in `game/assets/` is an **older build** than the kit's current `dist/`
 
 **Do not bulk-resync these.** The g-man row is the trap: the game's copies have
 two skins and 72 bones, the kit's current build has none — `build_assets.py`
-drops every non-mesh — and each g-man's own script folds or drives those bones
+drops every non-mesh — and each g-man's own package folds or drives those bones
 by name. Copying `dist/g-man.glb` across would silently flatten either one
 into a rest pose. That file, and what a genuinely animated prop would take, is
 worked through in [ANIMATED_PROPS.md](ANIMATED_PROPS.md); the armature pass is
@@ -221,8 +221,8 @@ fails:
 ```
 cisterna.glb                    contract ok
 de_dust2.glb                    ERROR  39 top-level nodes …adopted as 39 props
-g-man-dance.script.json         contract ok
-g-man-sit.script.json           contract ok
+g-man-dance.manifest.json       contract ok
+g-man-sit.manifest.json         contract ok
 picture_data_full_hd.glb        contract ok
 picture_fragile_fullhd.glb      contract ok
 picture_innocent_full_hd_2.glb  contract ok

@@ -35,7 +35,7 @@
 //               and a transform, for a hole that belongs to no prop
 //   an asset    a `*_neg` mesh modelled WITH a prop and shipped in its package:
 //               a well brings the hole it stands over. Its shape arrives as
-//               vertices and triangles in the asset's script (the kit's `npm
+//               vertices and triangles in the asset's manifest (the kit's `npm
 //               run pack` copies it out of the GLB), in the asset's own space,
 //               and is put where the prop is put. Move the prop, the hole moves.
 //
@@ -268,7 +268,7 @@ function treeOf(polys) {
  * A closed mesh, placed -> `{ name, tree, min, max, box }`, or null.
  *
  * `entry` is `{ name, verts: [x, y, z, ...], tris: [a, b, c, ...] }` in the
- * asset's own space — a `negatives` entry of an asset's script — and `matrix`
+ * asset's own space — a `negatives` entry of an asset's manifest — and `matrix`
  * is where that asset stands. Which way the faces are wound is worked out, not
  * trusted: the mesh's signed volume says whether its normals point out or in,
  * and a placement that mirrors the prop turns every one of them over. Unlike a

@@ -9,7 +9,7 @@ source of truth — it reads and writes two git-tracked files:
 | `scene.placements.json` | yes | `scene:export` | where every prop sits |
 | `scene/pavilion.blend` | **no** (gitignored) | Blender | 10 MB of imported GLB, rebuildable |
 | `assets/*.glb` | yes | your modeller | the actual geometry |
-| `assets/<name>/` | yes | a producer | a **package**: an object *and its script* — an animated character, or any prop that brings a hole or an action area with it |
+| `assets/<name>/` | yes | a producer | a **package**: an object, its manifest and, when it does something, its script — an animated character, or any prop that brings a hole or an action area with it |
 
 The `.blend` is a working file. It embeds copies of the prop GLBs purely so you
 can see what you are placing; nothing in it ships. Delete it whenever you like
@@ -134,10 +134,11 @@ An asset is a package. Besides what you see, a prop can carry:
 | collision | a `*_col` mesh, or `*_nocol` on the parts that should not collide | see "Collision" |
 | a **hole** | any number of closed `*_neg` meshes | whatever of the map is inside them is cut away, wherever the prop stands |
 | an **action area** | a closed `*_act` mesh | the E for its action shows to a player standing inside it |
-| what it does | `<name>.script.json` beside the GLB | a pose, a clip, an action — see ANIMATED_PROPS.md |
+| what it is | `<name>.manifest.json` beside the GLB | its clips, the pose it stands in, the volumes above as numbers |
+| what it does | `<name>.script.js`, named by the manifest | code: a clip, a sound, a video, an action — see ANIMATED_PROPS.md |
 
 All of it is modelled with the asset, in the asset kit — **not here** — and
-arrives in the package: `assets/well/well.glb` plus `well.script.json`, copied
+arrives in the package: `assets/well/well.glb` plus `well.manifest.json`, copied
 in whole. Import the GLB inside the folder like any prop. The `_neg` and `_act`
 meshes come in with the rest of the payload and are drawn as red and green
 cages hanging under the anchor. They are unselectable, like the rest of the
@@ -145,12 +146,12 @@ payload, so the only way to move them is to move the prop — which is the point
 
 Exporting from inside Blender previews the hole a carried `_neg` cuts in the map
 the same way it previews a cutter in `NEG`. The export writes **none** of these
-volumes: the game reads them from the asset's script at startup, places them by
+volumes: the game reads them from the asset's manifest at startup, places them by
 the prop's transform, and cuts the map once with every hole there is. A second
 copy in the layout would be a hole that stays behind when the prop moves.
 
 **When a prop becomes a package it moves house** — `assets/well.glb` becomes
-`assets/well/well.glb` the day it grows a script. Its anchors still name the
+`assets/well/well.glb` the day it grows a manifest. Its anchors still name the
 old path. The export follows the asset to the one place it could have gone,
 says `moved well_01: ./assets/well.glb -> ./assets/well/well.glb`, and from
 inside Blender corrects the anchor too. Nothing to edit by hand.
@@ -200,12 +201,14 @@ the anchor for you.
 ## Adding an animated prop
 
 An animated character is a prop that arrives as a **folder** — the object, a
-script saying what it does, and the clips it plays — built by the motion-capture
+manifest saying what it is, a script saying what it does, and the clips it
+plays — built by the motion-capture
 tool (see ANIMATED_PROPS.md). The steps are the prop steps, with the file one
 level down:
 
 1. Copy the whole folder into `game/assets/`: `assets/g-man-dance/` holding
-   `g-man-dance.glb`, `g-man-dance.script.json` and the `.dance.json` clips.
+   `g-man-dance.glb`, `g-man-dance.manifest.json`, `g-man-dance.script.js` and
+   the `.dance.json` clips.
 2. `File > Import > glTF 2.0` — **the GLB inside the folder**,
    `assets/g-man-dance/g-man-dance.glb`.
 3. Put it where you want it, and run the exporter from inside Blender.
@@ -215,25 +218,26 @@ placement it writes carries a second path beside `glb`:
 
 ```json
 "glb": "./assets/g-man-dance/g-man-dance.glb",
-"script": "./assets/g-man-dance/g-man-dance.script.json"
+"manifest": "./assets/g-man-dance/g-man-dance.manifest.json"
 ```
 
-`script` is found on disk at export time, not stored on the anchor — the
-`.blend` knows the object, the export knows what it does. Copy a new version of
-the folder in and the next export picks it up with nothing to edit.
+`manifest` is found on disk at export time, not stored on the anchor — the
+`.blend` knows the object, the export knows what comes with it, and the
+manifest names its script. Copy a new version of the folder in and the next
+export picks it up with nothing to edit.
 
-Four things the script decides so you do not have to:
+Four things the package decides so you do not have to:
 
-- **What E does.** A script may list `actions` — the dancer's is `dance` — and
-  the game offers the first of them, with an **E** on screen, to anyone within
+- **What E does.** A script may offer actions — the dancer's offers `dance` —
+  and the game offers the first of them, with an **E** on screen, to anyone within
   two metres of the prop. Nothing to author: place him and it works. An asset
   that says *where* instead — from this side of a rail — carries an `_act`
   mesh; see "What a prop brings with it".
 - **It is not solid.** Collision is baked once at load, from the pose the mesh
   is in then, and a dancer would leave a statue of his first frame standing in
-  the room. The script says `solid: false`; a `solid` custom property on the
+  the room. The manifest says `solid: false`; a `solid` custom property on the
   anchor still wins if you disagree.
-- **It needs no `rigs` entry.** The script carries the clip; a pose in
+- **It needs no `rigs` entry.** The package carries the clip; a pose in
   `scene.manifest.mjs` for the same placement would be overwritten every frame
   on every bone the clip drives, and the game says so.
 - **A walking clip walks.** The pelvis track carries the performer's travel, so

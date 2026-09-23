@@ -10,7 +10,7 @@
       "euler": [0.0095, 90.0413, 0.0095],
       "scale": [0.76184, 0.76184, 0.76184],
       "glb": "./assets/cisterna/cisterna.glb",
-      "script": "./assets/cisterna/cisterna.script.json"
+      "manifest": "./assets/cisterna/cisterna.manifest.json"
     },
     {
       "name": "g-man-dance_01",
@@ -19,7 +19,7 @@
       "euler": [0.0, 90.0, 0.0],
       "scale": [0.02461, 0.02461, 0.02461],
       "glb": "./assets/g-man-dance/g-man-dance.glb",
-      "script": "./assets/g-man-dance/g-man-dance.script.json"
+      "manifest": "./assets/g-man-dance/g-man-dance.manifest.json"
     },
     {
       "name": "g-man-sit_01",
@@ -28,7 +28,7 @@
       "euler": [0.0, 0.0, 0.0],
       "scale": [0.02978, 0.02978, 0.02978],
       "glb": "./assets/g-man-sit/g-man-sit.glb",
-      "script": "./assets/g-man-sit/g-man-sit.script.json"
+      "manifest": "./assets/g-man-sit/g-man-sit.manifest.json"
     },
     {
       "name": "picture_01_teether_01",
