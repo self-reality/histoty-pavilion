@@ -1,8 +1,9 @@
 // Actions — walk up to something, see an E, press it.
 //
 // WHAT a prop can be set off to do is the asset's: its script offers actions,
-// each a name, a label and a function, and ./script.mjs runs the one that is
-// asked for. This file is the pavilion's half, the part the kit's contract
+// each a name, a label and a start and stop for the key to call, and
+// ./script.mjs calls the one that applies. What a press MEANS is the
+// script's, too — this side only says a key went down. This file is the pavilion's half, the part the kit's contract
 // leaves to the consumer on purpose:
 //
 //   who is in reach    inside the area the asset carries in its package (see
@@ -110,8 +111,15 @@ export class Actions {
     return true;
   }
 
-  // Which action of this prop the player is in reach of, if any.
+  // Which action of this prop the player is in reach of, if any. A running
+  // action whose script gave the key nothing to do while it runs is not on
+  // offer until it ends.
   reach(item) {
+    const found = this.inReach(item);
+    return found && item.script.offers(found.action) ? found : null;
+  }
+
+  inReach(item) {
     const p = this.player.pos;                   // feet
     const top = p.y + this.player.eyeHeight;
     if (item.areas.length) {
@@ -153,14 +161,16 @@ export class Actions {
     this.draw(showing);
   }
 
-  /** E. Returns what was set off — `{ name, action, running }` — or null. */
+  /** E. Returns what it reached — `{ name, action, running }` — or null. */
   trigger() {
     const offer = this.active;
     if (!offer) return null;
     const { item, action } = offer;
+    const was = !!action.run;
     item.script.trigger(action.name);
-    const running = item.script.acting === action;
-    console.log(`[actions] ${item.name}: ${action.name} ${running ? 'set off' : 'stopped'}`);
+    const running = !!action.run;
+    console.log(`[actions] ${item.name}: ${action.name} ${!was ? (running ? 'started' : 'started and done')
+      : running ? 'asked to stop — still running' : 'stopped'}`);
     return { name: item.name, action: action.name, running };
   }
 
@@ -176,8 +186,8 @@ export class Actions {
         continue;
       }
       const hint = item.hint ?? (item.hint = this.makeHint());
-      const running = item.script.acting === offer.action;
-      const label = running ? (offer.action.stop ?? FALLBACK_STOP) : offer.action.label;
+      const running = !!offer.action.run;
+      const label = running ? (item.script.runLabel(offer.action) ?? FALLBACK_STOP) : offer.action.label;
       const lit = offer === this.active;
       const [x, y, pinned, flipped] = this.place(offer.anchor);
       // Written only when it changes: this runs every frame and the DOM is not free.

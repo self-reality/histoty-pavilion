@@ -49,16 +49,34 @@ export default function (object) {
     draw(cells);
   });
 
-  object.action({ name: 'count', label: 'Count', stop: 'Stop' }, async (run) => {
-    await run.wait(1);
-    object.log(`one, at generation ${generation}`);
-    await run.wait(1);
-    object.log('two');
+  object.action({ name: 'count', label: 'Count', stop: 'Stop' }, {
+    async start(run) {
+      await run.wait(1);
+      object.log(`one, at generation ${generation}`);
+      await run.wait(1);
+      object.log('two');
+    },
+    stop: (run) => run.end(),
   });
-  object.action({ name: 'show', label: 'Show', stop: 'Stop' }, async (run) => {
-    run.sound('beep.ogg', { loop: true });
-    await run.video('film.webm', { material: 'lid', loop: true });
-    object.log('the film ended, which a looped one never does');
+  object.action({ name: 'show', label: 'Show', stop: 'Stop' }, {
+    async start(run) {
+      run.sound('beep.ogg', { loop: true });
+      await run.video('film.webm', { material: 'lid', loop: true });
+      object.log('the film ended, which a looped one never does');
+    },
+    stop: (run) => run.end(),
   });
-  object.action({ name: 'visit', label: 'Visit' }, () => object.open('https://example.org/life', { newTab: true }));
+  // What a second press means is the script's: this one asks before it goes.
+  object.action({ name: 'linger', label: 'Linger', stop: 'Leave' }, {
+    start: (run) => run.wait(60),
+    stop(run) {
+      if (run.label === 'Leave') { run.label = 'Really leave?'; object.log('not yet'); return; }
+      run.end();
+    },
+  });
+  // No stop: once started it runs its course, and the key is not on offer meanwhile.
+  object.action({ name: 'pulse', label: 'Pulse' }, { start: (run) => run.wait(2) });
+  object.action({ name: 'visit', label: 'Visit' }, {
+    start: () => object.open('https://example.org/life', { newTab: true }),
+  });
 }

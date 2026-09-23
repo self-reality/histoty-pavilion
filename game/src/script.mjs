@@ -20,16 +20,19 @@
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
 //   object.on('tick', fn)               fn(dt) every frame, in game time
 //   object.wait(seconds)                a promise, in game time
-//   object.action(options, fn)          what a player standing by it can set off
+//   object.action(options, { start, stop })   what a player standing by it can set off
 //   object.open(url, { newTab })        a link out of the page
 //
 // Each of play / sound / video / wait hands back a PLAYBACK: a promise with a
-// stop(). An action's fn gets a RUN — the same four, tied to that one time the
-// action was set off — and the action runs for as long as what fn returned is
-// pending. Set off again, it stops: everything the run started stops, and
-// what it was waiting on rejects, so an async sequence ends where it stood.
-// Who sets an action off — which key, from how near — is ./actions.mjs's
-// business, not this file's: here an action is a method somebody calls.
+// stop(). The key on an action calls its script's `start(run)` — a RUN is the
+// same four, tied to that one time the action was started, plus end() and a
+// label — and the action runs until what start returned settles or the script
+// ends the run. The key on a running action calls its `stop(run)`, and what
+// that means is the script's to say: this side never ends a run by itself.
+// Ended, everything the run started stops, and what it was waiting on
+// rejects, so an async start ends where it stood. Who presses the key — which
+// key, from how near — is ./actions.mjs's business, not this file's: here an
+// action is a method somebody calls.
 //
 // A script sees only `object`. It imports nothing and touches no engine, which
 // is what lets an asset built for this pavilion run in another. And it is code
@@ -450,8 +453,7 @@ export class PropScript {
     this.rest = null;       // Map(node -> { q, p }): where a run's bones go back to
     this.fade = null;       // { from: Map(node -> { q, p }), t } while easing between the two
     this.actions = [];      // [{ name, label, stop, radius, fn }]
-    this.acting = null;     // the action running now; null at rest
-    this.run = null;        // ...and the run it is
+    this.running = [];      // the actions with a run going, oldest first — action.run is the run
     this.ticks = [];        // object.on('tick') handlers
     this.timers = [];       // [{ at, playback }] for wait()
     this.videos = new Set();  // [{ element, texture }] uploaded every frame they play
@@ -545,7 +547,7 @@ export class PropScript {
         if (event !== 'tick') { self.warn(`on("${event}"): script API ${SCRIPT_API} has only "tick"`); return; }
         if (typeof fn === 'function') self.ticks.push(fn);
       },
-      action: (options, fn) => self.offer(options, fn),
+      action: (options, handlers) => self.offer(options, handlers),
       open(url, { newTab = false } = {}) {
         if (!/^https?:\/\//i.test(String(url))) { self.warn(`open: ${url} is not an http(s) address`); return; }
         console.log(`[script ${self.label}] opening ${url}${newTab ? ' in a new tab' : ''}`);
@@ -567,9 +569,13 @@ export class PropScript {
     const run = {
       action,
       over: false,
+      label: action.stop,
       api: Object.freeze({
         action: action.name,
-        get stopped() { return run.over; },
+        get ended() { return run.over; },
+        get label() { return run.label; },
+        set label(word) { run.label = word == null ? null : String(word); },
+        end: () => self.finish(run),
         play: (clip, opts) => tie(self.playClip(clip, opts, run)),
         sound: (file, opts) => tie(self.playSound(file, opts, run)),
         video: (file, opts) => tie(self.playVideo(file, opts, run)),
@@ -587,62 +593,77 @@ export class PropScript {
 
   // ---- Actions ----------------------------------------------------------------
 
-  offer(options, fn) {
+  offer(options, handlers) {
     const name = options?.name;
     if (typeof name !== 'string' || !name) { this.warn('action: no name — dropped'); return; }
     if (this.actions.some((a) => a.name === name)) { this.warn(`action ${name}: offered twice — the second dropped`); return; }
-    if (typeof fn !== 'function') { this.warn(`action ${name}: nothing to call — dropped`); return; }
+    if (typeof handlers?.start !== 'function') { this.warn(`action ${name}: no \`{ start }\` for the key to call — dropped`); return; }
+    if (handlers.stop !== undefined && typeof handlers.stop !== 'function') {
+      this.warn(`action ${name}: \`stop\` is not a function — the key is not offered while it runs`);
+    }
     if (this.offered) this.warn(`action ${name}: offered after the object was placed — nothing offers it`);
     this.actions.push({
       name,
       label: options.label ?? name,
-      stop: options.stop ?? null,
+      stop: options.stop ?? null,         // the word while it runs, not the handler
       radius: options.radius > 0 ? options.radius : DEFAULT_ACTION_RADIUS,
-      fn,
+      onStart: handlers.start,
+      onStop: typeof handlers.stop === 'function' ? handlers.stop : null,
+      run: null,
     });
   }
 
+  /** The action started most recently and still running, or null. */
+  get acting() { return this.running[this.running.length - 1] ?? null; }
+
+  /** Is the key on offer for this action right now? Not while it runs with no `stop` to call. */
+  offers(action) { return !action.run || !!action.onStop; }
+
   /**
-   * Set an action off — the first one the script offers, unless named.
+   * The key, on an action — the first one the script offers, unless named.
    *
-   * The contract's rules, and the only place they live: at rest it starts,
-   * running it stops, and a run whose function has settled ends by itself.
-   * Another action running is stopped first — one run at a time. Returns the
-   * action, or null if the script offers none by that name.
+   * The contract's rules, and the only place they live: not running, the key
+   * calls the script's start(run); running, its stop(run), and whatever that
+   * does is the script's decision. A run ends when what start returned
+   * settles or the script ends it — never because of the key alone. Returns
+   * the action, or null if the script offers none by that name.
    */
   trigger(name) {
     const action = name ? this.actions.find((a) => a.name === name) : this.actions[0];
     if (!action) return null;
-    if (this.acting === action) { this.stop(); return action; }
-    if (this.acting) this.stop();
+    if (action.run) {
+      if (action.onStop) {
+        try { action.onStop(action.run.api); } catch (err) { this.fail(`action ${action.name}: stop`, err); }
+      }
+      return action;
+    }
     const run = this.makeRun(action);
-    this.acting = action;
-    this.run = run;
+    action.run = run;
+    this.running.push(action);
     let out;
     try {
-      out = action.fn(run.api);
+      out = action.onStart(run.api);
     } catch (err) {
-      this.fail(`action ${action.name}`, err);
+      this.fail(`action ${action.name}: start`, err);
       this.finish(run);
       return action;
     }
     if (out && typeof out.then === 'function') {
-      out.then(() => this.finish(run), (err) => { this.fail(`action ${action.name}`, err); this.finish(run); });
+      out.then(() => this.finish(run), (err) => { this.fail(`action ${action.name}: start`, err); this.finish(run); });
     } else {
       this.finish(run);
     }
     return action;
   }
 
-  /** End the running action; the object goes back to what it does at rest. */
-  stop() {
-    if (this.run) this.finish(this.run);
-  }
+  /** Label for the key while an action runs: the script's word, if it has one. */
+  runLabel(action) { return action.run?.label ?? null; }
 
   finish(run) {
-    if (run !== this.run) return;
-    this.run = null;
-    this.acting = null;
+    if (run.over) return;
+    const { action } = run;
+    if (action.run === run) action.run = null;
+    this.running = this.running.filter((a) => a !== action);
     run.end();
   }
 

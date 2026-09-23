@@ -302,10 +302,12 @@ placing steps, and `tests/anim.mjs` and `tests/script.mjs` the proof.
 ### Actions
 
 Walk up to the g-man standing by the cistern: an **E** appears on him, and
-pressing it makes him dance — once through, or until you press it again.
+pressing it makes him dance — once through, or until you press it again,
+because his script's `stop` says that is what a second press means.
 
-What he does is the asset's: his script offers an action (`dance`, a label, a
-function that plays his clip). Everything about *offering* it is this side's,
+What he does is the asset's: his script offers an action (`dance`, a label,
+and a `start` and `stop` for the key to call — the script decides what each
+press means). Everything about *offering* it is this side's,
 in `src/actions.mjs`. By
 default the E shows within two metres of a prop. An asset that knows better —
 the spot a lever is worked from — carries an **action area**: a closed `_act`

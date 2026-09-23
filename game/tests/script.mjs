@@ -6,8 +6,9 @@
 //
 // The fixture is tests/fixtures/life/: a box (life_source.mjs writes it) whose
 // script plays Conway's Game of Life on a canvas painted onto its sides, and
-// offers three actions — `count` waits in game time, `show` starts a looped
-// sound and a looped video on its lid, `visit` opens a link. Two copies are
+// offers five actions — `count` waits in game time, `show` starts a looped
+// sound and a looped video on its lid, `linger` asks before a second press
+// ends it, `pulse` has no stop at all, and `visit` opens a link. Two copies are
 // placed, through the same loadProp the layout goes through, so the test also
 // sees that each copy paints its own material. Time is driven by hand
 // (script.update), as in the other tests: software WebGL renders a few frames
@@ -119,8 +120,29 @@ const r = await page.evaluate(async (ASSET) => {
   // ---- 4) open: a link out, and an action that is over as soon as it is set off -
   const visit = { set: a.trigger('visit')?.name, acting: a.acting?.name ?? null, opened };
 
+  // ---- 5) what a press on a running action means is the script's --------------
+  const action = (name) => a.actions.find((x) => x.name === name);
+  const linger = {};
+  a.trigger('linger');
+  linger.started = { running: !!action('linger').run, label: a.runLabel(action('linger')) };
+  a.trigger('linger');                               // the script asks first
+  await settle();
+  linger.asked = { running: !!action('linger').run, label: a.runLabel(action('linger')) };
+  a.trigger('linger');                               // ...and goes when asked again
+  await settle();
+  linger.left = !!action('linger').run;
+  const pulse = {};
+  a.trigger('pulse');
+  pulse.started = { running: !!action('pulse').run, offered: a.offers(action('pulse')) };
+  a.trigger('pulse');                                // no stop: the key does nothing
+  await settle();
+  pulse.pressed = !!action('pulse').run;
+  tick(a, 2.1);
+  await settle();
+  pulse.after = { running: !!action('pulse').run, offered: a.offers(action('pulse')) };
+
   return {
-    canvas, count, show, visit,
+    canvas, count, show, visit, linger, pulse,
     warnings: { a: a.warnings, b: b.warnings },
     describe: a.describe(),
   };
@@ -163,9 +185,17 @@ want(r.visit.set === 'visit' && r.visit.acting === null, `visit is still running
 want(r.visit.opened.length === 1 && r.visit.opened[0].url === 'https://example.org/life' && r.visit.opened[0].newTab === true,
   `open asked for ${JSON.stringify(r.visit.opened)}`);
 
+// 5
+want(r.linger.started.running && r.linger.started.label === 'Leave', `linger did not start: ${JSON.stringify(r.linger)}`);
+want(r.linger.asked.running && r.linger.asked.label === 'Really leave?', `the first press on linger was not the script's to decide: ${JSON.stringify(r.linger.asked)}`);
+want(!r.linger.left, 'the second press on linger did not end it');
+want(r.pulse.started.running && !r.pulse.started.offered, `pulse, running without a stop, is still on offer: ${JSON.stringify(r.pulse.started)}`);
+want(r.pulse.pressed, 'a press on pulse, which has no stop, ended it anyway — only the script may');
+want(!r.pulse.after.running && r.pulse.after.offered, `pulse did not run its course and come back on offer: ${JSON.stringify(r.pulse.after)}`);
+
 if (problems.length) {
   console.log('\nFAIL');
   for (const p of problems) console.log('  ' + p);
   process.exit(1);
 }
-console.log('\nOK — a canvas, a tick, a wait, a sound, a video and a link, each started and stopped the way the contract says');
+console.log('\nOK — a canvas, a tick, a wait, a sound, a video and a link, and a second press that means what the script says');

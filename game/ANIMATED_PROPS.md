@@ -88,8 +88,10 @@ API. The dancer's, as motion-capture-4 wrote it:
 
 ```js
 export default function (object) {
-  object.action({ name: 'dance', label: 'Dance', stop: 'Stop' },
-    (run) => run.play('keep_it_gangsta_3', { loop: false }));
+  object.action({ name: 'dance', label: 'Dance', stop: 'Stop' }, {
+    start: (run) => run.play('keep_it_gangsta_3', { loop: false }),
+    stop: (run) => run.end(),
+  });
 }
 ```
 
@@ -116,24 +118,31 @@ What an object does **at rest** is whatever its script started with `object`
 — a clip from `object.play`, a canvas it keeps drawing, or nothing. An action
 is what it does instead, for a while, because a player walked up and pressed
 **E**. The script offers it with a name, the word the hint shows, the word it
-shows while running, how near "near" is (`radius`, metres, 2 if unsaid), and a
-function:
+shows while running, how near "near" is (`radius`, metres, 2 if unsaid), and
+two functions for the key to call:
 
 ```js
-object.action({ name: 'dance', label: 'Dance', stop: 'Stop' },
-  (run) => run.play('keep_it_gangsta_3', { loop: false }));
+object.action({ name: 'dance', label: 'Dance', stop: 'Stop' }, {
+  start: (run) => run.play('keep_it_gangsta_3', { loop: false }),
+  stop: (run) => run.end(),
+});
 ```
 
-The function is handed a **run** — `play`, `sound`, `video` and `wait`, tied to
-this one time the action was set off — and the action runs for as long as the
-promise it returns is pending. The kit's contract has the rules, and they are
-the whole state machine: **at rest it starts, running it stops, and it ends by
-itself when what it returned settles.** Stopped, everything the run started
-stops and whatever it was waiting on rejects, so an `async` sequence ends at the
-`await` it was on. `PropScript` in `src/script.mjs` is the only place they live
-(`trigger()`, `stop()`, `finish()`). So the dancer's one-off is a performance
-you can cut short, a looped clip would be a switch, and an action that opens a
-link is over the moment it is set off.
+**The key only says "pressed"; the script says what that means.** Not
+running, E calls `start(run)`. Running, E calls `stop(run)` — and the dancer's
+ends the run, but another script might let the clip finish, ask
+`run.label = 'Really leave?'` first, or ignore it. With no `stop`, E is simply
+not on offer while the action runs. The pavilion never ends a run by itself.
+
+A **run** is `play`, `sound`, `video` and `wait`, tied to this one time the
+action was started, plus `run.end()` and `run.label`. It lasts until what
+`start` returned settles or the script ends it. Ended, everything the run
+started stops and whatever it was waiting on rejects, so an `async` start
+ends at the `await` it was on. Actions are independent — another's key starts
+that one, whatever else runs. `PropScript` in `src/script.mjs` is the only
+place the rules live (`trigger()`, `finish()`). So the dancer's one-off is a
+performance you can cut short, a looped clip with the same `stop` would be a
+switch, and an action that opens a link is over the moment it starts.
 
 Who may press the key, and when, is not the asset's business and lives
 elsewhere, in `src/actions.mjs`:
@@ -172,7 +181,8 @@ rewrites everything it measures and carries `pose`, `solid` and the volumes
 over from the manifest it is replacing.
 
 `tests/actions.mjs` is the proof: reach ends 2.00 m from his bounds, the first
-frame after E has moved his arm under a degree, a second E brings him home to
+frame after E has moved his arm under a degree, a second E — his script's
+`stop` — brings him home to
 within 0.1°, a held key is one press, every area shape contains what it should,
 and of two dancers the one you look at is the one that dances.
 `tests/script.mjs` holds the rest of the API to the contract on a box that
