@@ -17,6 +17,34 @@ afterwards.
                      → frames + event log → ffmpeg → gman.mp4
 ```
 
+## Example: a TV
+
+A TV or a projection screen is a plain asset made with the kit. Its package:
+
+```
+tv/tv.glb                 the set, with a material named `screen`
+tv/tv.manifest.json       …and `videos`: screen.webm, its alt, its audio, fps, duration
+tv/tv.script.js           when and how the picture plays — the asset's choice
+tv/screen.webm            the picture (VP9), prepared by the kit
+tv/screen.mp4             the same, H.264, for browsers weak on WebM
+tv/screen.audio.mp3       its sound, split out by the kit
+```
+
+The script decides everything about playing it — looped from the start, on E,
+on a condition, at random — with the calls it has today:
+
+```js
+export default function (object) {
+  object.action({ name: 'watch', label: 'Turn on', stop: 'Turn off' }, {
+    start: (run) => run.video('screen.webm', { material: 'screen', muted: false }),
+    stop: (run) => run.end(),
+  });
+}
+```
+
+Nothing in the script knows about the alt file, the split sound, game time
+or recording. That is the runtime's job, reading the manifest.
+
 ## The one idea: time is a value the world is given
 
 Today the frame timer decides time: `app.on('update', dt)` in `src/main.mjs`
@@ -69,7 +97,7 @@ Everything here is shared by the kit's viewer, which runs the same runtime.
    `object.video('screen.webm', { material })` still names a file:
 
    ```json
-   "videos": [{ "file": "screen.webm", "alt": ["screen.mp4"], "audio": "screen.audio.ogg",
+   "videos": [{ "file": "screen.webm", "alt": ["screen.mp4"], "audio": "screen.audio.mp3",
                 "fps": 25, "duration": 12.0, "width": 1024, "height": 576, "sha256": "…" }]
    ```
 
@@ -83,7 +111,8 @@ Everything here is shared by the kit's viewer, which runs the same runtime.
    - keyframe interval ≤ 1 s, so a stepped seek decodes little;
    - scaled to what the material shows, not the source's size — the upload
      each frame is the video's real cost (see *Frame rate* below);
-   - the soundtrack split into `audio`, in the sound bank's format;
+   - the soundtrack split into `audio`, an `.mp3` beside it (plays everywhere,
+     Playwright's Chromium included, which has no AAC);
    - the manifest entry, measured with ffprobe.
 3. **Runtime: video in game time** (`runtime/script.mjs`, then
    `npm run runtime:pull` here). Each video keeps `t += dt` like a clip.
@@ -129,8 +158,12 @@ frame took.
 4. Later: the log written by a live session as a demo file, rendered by the
    recorder.
 
-## Open
+## Decided
 
-- Where built videos live: `scripts/<name>/` is tracked in git, and videos
-  are large. Git LFS, or build into the package only (`source/` is the raw).
-- Audio format of `audio` — whatever the sound bank settles on.
+- **A video lives with its asset**, like its clips and sounds: in the package
+  folder (built from `scripts/<name>/` in the kit), never in the pavilion or
+  the sound bank. The sound bank is the pavilion's own ambience and has
+  nothing to do with this.
+- **A video's sound is the asset's too.** The build splits it out of the
+  video into the package, and the runtime plays it from where the object is
+  whenever the script plays the video unmuted.
