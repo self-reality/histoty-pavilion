@@ -304,4 +304,15 @@ export class Weapon {
       if (f.life <= 0) { f.entity.destroy(); this.fx.splice(i, 1); }
     }
   }
+
+  // Leaving the shooter: the gun off the camera, and every mark it left in the
+  // world with it.
+  destroy() {
+    this.firing = false;
+    this.vm.destroy();
+    for (const f of this.fx) f.entity.destroy();
+    for (const h of this.holes) h.destroy();
+    this.fx = [];
+    this.holes = [];
+  }
 }

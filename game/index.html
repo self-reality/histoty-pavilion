@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <link rel="icon" href="data:," />
-  <title>de_dust2 — PlayCanvas FPS</title>
+  <title>de_dust2 — PlayCanvas</title>
   <style>
     :root { --accent: #ffcf5a; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -121,6 +121,22 @@
       border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 2px 9px; font-size: 12px;
     }
     #overlay .controls .d { justify-self: start; }
+    /* Which game Play enters. Picked again while paused, it switches game in
+       the same world, from where you are (see src/main.mjs switchMode). */
+    #modes { display: flex; gap: 8px; margin-bottom: 18px; }
+    #modes button {
+      pointer-events: auto; cursor: pointer; border-radius: 6px; padding: 6px 14px;
+      font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+      color: #eee; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.2);
+    }
+    #modes button:hover { border-color: var(--accent); color: var(--accent); }
+    #modes button.picked { color: #1a140a; background: var(--accent); border-color: var(--accent); }
+    /* What shows while playing: the dot (where E and the view point) in every
+       game, the crosshair and the HUD in the shooter only. main.mjs sets the
+       classes and data-mode; no game touches these elements' display itself. */
+    body.playing #dot { display: block; }
+    body.playing[data-mode="shooter"] #crosshair { display: block; }
+    body.started[data-mode="shooter"] #hud { display: block; }
     #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
     .hidden { display: none !important; }
 
@@ -168,20 +184,11 @@
   </div>
 
   <div id="overlay">
-    <h1>DE_DUST2</h1>
-    <div class="sub">PlayCanvas · First-Person Shooter</div>
+    <h1 id="title">DE_DUST2</h1>
+    <div class="sub" id="sub">PlayCanvas</div>
+    <div id="modes"></div>
     <button class="play" id="playBtn" disabled>Loading…</button>
-    <div class="controls">
-      <span class="k">W A S D</span><span class="d">Move</span>
-      <span class="k">Mouse</span><span class="d">Look</span>
-      <span class="k">L-Click</span><span class="d">Shoot</span>
-      <span class="k">Shift</span><span class="d">Sprint</span>
-      <span class="k">Space</span><span class="d">Jump</span>
-      <span class="k">R</span><span class="d">Reload</span>
-      <span class="k">E</span><span class="d">Use what the E is on</span>
-      <span class="k">T</span><span class="d">Teleport to new spawn</span>
-      <span class="k">Esc</span><span class="d">Release mouse</span>
-    </div>
+    <div class="controls" id="controls"></div>
     <div id="loading">Preparing map…</div>
   </div>
 

@@ -1,24 +1,27 @@
 // Entry point: index.html loads this module and nothing else.
 //
-// It creates the pc.Application and drives everything by hand — map, layout,
-// lights, input, the game loop — out of the modules beside it. A second entry
-// point for the PlayCanvas Editor shared those modules until September 2026;
-// see BLENDER_MIGRATION.md for why it went.
+// It builds the world — the pc.Application, map, layout, lights, collision,
+// props and their scripts, sound, the E key — and then lets a game be played
+// in it. The games are modes (./modes/<id>/), loaded with import() when one is
+// entered and never imported from here or anywhere else in the world: the
+// world does not know what is played in it (see ./modes/README.md). A second
+// entry point for the PlayCanvas Editor shared these modules until September
+// 2026; see BLENDER_MIGRATION.md for why it went.
 import * as pc from 'playcanvas';
 import { manifest } from '../scene.manifest.mjs';
 import { TriangleCollider } from './collision.mjs';
 import { Player } from './player.mjs';
-import { Weapon } from './weapon.mjs';
 import { isDebugMode } from './debugmode.mjs';
-import { TargetManager, extractTriangles, findFloors, isNonColliding,
+import { extractTriangles, findFloors,
          propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient } from './world.mjs';
 import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
-import { applyFog, disableFogOn, SurfaceLook } from './atmosphere.mjs';
+import { applyFog, SurfaceLook } from './atmosphere.mjs';
 import { rigForProp } from './rig.mjs';
 import { loadManifest, loadPackage, PropScript } from './script.mjs';
 import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './negatives.mjs';
 import { Actions } from './actions.mjs';
 import { SoundBank } from './audio.mjs';
+import { Presence } from './presence.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
@@ -37,31 +40,24 @@ if (isDebugMode()) document.body.classList.add('debug');
 const MAP = manifest.map;                 // { glb, scale, euler } — Source Z-up -> metres, Y-up
 const SKY = new Color(...manifest.sky);   // camera clear / sky colour
 
+// ---- The games that can be played here ----
+// Names only — id and the word on its button. Each is ./modes/<id>/index.mjs,
+// fetched the first time someone picks it; the first is the one a bare URL
+// opens, `?mode=<id>` opens another. None of them is the game and the rest
+// extras: the first is only the one a link without `?mode=` lands in.
+const MODE_NAMES = { shooter: 'Shooter', flyover: 'Fly-over' };
+const MODES = Object.keys(MODE_NAMES);
+
 // ---- UI handles ----
 const ui = {
   overlay: document.getElementById('overlay'),
   playBtn: document.getElementById('playBtn'),
   loading: document.getElementById('loading'),
-  crosshair: document.getElementById('crosshair'),
-  dot: document.getElementById('dot'),
-  hud: document.getElementById('hud'),
-  hitmarker: document.getElementById('hitmarker'),
   actions: document.getElementById('actions'),
-  hud_mag: document.getElementById('mag'),
-  hud_reserve: document.getElementById('reserve'),
-  hud_reloading: document.getElementById('reloading'),
-  scoreVal: document.getElementById('scoreVal'),
-};
-
-let score = 0;
-function addScore(n) { score += n; ui.scoreVal.textContent = score; }
-
-let hitmarkerTimer = 0;
-const hud = {
-  mag: ui.hud_mag,
-  reserve: ui.hud_reserve,
-  reloading: ui.hud_reloading,
-  hit() { ui.hitmarker.style.opacity = 1; hitmarkerTimer = 0.12; },
+  title: document.getElementById('title'),
+  sub: document.getElementById('sub'),
+  controls: document.getElementById('controls'),
+  modes: document.getElementById('modes'),
 };
 
 // ---- Engine ----
@@ -105,11 +101,10 @@ fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.8
 fill.setEulerAngles(120, -140, 0);
 app.root.addChild(fill);
 
-// ---- Viewmodel layer (drawn on top, depth cleared → gun never clips walls) ----
-const vmLayer = new pc.Layer({ name: 'Viewmodel' });
-app.scene.layers.push(vmLayer);
-
-// ---- Camera + Player rig ----
+// ---- Camera rig ----
+// The world's one view. Whichever game is being played drives it: the walker
+// through the root's yaw and position and the camera's pitch and eye height,
+// the fly-over through the same two entities.
 const playerRoot = new Entity('player');
 const cameraEntity = new Entity('camera');
 cameraEntity.addComponent('camera', {
@@ -126,39 +121,20 @@ if (manifest.glass.length && cameraEntity.camera?.requestSceneColorMap) {
 playerRoot.addChild(cameraEntity);
 app.root.addChild(playerRoot);
 
-// Second camera that renders ONLY the viewmodel layer, on top of the scene.
-const vmCamera = new Entity('vmCamera');
-vmCamera.addComponent('camera', {
-  clearColorBuffer: false,
-  clearDepthBuffer: true,
-  fov: 65,
-  nearClip: 0.01,
-  farClip: 50,
-  layers: [vmLayer.id],
-  priority: 1,
-});
-// The gun sits ~0.5 m from the lens; keep it out of the fog at any density.
-disableFogOn(vmCamera.camera);
-cameraEntity.addChild(vmCamera);
-
-// A light bound to the viewmodel layer so the gun is shaded (not just ambient).
-const vmLight = new Entity('vmLight');
-vmLight.addComponent('light', {
-  type: 'directional', color: new Color(1, 0.97, 0.9), intensity: 2.2,
-  castShadows: false, layers: [vmLayer.id],
-});
-vmLight.setEulerAngles(45, 20, 0);
-app.root.addChild(vmLight);
-
 let player = null;
-let weapon = null;
-let targets = null;
 let collider = null;
 let debug = null;
 let audio = null;
 let rescue = null;
 let actions = null;
 let started = false;
+// Everyone else in the world, whatever they play — seen as ghosts (./presence.mjs).
+const presence = new Presence(app);
+// What the games are handed (see ./modes/README.md), filled in by boot().
+let world = null;
+// The game being played: its module, and what its enter() returned.
+let mode = null;
+let session = null;
 // Placed objects whose package has a manifest — and so, perhaps, a script that
 // ticks, plays or may be set off — in placement order. See ./script.mjs.
 const scripted = [];
@@ -176,7 +152,7 @@ function boot() {
   app.assets.add(asset);
   app.assets.load(asset);
 
-  asset.ready(() => layout.then((scene) => {
+  asset.ready(() => layout.then(async (scene) => {
     ui.loading.textContent = 'Building collision…';
 
     const renderRoot = asset.resource.instantiateRenderEntity();
@@ -232,21 +208,12 @@ function boot() {
     // register with it as they do.
     actions = new Actions({ app, camera: cameraEntity, player, layer: ui.actions });
 
-    targets = new TargetManager(app, collider, floors.length ? floors : [spawn], addScore, { max: manifest.targets.max });
-
     // The whole bank is ~170 KB, so it loads up front rather than streaming —
     // the first footstep must not be the one that stalls. It is not gated on
     // below: "Ready" means the map is walkable, and the audio lands long
     // before anyone finishes reading the controls and clicks Play (which is
     // also the gesture that unlocks the AudioContext).
     audio = new SoundBank(app, cameraEntity, manifest.sounds);
-
-    weapon = new Weapon(app, cameraEntity, player, collider, {
-      hud,
-      layer: vmLayer.id,
-      queryTargets: (o, d, maxDist) => targets.query(o, d, maxDist),
-      onEvent: (event) => audio.onWeaponEvent(event),
-    });
 
     // Debug tweak panel — debug URLs only; null on the production one.
     if (DebugTools) {
@@ -256,11 +223,27 @@ function boot() {
       });
     }
 
-    // Lightweight debug handle (handy for tweaking / automated checks).
-    window.game = { app, player, rescue, weapon, targets, collider, debug, audio, negatives, actions, surface, camera: cameraEntity, root: playerRoot,
+    world = {
+      app, manifest, collider, floors, spawn, audio, actions, presence,
+      camera: cameraEntity, rig: playerRoot,
+      // The walking body — standing, stepping, falling, put back when it falls
+      // out. Any game on foot drives this one; the others leave it parked.
+      walker: player, rescue,
+    };
+
+    // Lightweight debug handle (handy for tweaking / automated checks). What
+    // belongs to a game is read through `session`, so it is always the game
+    // being played now: `game.weapon` is null in the fly-over.
+    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, surface, presence, camera: cameraEntity, root: playerRoot,
                     // Place a prop by hand from the console or a test — the same
                     // entry the layout goes through — and see what is animating.
-                    loadProp, scripted };
+                    loadProp, scripted, switchMode,
+                    get mode() { return mode?.id ?? null; },
+                    get session() { return session; },
+                    get weapon() { return session?.weapon ?? null; },
+                    get targets() { return session?.targets ?? null; } };
+
+    await switchMode(initialMode());
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
@@ -547,50 +530,92 @@ function addPropCollision(prop, root, rig, script) {
   return ` — solid, +${tris.length.toLocaleString()} collision tris`;
 }
 
-// ---- Input ----
-const input = { forward: 0, strafe: 0, jump: false, sprint: false };
-let prevJump = false;
-
-function pollKeyboard() {
-  const k = app.keyboard;
-  let f = 0, s = 0;
-  if (k.isPressed(pc.KEY_W) || k.isPressed(pc.KEY_UP)) f += 1;
-  if (k.isPressed(pc.KEY_S) || k.isPressed(pc.KEY_DOWN)) f -= 1;
-  if (k.isPressed(pc.KEY_D) || k.isPressed(pc.KEY_RIGHT)) s += 1;
-  if (k.isPressed(pc.KEY_A) || k.isPressed(pc.KEY_LEFT)) s -= 1;
-  input.forward = f;
-  input.strafe = s;
-  input.sprint = k.isPressed(pc.KEY_SHIFT);
-  const jumpDown = k.isPressed(pc.KEY_SPACE);
-  input.jump = jumpDown && !prevJump;
-  prevJump = jumpDown;
+// ---- Modes ----
+// Which game a bare page opens: the address bar's, if it names one we have.
+function initialMode() {
+  const asked = new URLSearchParams(location.search).get('mode');
+  if (!asked) return MODES[0];
+  if (MODES.includes(asked)) return asked;
+  console.warn(`[mode] ?mode=${asked} is not a game here (${MODES.join(', ')}) — playing ${MODES[0]}`);
+  return MODES[0];
 }
 
+// Leave the game being played and enter another, in the same world, where the
+// last one's view was. Serialised: a second pick while a module is still
+// downloading waits its turn instead of racing it.
+let switching = Promise.resolve();
+function switchMode(id) {
+  switching = switching.then(async () => {
+    if (!MODES.includes(id)) throw new Error(`no mode "${id}" (${MODES.join(', ')})`);
+    if (mode?.id === id) return;
+    const next = (await import(`./modes/${id}/index.mjs`)).default;
+    const from = session?.view() ?? null;
+    session?.exit();
+    mode = next;
+    session = next.enter(world, from);
+    // E measures reach from whatever the game moves around as.
+    actions.player = session.body;
+    document.body.dataset.mode = id;
+    showMode();
+    // The address says what is being played, so a reload or a shared link
+    // comes back to it. The first mode is the bare URL.
+    const url = new URL(location.href);
+    if (id === MODES[0]) url.searchParams.delete('mode');
+    else url.searchParams.set('mode', id);
+    history.replaceState(history.state, '', url);
+    console.log(`[mode] ${id}`);
+  });
+  return switching;
+}
+
+// The overlay speaks for the game picked: its name, its keys, and the keys
+// every game shares, which are the world's.
+function showMode() {
+  ui.title.textContent = mode.title;
+  ui.sub.textContent = `PlayCanvas · ${mode.sub}`;
+  ui.controls.replaceChildren();
+  for (const [k, d] of [...mode.controls, ['E', 'Use what the E is on'], ['Esc', 'Release mouse']]) {
+    const key = document.createElement('span'); key.className = 'k'; key.textContent = k;
+    const what = document.createElement('span'); what.className = 'd'; what.textContent = d;
+    ui.controls.append(key, what);
+  }
+  for (const b of ui.modes.children) b.classList.toggle('picked', b.dataset.mode === mode.id);
+}
+
+for (const [id, name] of Object.entries(MODE_NAMES)) {
+  const b = document.createElement('button');
+  b.type = 'button'; b.dataset.mode = id; b.textContent = name;
+  ui.modes.append(b);
+  b.addEventListener('click', () => {
+    if (!world) return;              // not built yet: the pick waits for Ready
+    switchMode(b.dataset.mode).catch((err) => console.error('[mode]', err));
+  });
+}
+
+// ---- Input ----
+// The world's keys are E (and V / backtick on the debug URL); everything else
+// is handed to the game being played.
 function isLocked() { return pc.Mouse.isPointerLocked(); }
 
 app.mouse.on(pc.EVENT_MOUSEMOVE, (e) => {
-  if (!started || !isLocked() || !player) return;
-  player.addLook(e.dx, e.dy, 0.12);
+  if (!started || !isLocked() || !session) return;
+  session.look?.(e.dx, e.dy);
 });
 app.mouse.on(pc.EVENT_MOUSEDOWN, (e) => {
   if (!started || !isLocked()) return;
-  if (e.button === pc.MOUSEBUTTON_LEFT && weapon) weapon.startFire();
+  session?.down?.(e.button);
 });
 app.mouse.on(pc.EVENT_MOUSEUP, (e) => {
-  if (e.button === pc.MOUSEBUTTON_LEFT && weapon) weapon.stopFire();
+  session?.up?.(e.button);
 });
 
 app.keyboard.on(pc.EVENT_KEYDOWN, (e) => {
   if (e.key === pc.KEY_V && debug) { debug.cycleMode(); return; } // works while paused too
   if (!started) return;
-  if (e.key === pc.KEY_R && weapon) weapon.reload();
   // Once per press: a held key repeats, and a dance set off and stopped thirty
   // times a second is a man twitching.
-  if (e.key === pc.KEY_E && actions && isLocked() && !e.event?.repeat) actions.trigger();
-  if (e.key === pc.KEY_T && player && player.floors && player.floors.length) {
-    const s = player.floors[Math.floor(Math.random() * player.floors.length)];
-    player.teleport(s.x, s.y + 0.15, s.z);
-  }
+  if (e.key === pc.KEY_E && actions && isLocked() && !e.event?.repeat) { actions.trigger(); return; }
+  session?.press?.(e.key);
 });
 
 ui.playBtn.addEventListener('click', () => {
@@ -607,46 +632,31 @@ if (togglePanel) {
 
 document.addEventListener('pointerlockchange', () => {
   const locked = isLocked();
+  // What shows while playing is CSS, keyed on these and on data-mode (see
+  // index.html): the dot for every game, the crosshair and HUD for one.
+  document.body.classList.toggle('playing', locked);
   if (locked) {
     started = true;
+    document.body.classList.add('started');
     ui.overlay.classList.add('hidden');
-    ui.crosshair.style.display = 'block';
-    ui.dot.style.display = 'block';
-    ui.hud.style.display = 'block';
   } else {
     // Paused — show overlay again.
-    if (weapon) weapon.stopFire();
+    session?.pause?.();
     ui.overlay.classList.remove('hidden');
     ui.playBtn.textContent = 'Click to Resume';
-    ui.crosshair.style.display = 'none';
-    ui.dot.style.display = 'none';
   }
 });
 
 // ---- Loop ----
 app.on('update', (dt) => {
-  if (!player) return;
+  if (!session) return;
   const d = Math.min(dt, 0.05); // clamp big frames (tab switches)
+  const live = started && isLocked();
 
-  if (started && isLocked()) {
-    pollKeyboard();
-  } else {
-    input.forward = 0; input.strafe = 0; input.jump = false; input.sprint = false;
-  }
-
-  player.update(d, input);
-
-  // Immediately after the controller, and never before it: the jump and the
-  // landing are edges player.update() consumes as it goes past. See audio.mjs.
-  if (audio) audio.update(d, player, input);
+  // The game first: it moves the view everything below is measured from.
+  session.update(d, live);
 
   if (debug) debug.updateReadout();
-
-  // Fell out of the world: back onto the last floor stood on (see ./spawn.mjs).
-  rescue.update();
-
-  if (weapon) weapon.update(d);
-  if (targets) targets.update(d);
 
   // Scripts tick on the same clamped step as the controller, so a tab switch
   // does not fast-forward a dance any more than it fast-forwards a fall.
@@ -654,12 +664,7 @@ app.on('update', (dt) => {
 
   // After the clips, so a dancer is reached where this frame's pose put him;
   // the hints come down with the pause overlay and the crosshair.
-  actions.update(started && isLocked());
-
-  if (hitmarkerTimer > 0) {
-    hitmarkerTimer -= d;
-    if (hitmarkerTimer <= 0) ui.hitmarker.style.opacity = 0;
-  }
+  actions.update(live);
 });
 
 app.start();

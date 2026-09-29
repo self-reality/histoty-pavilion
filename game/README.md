@@ -18,6 +18,17 @@ npm start          # python3 -m http.server 5173
 
 Click **Play** to lock the mouse and start. Press **Esc** to release the mouse (pauses).
 
+### Two games, one world
+
+The level is a world, and the games are played in it: the **shooter** (the
+AK and the dummies) and the **fly-over** (a free camera). The overlay has a
+button for each. Pick another while paused and you switch in place, from where
+you are: take off from where you stood, or land on the floor under the camera.
+`?mode=flyover` opens the fly-over directly. A bare URL opens the shooter,
+because it has to open one of them, not because the shooter comes first. Other
+people, once there is a network, show up as ghosts whatever they are playing.
+How a mode is built and what it may touch is in `src/modes/README.md`.
+
 ### Starting somewhere else
 
 Where you start is authored in the `.blend` (a marker named `spawn*`, see
@@ -105,13 +116,15 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 |------|----------------|
 | `index.html` | Canvas, HUD, crosshair, start overlay, import map — production, no debug markup |
 | `debug.html` | Redirect to `/?debug`, so debug mode has a URL you can type |
-| `src/main.mjs` | Engine bootstrap, GLB load, lighting, targets, input, game loop |
+| `src/main.mjs` | The world: engine bootstrap, GLB load, lighting, collision, props, the E key, the game loop, and entering and leaving modes |
+| `src/modes/` | The games played in it, one folder each, loaded on entry: `shooter/` (walker, AK, targets, HUD) and `flyover/` (free camera). The contract is in its README |
+| `src/presence.mjs` | Everyone else in the world, drawn as ghosts, and `meet()`: what two modes do when their players meet (today: nothing) |
 | `src/spawn.mjs` | Where the player starts: map centre, then the `.blend`'s marker, then `?at=`/`?look=` in the address |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/negatives.mjs` | Negative spaces: closed volumes of any shape — the level's, and the ones placed assets carry — cut out of the map's collision and its meshes at load |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
-| `src/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
+| `src/modes/shooter/weapon.mjs` | Procedural AK viewmodel, hitscan, recoil/spread, muzzle flash, tracers, impact FX |
 | `src/audio.mjs` | The sound bank: loads it, and casts the gun's events and the controller's state onto it |
 | `src/rig.mjs` | Static poses: a placed prop's bones folded once, from an asset's manifest or from `rigs` in the scene manifest |
 | `src/script.mjs` | *Copied from the kit's `runtime/` (`npm run runtime:pull`) — edit it there.* An asset's package: its manifest applied (a node hung off another, its own pose) and its script run — code handed an `object` that plays clips, sounds, videos and canvases, ticks, offers actions and opens links |
@@ -503,6 +516,7 @@ node tests/rescue.mjs  # falling out of the map puts you back where you fell, ne
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
+node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
 node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
@@ -531,7 +545,7 @@ Most feel knobs live at the top of their modules:
 - Movement: `Player` constructor opts in `src/main.mjs` (`walkSpeed`, `runSpeed`, `gravity`,
   `jumpSpeed`, `stepHeight`).
 - Map scale / orientation: the `map` block in `scene.manifest.mjs`.
-- Weapon: stats block in `src/weapon.mjs` (`fireInterval`, `magSize`, `range`, `reloadTime`).
+- Weapon: stats block in `src/modes/shooter/weapon.mjs` (`fireInterval`, `magSize`, `range`, `reloadTime`).
 - Sound triggers: the constants at the top of `src/audio.mjs` (`STRIDE`, `RUN_SPEED`,
   `LAND_MIN`, `LAND_HARD`, `JITTER_DB`). How the sounds themselves are *made* is not
   tunable here — that is `sounds.config.json` in the sound-design repo.
