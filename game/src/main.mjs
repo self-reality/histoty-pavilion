@@ -237,7 +237,7 @@ function boot() {
     window.game = { app, player, rescue, collider, debug, audio, negatives, actions, surface, presence, camera: cameraEntity, root: playerRoot,
                     // Place a prop by hand from the console or a test — the same
                     // entry the layout goes through — and see what is animating.
-                    loadProp, scripted, switchMode,
+                    loadProp, scripted, switchMode, clock,
                     get mode() { return mode?.id ?? null; },
                     get session() { return session; },
                     get weapon() { return session?.weapon ?? null; },
@@ -541,15 +541,18 @@ function initialMode() {
 }
 
 // Leave the game being played and enter another, in the same world, where the
-// last one's view was. Serialised: a second pick while a module is still
-// downloading waits its turn instead of racing it.
+// last one's view was — or at `view` ({ x, y, z, yaw, pitch }, the eye), which
+// enters the game afresh even if it is the one being played: that is how a
+// shot framed in the fly-over is put back by tools/record.mjs. Serialised: a
+// second pick while a module is still downloading waits its turn instead of
+// racing it.
 let switching = Promise.resolve();
-function switchMode(id) {
+function switchMode(id, view = null) {
   switching = switching.then(async () => {
     if (!MODES.includes(id)) throw new Error(`no mode "${id}" (${MODES.join(', ')})`);
-    if (mode?.id === id) return;
+    if (mode?.id === id && !view) return;
     const next = (await import(`./modes/${id}/index.mjs`)).default;
-    const from = session?.view() ?? null;
+    const from = view ?? session?.view() ?? null;
     session?.exit();
     mode = next;
     session = next.enter(world, from);
@@ -647,10 +650,49 @@ document.addEventListener('pointerlockchange', () => {
   }
 });
 
+// ---- Clock ----
+// Time is a value the world is given, not something the frame timer decides.
+// Played, the timer gives it: each frame's real dt, clamped. Held, nobody
+// does until step(dt) is called, which advances the world by exactly dt and
+// draws it — however long drawing takes. That is how tools/record.mjs renders
+// a dance frame-exact under a software renderer. There is one clock and one
+// loop body; holding changes who feeds it, never what a frame does.
+const clock = {
+  held: false,
+  time: 0,        // world seconds, advanced by every frame, played or stepped
+
+  hold() {
+    if (this.held) return;
+    this.held = true;
+    cancelAnimationFrame(app.frameRequestId);
+    app.frameRequestId = null;
+  },
+
+  release() {
+    if (!this.held) return;
+    this.held = false;
+    app._time = 0;               // the first frame back measures from itself, not from the hold
+    app.requestAnimationFrame();
+  },
+
+  // Advance by exactly dt and draw. Async because a frame may depend on
+  // something that has to arrive before it is drawn — a video seeked to the
+  // frame's time. Resolves right after the draw, in the same task, so the
+  // canvas can still be read.
+  async step(dt) {
+    if (!this.held) throw new Error('clock.step: hold the clock first');
+    app.update(dt);              // the engine's systems, then the loop body below
+    await Promise.all(scripted.map((s) => s.ready?.()));
+    app.render();
+  },
+};
+
 // ---- Loop ----
 app.on('update', (dt) => {
   if (!session) return;
-  const d = Math.min(dt, 0.05); // clamp big frames (tab switches)
+  // A played frame is clamped (tab switches); a stepped one is what was asked.
+  const d = clock.held ? dt : Math.min(dt, 0.05);
+  clock.time += d;
   const live = started && isLocked();
 
   // The game first: it moves the view everything below is measured from.

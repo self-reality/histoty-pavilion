@@ -29,6 +29,22 @@ because it has to open one of them, not because the shooter comes first. Other
 people, once there is a network, show up as ghosts whatever they are playing.
 How a mode is built and what it may touch is in `src/modes/README.md`.
 
+### Filming it
+
+Frame a shot in the fly-over, run `copy(game.session.view())` in the console,
+and hand the view to the recorder:
+
+```bash
+npm run record -- --view '<the view>' --prop g-man-dance_01 --action dance --out gman.mp4
+```
+
+It opens the page headlessly, puts the camera there, sets the action off as
+the E key would, and films it frame by frame until the run ends. The world's
+clock is held and stepped 1/fps at a time (`game.clock` in `src/main.mjs`), so
+the video is smooth and the same every time however slowly the frames are
+drawn. The options are at the top of `tools/record.mjs`; the plan it is part
+of, sound and videos included, is `RECORDING.md`.
+
 ### Starting somewhere else
 
 Where you start is authored in the `.blend` (a marker named `spawn*`, see
@@ -517,6 +533,7 @@ node tests/anim.mjs    # an animated asset does what its script says: clip ticks
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
+node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
 node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)

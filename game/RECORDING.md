@@ -1,6 +1,7 @@
 # Recording gameplay to video — the plan
 
-Status: **plan, nothing built yet** (2026-09-29). Spans this repo and the asset
+Status (2026-09-29): **step 1 built** — the clock, the view, the silent
+recorder (`tools/record.mjs`, `tests/record.mjs`). Steps 2–3 below are next. Spans this repo and the asset
 kit (`../../singularity-development-kit`).
 
 The goal: frame a shot in the fly-over, then from the terminal render a
@@ -12,7 +13,7 @@ afterwards.
 1. In the fly-over:  copy(game.session.view())          → {x,y,z,yaw,pitch}
 2. In the terminal:  node tools/record.mjs --view '{…}' --prop g-man-dance \
                        --action dance --fps 30 --out gman.mp4
-3. The recorder:     headless Chromium → ?mode=flyover&view=… → s.trigger('dance')
+3. The recorder:     headless Chromium → ?mode=flyover → switchMode('flyover', view) → s.trigger('dance')
                      → step 1/30 s, capture, repeat until the run ends
                      → frames + event log → ffmpeg → gman.mp4
 ```
@@ -66,10 +67,12 @@ lives in `tools/`, drives `window.game`, and is never imported by the world.
    handler calls it with the clamped real `dt`, exactly as now. Stepped:
    `game.clock.hold()` stops the engine's own loop; `await game.step(dt)` runs
    the body once, waits for whatever the frame depends on (video seeks, see
-   below), and renders. Async from the start.
-2. **Start at a given view.** `switchMode(id, from)` takes an optional view,
-   and `?view=x,y,z,yaw,pitch` feeds it at boot — so a shared link opens the
-   same shot, and the recorder needs nothing else to place the camera.
+   below), and renders. Async from the start. Each prop script may expose
+   `ready()`, a promise the step awaits before drawing (the video seeks).
+2. **Start at a given view.** `switchMode(id, view)` takes an optional eye
+   view and enters the game afresh at it, even the one being played. That is
+   all the recorder needs; a `?view=` for shared links can come later (`?at=`
+   and `?look=` already open the walker on a spot).
 3. **Event log.** While recording, the runtime reports what it starts instead
    of relying on WebAudio: `{ t, kind: 'sound' | 'video-audio', file, offset,
    pos, volume }` in game time. (A runtime hook — see the kit, step 4.) The
