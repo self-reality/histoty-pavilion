@@ -944,14 +944,18 @@ export class PropScript {
     return owned;
   }
 
+  /** Has the object a material by this name? Says so when it has not. */
+  paintable(name) {
+    if (this.surface(name)) return true;
+    const have = [...new Set(this.root.findComponents('render').flatMap((rc) => rc.meshInstances).map((mi) => mi.material?.name))];
+    this.warn(`no material named ${JSON.stringify(name)} to paint (the object has ${have.map((n) => JSON.stringify(n)).join(', ')})`);
+    return false;
+  }
+
   // Put a texture on a material: emitted like a screen (`glow`), or lit like paint.
   paint(name, texture, glow) {
+    if (!this.paintable(name)) return false;
     const owned = this.surface(name);
-    if (!owned) {
-      const have = [...new Set(this.root.findComponents('render').flatMap((rc) => rc.meshInstances).map((mi) => mi.material?.name))];
-      this.warn(`no material named ${JSON.stringify(name)} to paint (the object has ${have.map((n) => JSON.stringify(n)).join(', ')})`);
-      return false;
-    }
     for (const material of new Set(owned.map((o) => o.material))) {
       if (glow) {
         material.emissiveMap = texture;
@@ -985,6 +989,14 @@ export class PropScript {
    * new one. Held (see `held`), it stands paused and ready() seeks it to the
    * frame of that time before the step is drawn: frame-exact, however slowly.
    *
+   * Nothing of it is fetched before it is played, and until it has a picture
+   * the material shows what it showed before — the object's own surface, or
+   * whatever the script painted there to say it is loading. The video takes
+   * the material with its first frame, and its time and its sound start
+   * then. The playback says how far along it is: `shown`, a promise of true
+   * once the first frame is up (false if it ended first), and `progress`,
+   * how much of the file is in, 0 to 1.
+   *
    * The manifest's `videos` index says what the kit prepared for the file:
    * `alt` files for browsers that cannot play it, its `duration`, and its
    * sound as a file of its own, `audio`. Unmuted, that sound is a voice() —
@@ -1007,15 +1019,22 @@ export class PropScript {
     element.src = this.fileUrl(playable ?? file);
     const texture = this.makeTexture(`${this.label}/${file}`, { smooth });
     texture.setSource(element);
+    let shownAs;
     const video = {
-      file, element, texture, t: 0, loop: !!loop,
+      file, element, texture, material, glow, t: 0, loop: !!loop,
       duration: listed?.duration > 0 ? listed.duration : null,
       fps: listed?.fps > 0 ? listed.fps : null,
+      audio: listed?.audio && muted === false ? listed.audio : null,
+      begun: false,         // has it a picture yet — see begin()
+      shown: new Promise((res) => { shownAs = res; }),
       playing: false, fresh: true, watched: false, done: false, voice: null, playback: null,
       whole: null,          // the file fetched into memory, when it had to be — see seekable()
+      wholeIn: false,
     };
+    video.show = shownAs;
     const playback = makePlayback(() => {
       this.videos.delete(video);
+      video.show(false);
       if (!video.done) video.voice?.stop();
       element.pause();
       element.removeAttribute('src');
@@ -1023,7 +1042,9 @@ export class PropScript {
       video.whole?.then((url) => url && URL.revokeObjectURL(url));
     });
     video.playback = playback;
-    if (!this.paint(material, texture, glow)) { playback.end(); return playback; }
+    Object.defineProperty(playback, 'shown', { value: video.shown });
+    Object.defineProperty(playback, 'progress', { get: () => this.videoProgress(video) });
+    if (!this.paintable(material)) { playback.end(); return playback; }
     element.addEventListener('loadedmetadata', () => {
       if (video.duration === null && Number.isFinite(element.duration)) video.duration = element.duration;
     });
@@ -1036,9 +1057,27 @@ export class PropScript {
       element.requestVideoFrameCallback(onFrame);
     }
     this.videos.add(video);
-    if (listed?.audio && muted === false) video.voice = this.voice(listed.audio, { loop });
-    if (!this.held()) this.playElement(video);
     return playback;
+  }
+
+  /** Its first frame is in: it takes its material, and its time and its sound start. */
+  begin(video) {
+    video.begun = true;
+    video.t = 0;
+    video.texture.upload();
+    video.fresh = false;
+    this.paint(video.material, video.texture, video.glow);
+    if (video.audio) video.voice = this.voice(video.audio, { loop: video.loop });
+    video.show(true);
+  }
+
+  /** How much of a video's file is in, 0 to 1. */
+  videoProgress(video) {
+    const el = video.element;
+    if (video.wholeIn) return 1;
+    const d = el.duration;
+    if (!(d > 0) || !el.buffered?.length) return 0;
+    return Math.min(1, el.buffered.end(el.buffered.length - 1) / d);
   }
 
   playElement(video) {
@@ -1060,12 +1099,20 @@ export class PropScript {
   updateVideos(dt) {
     const held = this.held();
     for (const video of [...this.videos]) {
+      const el = video.element;
+      if (!video.begun) {
+        // Held, ready() begins it at the frame it lands on. Played, the first
+        // frame that is in does.
+        if (held || el.readyState < 2) continue;
+        this.begin(video);
+        this.playElement(video);
+        continue;
+      }
       video.t += dt;
       const d = video.duration;
       // Run out: the texture keeps the last frame it was given, and its sound
       // runs out in its own time.
       if (d > 0 && !video.loop && video.t >= d) { video.done = true; video.playback.end(); continue; }
-      const el = video.element;
       if (held) {
         if (video.playing) { el.pause(); video.playing = false; }
         continue;
@@ -1111,7 +1158,9 @@ export class PropScript {
       await seeked;
       if (el.readyState < 2) await once('loadeddata', 'error');
     }
-    if (!video.playback.settled && el.readyState >= 2) video.texture.upload();
+    if (video.playback.settled || el.readyState < 2) return;
+    if (video.begun) video.texture.upload();
+    else this.begin(video);
   }
 
   /**
@@ -1133,6 +1182,7 @@ export class PropScript {
           const loaded = once('loadedmetadata', 'error');
           el.src = url;
           await loaded;
+          video.wholeIn = true;
           return url;
         })
         .catch((err) => { this.warn(`video ${video.file}: cannot be seeked (${err.message}) — it plays unstepped`); return null; });

@@ -99,15 +99,16 @@ const r = await page.evaluate(async (ASSET) => {
   const show = {};
   a.trigger('show');
   show.running = a.acting?.name ?? null;
-  const lid = mesh(a, 'lid').material;
-  show.lidTexture = !!lid.emissiveMap && lid.emissiveMap !== texture;
   show.videos = a.videos.size;
   const video = [...a.videos][0]?.element;
-  // Let the video decode a frame or two, and the sound be asked for.
+  // Let the video decode a frame or two, and the sound be asked for. It takes
+  // the lid with its first frame, not before.
   for (let i = 0; i < 40 && !(video?.readyState >= 2 && video.currentTime > 0); i++) {
     await new Promise((res) => setTimeout(res, 100));
     a.update(1 / 30);
   }
+  const lid = mesh(a, 'lid').material;
+  show.lidTexture = !!lid.emissiveMap && lid.emissiveMap !== texture;
   show.videoPlaying = !!video && !video.paused && video.readyState >= 2;
   show.soundSlots = a.root.sound ? Object.keys(a.root.sound.slots).length : 0;
   a.trigger('show');                                // stop

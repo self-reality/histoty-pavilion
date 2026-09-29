@@ -178,6 +178,11 @@ frame took.
   folder (built from `scripts/<name>/` in the kit), never in the pavilion or
   the sound bank. The sound bank is the pavilion's own ambience and has
   nothing to do with this.
+- **A video loads when it is played, never before** — on E, or whenever its
+  script plays it; nothing is fetched at game start. Until its first frame is
+  in, the material keeps what it showed, and the script shows the loading its
+  own way with the playback's `shown` and `progress`. Preloading waits for the
+  lifecycle hooks asset scripts will get later.
 - **A video's sound is the asset's too.** The build splits it out of the
   video into the package, and the runtime plays it from where the object is
   whenever the script plays the video unmuted.
