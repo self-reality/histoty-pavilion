@@ -46,6 +46,15 @@
 // the viewer's buttons), not this file's: here an action is a method somebody
 // calls.
 //
+// Everything a script starts runs in GAME time — the dt update() is handed —
+// clips, waits, ticks, and sounds and videos too: a sound ends its length
+// after it started and a video shows the frame of its own time, whatever the
+// audio clock or the element did. So a consumer that holds its clock and steps
+// it (a recorder) sees exactly what it would have played: it passes `held`, a
+// function saying whether it is holding, and awaits ready() before drawing
+// each step. It may also pass `report`, told of every sound started and cut
+// short, to mix a sound track of its own afterwards.
+//
 // A script sees only `object`. It imports nothing and touches no engine, which
 // is what lets an asset built for one pavilion run in another. And it is code
 // with the page's rights, so only a script served from the page's own origin
@@ -367,6 +376,16 @@ export const DEFAULT_ACTION_RADIUS = 2;
 const SOUND_REF = 2;
 const SOUND_MAX = 40;
 
+// A played video is kept on its game time by its rate, up to this much faster
+// or slower; further off than VIDEO_SEEK seconds it is seeked (a seek stalls).
+const VIDEO_NUDGE = 0.1;
+const VIDEO_SEEK = 0.3;
+// How far past its time a held video of unknown fps is seeked, and how near
+// its end at most — see showFrame().
+const FRAME_EPSILON = 0.002;
+// What each video file a package may carry is, for canPlayType.
+const VIDEO_TYPES = { webm: 'video/webm', mp4: 'video/mp4', m4v: 'video/mp4', ogv: 'video/ogg', mov: 'video/quicktime' };
+
 const NO_NODES = new Set();
 
 /**
@@ -432,7 +451,7 @@ function makePlayback(halt = () => {}) {
  * script plays can end up frozen into the collider.
  */
 export class PropScript {
-  constructor(root, { url, manifest, clips, setup }, label = '', { app = null } = {}) {
+  constructor(root, { url, manifest, clips, setup }, label = '', { app = null, held = null, report = null } = {}) {
     this.root = root;
     this.url = url;
     this.label = label;
@@ -440,6 +459,12 @@ export class PropScript {
     this.clips = clips ?? new Map();
     this.setup = setup ?? null;
     this.app = app;
+    // Is the consumer's clock held — the world moved only by steps, each
+    // awaiting ready() before it is drawn? Then a video stands paused and is
+    // seeked to its game time, instead of playing on the browser's clock.
+    this.held = typeof held === 'function' ? held : () => false;
+    // Told of every sound this object starts, and of any cut short — see voice().
+    this.report = typeof report === 'function' ? report : null;
     this.warnings = [];
     this.attached = [];   // [{ node, to }] as actually done
 
@@ -468,7 +493,10 @@ export class PropScript {
     this.running = [];      // the actions with a run going, oldest first — action.run is the run
     this.ticks = [];        // object.on('tick') handlers
     this.timers = [];       // [{ at, playback }] for wait()
-    this.videos = new Set();  // [{ element, texture }] uploaded every frame they play
+    this.videos = new Set();  // { element, texture, t, … } — each playing video, in game time
+    this.voices = new Set();  // { start, duration, loop, … } — each sound playing, in game time
+    this.pending = new Set(); // sound loads a stepped frame waits for
+    this.voiceCount = 0;    // ids for report()
     this.sounds = [];       // how many a script started — for the placement log
     this.surfaces = new Map();  // material name -> [{ mi, material }] this copy owns
     this.started = false;
@@ -823,32 +851,74 @@ export class PropScript {
 
   playSound(file, { loop = false, volume = 1 } = {}, run) {
     if (!this.app) { this.warn(`sound ${file}: no app to play it through`); return makePlayback(); }
+    this.sounds.push(file);
+    return this.voice(file, { loop, volume });
+  }
+
+  /**
+   * A file of the folder, sounding from where the object stands.
+   *
+   * It ends in GAME time — its length after it was started — whatever the
+   * audio clock does, like a clip and a wait: a script that awaits a sound
+   * and then dances dances at the same moment played or stepped. What is
+   * heard is the engine's; when it ends is this. A sound whose length is
+   * never learned ends when the engine says.
+   *
+   * `report`, when the consumer gave one, is told `{ kind: 'sound', id,
+   * object, file, url, loop, volume, pos }` as it starts, and `{ kind:
+   * 'stop', id }` if it is cut short: what a recorder needs to mix the
+   * sound track afterwards. The consumer stamps its own time on each.
+   */
+  voice(file, { loop = false, volume = 1 } = {}) {
     const url = this.fileUrl(file);
-    let asset = soundAssets.get(url);
-    if (!asset) {
-      asset = new Asset(`script-sound:${url}`, 'audio', { url });
-      asset.on('error', (err) => this.warn(`sound ${file} failed to load: ${err}`));
+    let known = soundAssets.get(url);
+    if (!known) {
+      const asset = new Asset(`script-sound:${url}`, 'audio', { url });
+      known = {
+        asset,
+        landed: new Promise((res) => {
+          asset.ready(() => res(true));
+          asset.on('error', (err) => { this.warn(`sound ${file} failed to load: ${err}`); res(false); });
+        }),
+      };
       this.app.assets.add(asset);
       this.app.assets.load(asset);
-      soundAssets.set(url, asset);
+      soundAssets.set(url, known);
     }
+    const { asset, landed } = known;
     // One positional sound component per object, a slot per file. The listener
     // is the consumer's, on its camera; the entity's position is where it plays from.
     const sound = this.root.sound ?? this.root.addComponent('sound', {
       positional: true, refDistance: SOUND_REF, maxDistance: SOUND_MAX, rollOffFactor: 1, distanceModel: 'inverse',
     });
     if (!sound.slot(url)) sound.addSlot(url, { asset, overlap: true, autoPlay: false, loop: false });
+    volume = Math.max(0, Math.min(1, volume));
+    const id = ++this.voiceCount;
+    const voice = { start: this.time, duration: null, loop: !!loop, done: false, playback: null };
     let instance = null;
-    const playback = makePlayback(() => instance?.stop());
-    this.sounds.push(file);
-    asset.ready(() => {
-      if (playback.settled) return;
-      instance = sound.slot(url).play();
-      if (!instance) { playback.end(); return; }
-      instance.loop = !!loop;
-      instance.volume = Math.max(0, Math.min(1, volume));
-      instance.on('end', () => playback.end());
+    const playback = makePlayback(() => {
+      this.voices.delete(voice);
+      // Run out in game time: the tail the audio clock still owes is let play.
+      if (voice.done) return;
+      instance?.stop();
+      this.report?.({ kind: 'stop', id });
     });
+    voice.playback = playback;
+    const p = this.root.getPosition();
+    this.report?.({ kind: 'sound', id, object: this.label, file, url, loop: !!loop, volume, pos: [p.x, p.y, p.z] });
+    this.voices.add(voice);
+    const loading = landed.then((ok) => {
+      if (playback.settled) return;
+      if (!ok) { voice.done = true; playback.end(); return; }
+      voice.duration = asset.resource?.duration > 0 ? asset.resource.duration : null;
+      instance = sound.slot(url).play();
+      if (!instance) { voice.done = true; playback.end(); return; }
+      instance.loop = !!loop;
+      instance.volume = volume;
+      if (voice.duration === null) instance.on('end', () => { voice.done = true; playback.end(); });
+    });
+    this.pending.add(loading);
+    loading.then(() => this.pending.delete(loading));
     return playback;
   }
 
@@ -905,30 +975,180 @@ export class PropScript {
     });
   }
 
+  /**
+   * A video of the folder on one of the object's materials, in GAME time.
+   *
+   * Each video keeps its own time, advanced by update() like a clip's; the
+   * element is how its pictures are decoded, not what decides which one is
+   * shown. Played, the element plays and is kept on that time — nudged by its
+   * rate, seeked only when far off — and its picture uploaded when it has a
+   * new one. Held (see `held`), it stands paused and ready() seeks it to the
+   * frame of that time before the step is drawn: frame-exact, however slowly.
+   *
+   * The manifest's `videos` index says what the kit prepared for the file:
+   * `alt` files for browsers that cannot play it, its `duration`, and its
+   * sound as a file of its own, `audio`. Unmuted, that sound is a voice() —
+   * from where the object stands, in game time, reported — rather than the
+   * element's flat track. A video the index does not list plays as it is,
+   * its own track and all.
+   */
   playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true } = {}, run) {
     if (!this.app) { this.warn(`video ${file}: no app to play it through`); return makePlayback(); }
+    const listed = (Array.isArray(this.manifest.videos) ? this.manifest.videos : []).find((v) => v?.file === file) ?? null;
     const element = document.createElement('video');
     element.crossOrigin = 'anonymous';
     element.loop = !!loop;
-    element.muted = muted !== false;
+    element.muted = !!listed || muted !== false;
     element.playsInline = true;
     element.preload = 'auto';
-    element.src = this.fileUrl(file);
+    const sources = [file, ...(Array.isArray(listed?.alt) ? listed.alt : [])];
+    const playable = sources.find((f) => element.canPlayType(VIDEO_TYPES[f.split('.').pop().toLowerCase()] ?? '') !== '');
+    if (!playable) this.warn(`video ${file}: this browser can play none of ${sources.join(', ')} — trying ${file}`);
+    element.src = this.fileUrl(playable ?? file);
     const texture = this.makeTexture(`${this.label}/${file}`, { smooth });
     texture.setSource(element);
-    const entry = { element, texture };
+    const video = {
+      file, element, texture, t: 0, loop: !!loop,
+      duration: listed?.duration > 0 ? listed.duration : null,
+      fps: listed?.fps > 0 ? listed.fps : null,
+      playing: false, fresh: true, watched: false, done: false, voice: null, playback: null,
+      whole: null,          // the file fetched into memory, when it had to be — see seekable()
+    };
     const playback = makePlayback(() => {
-      this.videos.delete(entry);
+      this.videos.delete(video);
+      if (!video.done) video.voice?.stop();
       element.pause();
       element.removeAttribute('src');
       element.load();
+      video.whole?.then((url) => url && URL.revokeObjectURL(url));
     });
+    video.playback = playback;
     if (!this.paint(material, texture, glow)) { playback.end(); return playback; }
-    element.addEventListener('ended', () => playback.end());
-    element.addEventListener('error', () => { this.warn(`video ${file} failed to play`); playback.end(); });
-    this.videos.add(entry);
-    element.play().catch((err) => this.warn(`video ${file}: ${err.message}`));
+    element.addEventListener('loadedmetadata', () => {
+      if (video.duration === null && Number.isFinite(element.duration)) video.duration = element.duration;
+    });
+    // Ended by its game time; by the element only while its length is unknown.
+    element.addEventListener('ended', () => { if (video.duration === null) playback.end(); });
+    element.addEventListener('error', () => { if (!playback.settled) { this.warn(`video ${file} failed to play`); playback.end(); } });
+    if (typeof element.requestVideoFrameCallback === 'function') {
+      video.watched = true;
+      const onFrame = () => { video.fresh = true; if (!playback.settled) element.requestVideoFrameCallback(onFrame); };
+      element.requestVideoFrameCallback(onFrame);
+    }
+    this.videos.add(video);
+    if (listed?.audio && muted === false) video.voice = this.voice(listed.audio, { loop });
+    if (!this.held()) this.playElement(video);
     return playback;
+  }
+
+  playElement(video) {
+    video.playing = true;
+    video.element.play().catch((err) => {
+      video.playing = false;
+      if (!video.playback.settled && err?.name !== 'AbortError') this.warn(`video ${video.file}: ${err.message}`);
+    });
+  }
+
+  /** Where a video is in its own file: its game time, wrapped when it loops. */
+  videoTime(video) {
+    const d = video.duration;
+    if (!(d > 0)) return video.t;
+    return video.loop ? video.t % d : Math.min(video.t, d);
+  }
+
+  /** Each video's game time: ended, kept to while played, left to ready() while held. */
+  updateVideos(dt) {
+    const held = this.held();
+    for (const video of [...this.videos]) {
+      video.t += dt;
+      const d = video.duration;
+      // Run out: the texture keeps the last frame it was given, and its sound
+      // runs out in its own time.
+      if (d > 0 && !video.loop && video.t >= d) { video.done = true; video.playback.end(); continue; }
+      const el = video.element;
+      if (held) {
+        if (video.playing) { el.pause(); video.playing = false; }
+        continue;
+      }
+      if (!video.playing) {
+        if (el.readyState >= 1) el.currentTime = this.videoTime(video);
+        this.playElement(video);
+      }
+      if (el.readyState >= 1 && d > 0) {
+        let drift = this.videoTime(video) - el.currentTime;
+        if (video.loop && Math.abs(drift) > d / 2) drift -= Math.sign(drift) * d;
+        if (Math.abs(drift) > VIDEO_SEEK) el.currentTime = this.videoTime(video);
+        else el.playbackRate = 1 + Math.max(-VIDEO_NUDGE, Math.min(VIDEO_NUDGE, drift));
+      }
+      if (el.readyState >= 2 && (video.fresh || !video.watched)) {
+        video.texture.upload();
+        video.fresh = false;
+      }
+    }
+  }
+
+  /** Held: the element seeked to the frame of its game time, and that frame uploaded. */
+  async showFrame(video) {
+    const el = video.element;
+    const once = (...events) => new Promise((res) => {
+      const done = () => { for (const e of events) el.removeEventListener(e, done); res(); };
+      for (const e of events) el.addEventListener(e, done);
+    });
+    if (el.readyState < 1) await once('loadedmetadata', 'error');
+    if (video.playback.settled || el.readyState < 1) return;
+    await this.seekable(video, once);
+    if (video.playback.settled || el.readyState < 1) return;
+    // The middle of the frame its time falls in. Not the time itself: a file
+    // keeps its timestamps rounded (WebM to the millisecond, so frame 2 of 30
+    // starts at 0.067, not 0.0667), and a time on a frame's start would land
+    // on the frame before. Without an fps, just past the time, past the rounding.
+    const time = this.videoTime(video);
+    const target = Math.min(video.fps > 0 ? (Math.floor(time * video.fps + 1e-6) + 0.5) / video.fps : time + FRAME_EPSILON,
+      el.duration - FRAME_EPSILON);
+    if (Math.abs(el.currentTime - target) > 1e-4 || el.readyState < 2) {
+      const seeked = once('seeked', 'error');
+      el.currentTime = target;
+      await seeked;
+      if (el.readyState < 2) await once('loadeddata', 'error');
+    }
+    if (!video.playback.settled && el.readyState >= 2) video.texture.upload();
+  }
+
+  /**
+   * Make sure a video can be seeked. A server that does not answer ranges —
+   * python's http.server, which is how both repos are served in development —
+   * leaves nothing seekable, and a seek then silently stays where it was. So
+   * the file is fetched whole, once, and played from memory: always seekable.
+   */
+  async seekable(video, once) {
+    const el = video.element;
+    const s = el.seekable;
+    if (s.length && s.end(s.length - 1) >= el.duration - 0.05) return;
+    if (!video.whole) {
+      video.whole = fetch(el.currentSrc || el.src)
+        .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(`HTTP ${res.status}`))))
+        .then(async (blob) => {
+          const url = URL.createObjectURL(blob);
+          if (video.playback.settled) { URL.revokeObjectURL(url); return null; }
+          const loaded = once('loadedmetadata', 'error');
+          el.src = url;
+          await loaded;
+          return url;
+        })
+        .catch((err) => { this.warn(`video ${video.file}: cannot be seeked (${err.message}) — it plays unstepped`); return null; });
+    }
+    await video.whole;
+  }
+
+  /**
+   * What a held consumer awaits before it draws a step: every sound this
+   * object asked for loaded (its length is when it ends), every video on the
+   * frame of its game time. Resolves at once when there is nothing to wait for.
+   */
+  ready() {
+    const waits = [...this.pending];
+    if (this.held()) for (const video of this.videos) waits.push(this.showFrame(video));
+    return waits.length ? Promise.all(waits) : Promise.resolve();
   }
 
   canvas(material, { width = 256, height = 256, smooth = true, glow = true } = {}) {
@@ -969,9 +1189,13 @@ export class PropScript {
         this.ticks = this.ticks.filter((f) => f !== fn);   // once, not every frame from now on
       }
     }
-    for (const { element, texture } of this.videos) {
-      if (element.readyState >= 2 && !element.paused) texture.upload();
+    for (const voice of [...this.voices]) {
+      if (!voice.loop && voice.duration !== null && this.time - voice.start >= voice.duration) {
+        voice.done = true;
+        voice.playback.end();
+      }
     }
+    this.updateVideos(dt);
     this.easeStep(dt);
   }
 
@@ -1015,7 +1239,7 @@ export class PropScript {
   }
 }
 
-// One audio asset per URL, however many objects play it.
+// One audio asset per URL, however many objects play it: { asset, landed }.
 const soundAssets = new Map();
 
 const toVec3 = (v) => (Array.isArray(v) ? new Vec3(v[0], v[1], v[2]) : new Vec3(v.x, v.y, v.z));

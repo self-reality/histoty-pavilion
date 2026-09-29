@@ -42,8 +42,12 @@ It opens the page headlessly, puts the camera there, sets the action off as
 the E key would, and films it frame by frame until the run ends. The world's
 clock is held and stepped 1/fps at a time (`game.clock` in `src/main.mjs`), so
 the video is smooth and the same every time however slowly the frames are
-drawn. The options are at the top of `tools/record.mjs`; the plan it is part
-of, sound and videos included, is `RECORDING.md`.
+drawn. What the placed objects sounded (their scripts' sounds, a screen's
+film) is logged in game time and mixed under the pictures, as loud and on the
+side it was where the camera stood; `--silent` leaves it out. `--gpu` renders
+on the machine's GPU, several times faster than the default software
+renderer. The options are at the top of `tools/record.mjs`, and the design,
+videos included, is `RECORDING.md`.
 
 ### Starting somewhere else
 
@@ -533,7 +537,7 @@ node tests/anim.mjs    # an animated asset does what its script says: clip ticks
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
-node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end
+node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end, sound mixed
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
 node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)

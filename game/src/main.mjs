@@ -440,7 +440,9 @@ function placeProp(prop, asset, loaded) {
     // stands: its bind pose captured, anything it says to hang hung, its own
     // pose. Then the scene manifest's per-placement pose on top, the way
     // placements shadow hand-written props. The script runs last, below.
-    const script = loaded ? new PropScript(root, loaded, prop.name, { app }) : null;
+    // The world's clock is the script's: held, its videos wait to be seeked by
+    // each step; and what it sounds is logged while held, for the recorder's mix.
+    const script = loaded ? new PropScript(root, loaded, prop.name, { app, held: () => clock.held, report: heard }) : null;
     if (script) {
       for (const w of script.warnings) console.warn(`[script ${prop.name}] ${w}`);
       scripted.push(script);
@@ -660,10 +662,15 @@ document.addEventListener('pointerlockchange', () => {
 const clock = {
   held: false,
   time: 0,        // world seconds, advanced by every frame, played or stepped
+  // What the placed objects sounded while held, each stamped with `time`:
+  // { t, kind: 'sound', id, object, file, url, loop, volume, pos } as one
+  // starts, { t, kind: 'stop', id } when one is cut short. Emptied by hold().
+  log: [],
 
   hold() {
     if (this.held) return;
     this.held = true;
+    this.log = [];
     cancelAnimationFrame(app.frameRequestId);
     app.frameRequestId = null;
   },
@@ -686,6 +693,10 @@ const clock = {
     app.render();
   },
 };
+
+function heard(event) {
+  if (clock.held) clock.log.push({ t: clock.time, ...event });
+}
 
 // ---- Loop ----
 app.on('update', (dt) => {

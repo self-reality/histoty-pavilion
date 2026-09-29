@@ -1,7 +1,10 @@
 # Recording gameplay to video — the plan
 
-Status (2026-09-29): **step 1 built** — the clock, the view, the silent
-recorder (`tools/record.mjs`, `tests/record.mjs`). Steps 2–3 below are next. Spans this repo and the asset
+Status (2026-09-29): **steps 1–3 built.** The clock, the view and the
+recorder with its sound mix here (`tools/record.mjs`, `tests/record.mjs`);
+videos prepared, indexed and played in game time in the kit (`npm run video`,
+`pack`, `runtime/script.mjs`, `test/video.mjs`). Step 4 and the frame-sheet
+fallback are not built. Where the build differs from the plan is said below. Spans this repo and the asset
 kit (`../../singularity-development-kit`).
 
 The goal: frame a shot in the fly-over, then from the terminal render a
@@ -76,7 +79,9 @@ lives in `tools/`, drives `window.game`, and is never imported by the world.
 3. **Event log.** While recording, the runtime reports what it starts instead
    of relying on WebAudio: `{ t, kind: 'sound' | 'video-audio', file, offset,
    pos, volume }` in game time. (A runtime hook — see the kit, step 4.) The
-   same log is the future demo file.
+   same log is the future demo file. *Built as* `game.clock.log`, filled while
+   the clock is held, through the runtime's `report`. The world's own voices
+   (footsteps, the gun) are not in it: a camera has neither.
 4. **`tools/record.mjs`.** Playwright + swiftshader like `tests/_shot.mjs`.
    Opens `?mode=flyover&view=…`, waits for the prop's script (`game.scripted`),
    triggers the action, holds the clock, then loops `step(1/fps)` → capture the
@@ -126,9 +131,15 @@ Everything here is shared by the kit's viewer, which runs the same runtime.
      screen's sound comes from where the screen is.
    - Uploads the texture only when the element has a new frame
      (`requestVideoFrameCallback`), not every game frame as now.
-   - Stepped: the element stays paused; each step seeks to `t + ½ frame`
-     (mid-frame, so rounding never lands on the frame before) and the step
-     awaits `seeked` before the render.
+   - Stepped: the element stays paused; each step seeks to the middle of the
+     frame `t` falls in (WebM keeps timestamps to the millisecond, so a
+     frame's exact start can land on the one before) and the step awaits
+     `seeked` before the render. *Found while building:* a server that
+     answers no ranges — python's http.server, which serves both repos —
+     makes a video unseekable, so a held video that cannot seek is fetched
+     whole once and played from memory.
+   - Sounds too end in game time, their length after they started: a script
+     that awaits a sound and then acts does so at the same moment stepped.
 4. **Runtime: a report hook.** The consumer may hand the runtime a
    `report(event)` function; `playSound` and the video audio call it with
    `{ t, kind, file, offset, pos, volume }`. The runtime stays engine-agnostic

@@ -11,6 +11,11 @@
 // 4) Released, the world moves on its own again.
 // 5) tools/record.mjs end to end: a short film of the dance, as many frames as
 //    asked, and a second switchMode to the same game at a view is honoured.
+//    The dancer makes no sound, so the film has no sound track.
+// 6) ...and of a box that beeps and shows a film on its lid (the life fixture,
+//    stood in front of the camera by tests/fixtures/record.placements.json):
+//    the beep is logged in game time and mixed under the pictures, as long as
+//    they are; --silent leaves it out.
 import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -57,6 +62,7 @@ const film = (page, pause) => page.evaluate(async ({ PROP, FPS, FRAMES, pause })
   return { frames, clipTimes, clock: g.clock.time - t0 };
 }, { PROP, FPS, FRAMES, pause });
 
+const streams = (file) => execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', file], { encoding: 'utf8' });
 const hash = (s) => createHash('sha1').update(s).digest('hex').slice(0, 12);
 const r = {};
 
@@ -103,6 +109,23 @@ try {
   const probe = execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0',
     '-show_entries', 'stream=nb_read_frames,width,height,r_frame_rate', '-of', 'json', out], { encoding: 'utf8' });
   r.tool = JSON.parse(probe).streams[0];
+  r.tool.audio = streams(out).includes('audio');
+
+  const beep = join(dir, 'beep.mp4');
+  const silent = join(dir, 'silent.mp4');
+  const life = ['tools/record.mjs', '--url', 'http://localhost:5173/?placements=./tests/fixtures/record.placements.json',
+    '--view=-43.46,1.8,-1.8,0,-25', '--prop', 'life_rec', '--action', 'show', '--seconds', '0.5', '--fps', String(FPS), '--size', '320x180'];
+  const said = execFileSync('node', [...life, '--out', beep], { encoding: 'utf8' });
+  process.stdout.write(said);
+  execFileSync('node', [...life, '--silent', '--out', silent], { stdio: 'inherit' });
+  const length = (type) => Number(execFileSync('ffprobe', ['-v', 'error', '-select_streams', `${type[0]}:0`, '-show_entries', 'stream=duration',
+    '-of', 'csv=p=0', beep], { encoding: 'utf8' }));
+  r.sound = {
+    logged: /sound: beep\.ogg at 0\.00 s/.test(said),
+    video: length('video'), audio: length('audio'),
+    max: Number((execFileSync('sh', ['-c', `ffmpeg -i "${beep}" -af volumedetect -f null - 2>&1 | grep max_volume`], { encoding: 'utf8' }).match(/(-?[\d.]+) dB/) ?? [])[1]),
+    silent: streams(silent),
+  };
 } catch (err) {
   r.tool = { error: err.message };
 } finally {
@@ -110,11 +133,12 @@ try {
 }
 
 const ok = {
+  sound: r.sound?.logged && Math.abs(r.sound.audio - r.sound.video) < 0.05 && r.sound.max > -40 && !r.sound.silent.includes('audio'),
   held: !r.held.clockMoved && r.held.framesRan === 0,
   stepped: r.clipExact && Math.abs(r.clock - (FRAMES - 1) * dt) < 1e-6,
   frameExact: r.moves && r.same,
   released: r.released.moved && !r.released.held,
-  tool: Number(r.tool.nb_read_frames) === 5 && r.tool.width === 320 && r.tool.height === 180 && r.tool.r_frame_rate === `${FPS}/1`,
+  tool: !r.tool.audio && Number(r.tool.nb_read_frames) === 5 && r.tool.width === 320 && r.tool.height === 180 && r.tool.r_frame_rate === `${FPS}/1`,
   errors: errs.length === 0,
 };
 console.log(JSON.stringify(r, null, 2));
