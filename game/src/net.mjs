@@ -33,6 +33,9 @@ const SEND_HZ = 12;
 // interval, so it glides between updates instead of stepping.
 const CATCH_UP = 14;
 const POS_BYTES = 24;
+// How long a link may take to open before it is given up on. Two networks
+// that will not link directly do not always say so; some just never answer.
+const LINK_SECONDS = 20;
 
 /** The rooms server this page should use, or null. */
 export function roomsUrl(authored) {
@@ -63,10 +66,15 @@ export class Net {
     this.room = room;
     this.id = null;
     this.state = 'connecting';     // connecting | open | full | closed
-    this.links = new Map();        // peer id -> { pc, pos, events, chain }
+    this.links = new Map();        // peer id -> { peer, pc, pos, events, chain, opened, age }
+    // In the room, and no link to them could be made: there is no relay yet for
+    // two networks that refuse each other. Said on the overlay, because from
+    // the inside it looks exactly like an empty room.
+    this.lost = new Set();
     this.heard = new Map();        // author id -> { pos: last seq, events: last seq, at, yaw }
     this.seq = 0;
     this.since = 0;
+    this.last = performance.now();
 
     const target = new URL(url);
     target.searchParams.set('room', room);
@@ -82,8 +90,13 @@ export class Net {
   /** How many other people are linked. */
   get others() {
     let n = 0;
-    for (const link of this.links.values()) if (link.events.readyState === 'open') n++;
+    for (const link of this.links.values()) if (link.opened) n++;
     return n;
+  }
+
+  /** How many are still being linked to. */
+  get linking() {
+    return this.links.size - this.others;
   }
 
   // ---- The handshake, by way of the rooms server ----
@@ -101,6 +114,7 @@ export class Net {
       this.onChange();
     } else if (msg.type === 'leave') {
       this.drop(msg.id);
+      if (this.lost.delete(msg.id)) this.onChange();
     } else if (msg.from != null) {
       const link = this.links.get(msg.from) ?? (msg.type === 'offer' ? this.link(msg.from) : null);
       if (!link) return;
@@ -122,17 +136,18 @@ export class Net {
     const pos = pc.createDataChannel('pos', { negotiated: true, id: 0, ordered: false, maxRetransmits: 0 });
     const events = pc.createDataChannel('events', { negotiated: true, id: 1 });
     pos.binaryType = 'arraybuffer';
-    const link = { peer, pc, pos, events, chain: Promise.resolve() };
+    const link = { peer, pc, pos, events, chain: Promise.resolve(), opened: false, age: 0 };
     this.links.set(peer, link);
 
     pc.onicecandidate = (e) => { if (e.candidate) this.send(peer, { type: 'candidate', candidate: e.candidate }); };
     pc.onconnectionstatechange = () => {
       if (['failed', 'closed'].includes(pc.connectionState)) this.drop(peer);
     };
-    events.onopen = () => { this.hello(link); this.onChange(); };
+    events.onopen = () => { link.opened = true; this.hello(link); this.onChange(); };
     events.onmessage = (e) => this.event(JSON.parse(e.data));
     events.onclose = () => this.drop(peer);
     pos.onmessage = (e) => this.position(e.data);
+    this.onChange();
     return link;
   }
 
@@ -162,6 +177,10 @@ export class Net {
     if (!link) return;
     this.links.delete(peer);
     link.pc.close();
+    if (!link.opened) {
+      this.lost.add(peer);
+      console.warn(`[net] no direct link to ${peer} could be made — a network between you is blocking it`);
+    }
     // Today a link's far end is the only author heard over it. When messages
     // are passed on, leaving becomes an event of its own.
     this.heard.delete(peer);
@@ -214,8 +233,15 @@ export class Net {
     if (!heard.at) { heard.at = { x: said.x, y: said.y, z: said.z }; heard.yaw = said.yaw; }
   }
 
-  /** Once a frame: say where this browser is, and move the ghosts. */
-  update(dt) {
+  /**
+   * Once a frame: say where this browser is, and move the ghosts. On the wall
+   * clock, not the world's: the engine caps a slow frame's dt, and a slow frame
+   * is not a slow network.
+   */
+  update() {
+    const now = performance.now();
+    const dt = Math.min((now - this.last) / 1000, 1);
+    this.last = now;
     this.since += dt;
     if (this.since >= 1 / SEND_HZ && this.id !== null) {
       this.since = 0;
@@ -230,6 +256,10 @@ export class Net {
           if (link.pos.readyState === 'open') link.pos.send(v.buffer);
         }
       }
+    }
+
+    for (const link of [...this.links.values()]) {
+      if (!link.opened && (link.age += dt) > LINK_SECONDS) this.drop(link.peer);
     }
 
     const k = 1 - Math.exp(-CATCH_UP * dt);

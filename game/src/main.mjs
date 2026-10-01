@@ -610,10 +610,13 @@ function showMode() {
 
 // Who else is here, on the overlay. Nothing at all when there is no network.
 function showPeople() {
-  const n = net.others;
+  const n = net.others, lost = net.lost.size;
+  const s = (k) => (k > 1 ? 's' : '');
   ui.people.textContent = net.state === 'connecting' ? `Room ${net.room} — connecting…`
     : net.state === 'full' ? `Room ${net.room} is full — playing alone`
-    : n ? `Room ${net.room} — ${n} other${n > 1 ? 's' : ''} here`
+    : n ? `Room ${net.room} — ${n} other${s(n)} here` + (lost ? `, ${lost} more could not be reached` : '')
+    : net.linking ? `Room ${net.room} — someone is here, linking…`
+    : lost ? `Room ${net.room} — ${lost} other${s(lost)} here, but no direct link could be made: a network is blocking it`
     : net.state === 'closed' ? 'Playing alone — the rooms server is not answering'
     : `Room ${net.room} — nobody else here yet`;
 }
@@ -746,9 +749,8 @@ app.on('update', (dt) => {
   // does not fast-forward a dance any more than it fast-forwards a fall.
   for (const s of scripted) s.update(d);
 
-  // Where this browser is, said to the others; where they are, drawn. On the
-  // frame's real time, not the world's: a slow frame is not a slow network.
-  net?.update(dt);
+  // Where this browser is, said to the others; where they are, drawn.
+  net?.update();
 
   // After the clips, so a dancer is reached where this frame's pose put him;
   // the hints come down with the pause overlay and the crosshair.

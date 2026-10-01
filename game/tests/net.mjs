@@ -9,7 +9,9 @@
 // 3) One walks: its ghost in the other page follows.
 // 4) One changes game: its ghost is redrawn as what it now moves as.
 // 5) One leaves: its ghost goes.
-// 6) The room turns the ninth away, and turns away a socket that is not from
+// 6) Two whose networks will not link directly are told so, not shown an
+//    empty room.
+// 7) The room turns the ninth away, and turns away a socket that is not from
 //    the game's own pages.
 import { chromium } from 'playwright';
 
@@ -24,12 +26,13 @@ const browser = await chromium.launch({
     '--disable-features=WebRtcHideLocalIpsWithMdns'],
 });
 const errs = [];
-async function open(query) {
+async function open(query, init = null) {
   const page = await (await browser.newContext({ viewport: { width: 640, height: 400 } })).newPage();
+  if (init) await page.addInitScript(init);
   page.on('pageerror', (e) => errs.push(e.message));
   page.sockets = [];
   page.on('websocket', (ws) => page.sockets.push(ws.url()));
-  await page.goto(GAME + query, { waitUntil: 'load' });
+  await page.goto(GAME + query, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.game?.mode && !document.getElementById('playBtn').disabled, { timeout: 60000 });
   return page;
 }
@@ -94,7 +97,24 @@ await a.context().close();
 await linked(b, 0);
 r.left = { ghosts: (await ghost(b)).count, line: await b.evaluate(() => document.getElementById('people').textContent) };
 
-// ---- 6) The door ------------------------------------------------------------
+// ---- 6) Networks that refuse each other ---------------------------------------
+// Relay-only with no relay to use: the handshake goes through and no route is
+// ever found, which is what two unfriendly networks look like from inside.
+const c = await open(q, () => {
+  const Real = window.RTCPeerConnection;
+  window.RTCPeerConnection = function (config) { return new Real({ ...config, iceTransportPolicy: 'relay' }); };
+});
+const line = () => document.getElementById('people').textContent;
+r.blocked = { early: await c.evaluate(line) };
+await Promise.all([b, c].map((p) => p.waitForFunction(() => window.game.net.lost.size === 1, null, { timeout: 60000 })));
+r.blocked.b = await b.evaluate(line);
+r.blocked.c = await c.evaluate(line);
+r.blocked.ghosts = (await ghost(b)).count + (await ghost(c)).count;
+await c.context().close();
+await b.waitForFunction(() => window.game.net.lost.size === 0, null, { timeout: 20000 });
+r.blocked.after = await b.evaluate(line);
+
+// ---- 7) The door ------------------------------------------------------------
 r.door = await b.evaluate(async ([rooms, room]) => {
   const knock = () => new Promise((done) => {
     const ws = new WebSocket(`${rooms}/?room=${room}-full`);
@@ -124,6 +144,8 @@ const ok = {
   walk: r.walk.moved > 2.5 && r.walk.off < 0.1,
   mode: r.mode.ghost.mode === 'flyover' && r.mode.ghost.body === 'flyer' && r.mode.off < 0.1,
   left: r.left.ghosts === 0 && /nobody else/.test(r.left.line),
+  blocked: /linking/.test(r.blocked.early) && /no direct link/.test(r.blocked.b) && /no direct link/.test(r.blocked.c)
+    && r.blocked.ghosts === 0 && /nobody else/.test(r.blocked.after),
   door: r.door.slice(0, 8).every((t) => t === 'welcome') && r.door[8] === 'full' && r.stranger === 'refused',
   errors: errs.length === 0,
 };

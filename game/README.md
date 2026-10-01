@@ -64,7 +64,9 @@ Worker lets in the live site's origin and `localhost` only, see
 
 A room holds 8, because everyone is linked to everyone. People on networks
 that block direct links (some offices and mobile carriers) will not connect
-yet: that needs a TURN relay, which is the next thing to add.
+yet: that needs a TURN relay, which is the next thing to add. The pause
+overlay says which it is — "nobody else here yet" is an empty room, "no
+direct link could be made" is someone there whom this browser cannot reach.
 
 ### Filming it
 
@@ -574,7 +576,7 @@ node tests/anim.mjs    # an animated asset does what its script says: clip ticks
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
-node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves (needs `npm run rooms:dev`)
+node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves; two that cannot link are told so (needs `npm run rooms:dev`)
 node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end, sound mixed
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
