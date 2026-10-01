@@ -16,6 +16,16 @@
 //   the key            E — bound in main.mjs, which calls trigger()
 //   the aim            the camera's line of sight, handed over with the key, so
 //                      the script's run.aim says where on the prop you looked
+//   who else sees it   an action the script offers as `shared` is the room's:
+//                      the key is said to everyone there (`say`, which main.mjs
+//                      points at ./net.mjs), theirs is done here (heard()), and
+//                      a newcomer is told what is running (going())
+//
+// A shared press travels as an act — { object, action, press, age, ray }: the
+// prop by its name in the scene, which is the same in every browser, the press
+// as what it did where it was made ('start' or 'stop'), and how many seconds
+// ago. Only an action its script marked `shared` is ever set off by an act;
+// anything else another browser asks for is dropped.
 //
 // The default reach is measured from the prop's bounds, not its origin, and to
 // the player's whole standing height, not their eyes. An origin is wherever the
@@ -38,6 +48,10 @@ const HINT_HEIGHT = 0.7;
 
 const FALLBACK_STOP = 'Stop';
 
+// How many presses are kept for a prop that has not landed yet. It is one
+// start and perhaps a stop; more than a handful is somebody leaning on the key.
+const WAITING = 8;
+
 const _to = new Vec3();
 const _view = new Mat4();
 const _viewProj = new Mat4();
@@ -56,6 +70,10 @@ export class Actions {
     this.items = [];          // placed props whose script has actions
     this.offers = [];         // who is in reach this frame: [{ item, action, area, anchor, facing }]
     this.active = null;       // the offer E would act on, or null
+    this.say = null;          // (act) => tell the room, when there is one to tell
+    this.waiting = new Map(); // prop name -> [{ act, at }] heard before it landed
+    this.setOff = new Map();  // script -> when its shared run began, until it is next stepped
+    this.stepped = null;      // when scripts with a shared run going were last stepped
   }
 
   /** A prop has landed whose script offers actions. */
@@ -70,6 +88,10 @@ export class Actions {
     };
     this.items.push(item);
     this.claim(item);
+    // What the room did to it while it was still on its way: the same presses,
+    // in order, each as much older as it has waited.
+    for (const { act, at } of this.waiting.get(name) ?? []) this.apply(item, act, (performance.now() - at) / 1000);
+    this.waiting.delete(name);
     return item;
   }
 
@@ -170,11 +192,81 @@ export class Actions {
     const { item, action } = offer;
     const was = !!action.run;
     const ray = { origin: this.camera.getPosition().clone(), direction: this.camera.forward.clone() };
-    item.script.trigger(action.name, { ray });
+    this.press(item, action, { ray });
     const running = !!action.run;
+    if (action.shared) {
+      const { origin: o, direction: d } = ray;
+      this.say?.({ object: item.name, action: action.name, press: was ? 'stop' : 'start', age: 0, ray: [o.x, o.y, o.z, d.x, d.y, d.z] });
+    }
     console.log(`[actions] ${item.name}: ${action.name} ${!was ? (running ? 'started' : 'started and done')
       : running ? 'asked to stop — still running' : 'stopped'}`);
     return { name: item.name, action: action.name, running };
+  }
+
+  // ---- The room -------------------------------------------------------------
+
+  /** Someone else in the room pressed the key on a shared action. */
+  heard(act) {
+    if (typeof act?.object !== 'string' || typeof act.action !== 'string' || !['start', 'stop'].includes(act.press)) return;
+    const item = this.items.find((i) => i.name === act.object);
+    if (item) { this.apply(item, act); return; }
+    // Props land after the map is walkable, and a newcomer is told what is
+    // running the moment it joins: kept until the prop is there to do it.
+    const kept = this.waiting.get(act.object) ?? [];
+    if (kept.length < WAITING && (this.waiting.has(act.object) || this.waiting.size < 64)) {
+      this.waiting.set(act.object, [...kept, { act, at: performance.now() }]);
+    }
+  }
+
+  // Do here what was done there. 'start' on one already running is two people
+  // pressing at once, and both have it; 'stop' on one that is not is too late.
+  apply(item, act, waited = 0) {
+    const action = item.script.actions.find((a) => a.name === act.action);
+    if (!action?.shared) return;
+    const r = Array.isArray(act.ray) && act.ray.length === 6 && act.ray.every(Number.isFinite) ? act.ray : null;
+    const ray = r && { origin: r.slice(0, 3), direction: r.slice(3) };
+    const age = (Number.isFinite(act.age) && act.age > 0 ? act.age : 0) + waited;
+    if ((act.press === 'start') === !!action.run) return;
+    this.press(item, action, act.press === 'start' ? { ray, age } : { ray });
+    console.log(`[actions] ${item.name}: ${action.name} ${act.press === 'start' ? `started by someone else, ${age.toFixed(2)} s ago` : 'asked to stop by someone else'}`);
+  }
+
+  // The key, from here or from anywhere. When it sets a shared run going the
+  // moment is kept: see since().
+  press(item, action, options) {
+    const idle = !item.script.sharing;
+    item.script.trigger(action.name, options);
+    if (idle && item.script.sharing) this.setOff.set(item.script, performance.now());
+  }
+
+  /**
+   * How many real seconds to step a script with a shared run going, this
+   * frame: since the last frame — `last` and `now` as performance.now() read
+   * them — or since the run was set off, when that was later. A key lands
+   * between two frames, and the dance begins at the key, not at the frame
+   * before it: on a machine drawing ten frames a second that is the tenth of
+   * a second two players' dancers would be apart by.
+   */
+  since(script, last, now) {
+    const from = Math.max(this.setOff.get(script) ?? last, last);
+    this.setOff.delete(script);
+    this.stepped = now;
+    return (now - from) / 1000;
+  }
+
+  /**
+   * What a newcomer walks in on: every shared action running, and for how
+   * long — as the run counts it, plus what its script has not been stepped by
+   * yet: asked between two frames, or in a tab nobody is looking at, the
+   * script's clock is that far behind the room's.
+   */
+  going() {
+    const now = performance.now();
+    return this.items.flatMap((item) => {
+      const behind = (now - Math.max(this.setOff.get(item.script) ?? 0, this.stepped ?? now)) / 1000;
+      return item.script.actions.filter((a) => a.shared && a.run)
+        .map((a) => ({ object: item.name, action: a.name, press: 'start', age: a.run.api.age + behind, ray: null }));
+    });
   }
 
   // ---- The hints ------------------------------------------------------------

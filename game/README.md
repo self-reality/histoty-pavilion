@@ -32,8 +32,14 @@ How a mode is built and what it may touch is in `src/modes/README.md`.
 ### Other people
 
 Everyone in the same room sees everyone else as a ghost: a pale figure for
-someone on foot, a small camera for someone flying. That is all there is to it
-— you walk through them, a shot passes through them, nobody is in charge.
+someone on foot, a small camera for someone flying. You walk through them, a
+shot passes through them, nobody is in charge.
+
+And everyone sees the g-man dance. An action its script offers as `shared`
+(see *Actions*) is the room's: whoever presses E on him sets him off — and
+stops him — for everybody, on the same beat, and someone who walks in half-way
+through finds him that far into it. What is kept is when the dance started;
+each browser plays its own copy from there.
 
 ```bash
 npm run rooms:dev   # the rooms server on this machine, ws://localhost:8787
@@ -400,6 +406,19 @@ mesh. With several props in reach each gets a hint, and the key belongs to the
 one you are looking at, whose hint is lit. ANIMATED_PROPS.md ("Actions") has
 the detail; `tests/actions.mjs` and `tests/package.mjs` the proof.
 
+His script also says `shared: true`, which makes the action the room's rather
+than the player's (the kit's contract, "Shared actions"). The key is then said
+to everyone in the room as well — the prop's name, the action, whether the
+press started or stopped it, and how many seconds ago — and each browser does
+the same to its own copy: `start(run)` with `run.age` that many seconds, which
+his script hands to the clip as `from`. A newcomer is told what is running by
+whoever was there first; a press heard before the prop has landed waits for
+it. While a shared run is going the prop is stepped by the seconds that really
+passed rather than the clamped frame step, so a tab left in the background
+comes back to the dance where it now is. Only an action marked `shared` is
+ever set off by somebody else's key. `src/actions.mjs` has this half,
+`src/net.mjs` carries it, `tests/net.mjs` proves it.
+
 ### Sound
 
 Twenty-one files — footsteps, jumps, landings and the AK — wired by
@@ -587,7 +606,7 @@ node tests/anim.mjs    # an animated asset does what its script says: clip ticks
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
-node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves; two that cannot link see each other through the server (needs `npm run rooms:dev`)
+node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves; the dancer one sets off dances for all on the same beat, a latecomer included; two that cannot link see each other through the server (needs `npm run rooms:dev`)
 node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end, sound mixed
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands

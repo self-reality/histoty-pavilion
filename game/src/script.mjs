@@ -46,6 +46,14 @@
 // the viewer's buttons), not this file's: here an action is a method somebody
 // calls.
 //
+// An action offered as `shared` is the room's rather than the player's: where
+// a consumer has other people in the world, a key any of them presses is
+// passed on, and each of their copies of this file is told the same —
+// trigger(name, { age }) with how long ago that was. The run then starts that
+// old, `run.age` says so, and a clip played `{ from: run.age }` is where it is
+// for everybody else. Who the others are and how they are told is the
+// consumer's (the pavilion's net.mjs); here a late start is a number.
+//
 // Everything a script starts runs in GAME time — the dt update() is handed —
 // clips, waits, ticks, and sounds and videos too: a sound ends its length
 // after it started and a video shows the frame of its own time, whatever the
@@ -251,8 +259,9 @@ const _tmp = new Vec3();
  */
 export class ClipPlayer {
   /**
-   * `play` is how the script asked for it — `{ loop, speed }`, from
-   * object.play at rest or from a run's play. The rig and the bind pose are
+   * `play` is how the script asked for it — `{ loop, speed, from }`, from
+   * object.play at rest or from a run's play: `from` is how many seconds into
+   * the clip it starts, for a run joined late. The rig and the bind pose are
    * the manifest's either way.
    */
   constructor(root, clip, manifest, bind, label = '', play = {}) {
@@ -262,7 +271,7 @@ export class ClipPlayer {
     this.duration = clip.duration ?? (this.times.length ? this.times[this.times.length - 1] : 0);
     this.loop = play.loop ?? clip.loop ?? true;
     this.speed = play.speed ?? 1;
-    this.time = 0;
+    this.time = Math.max(0, Number(play.from) || 0);
     this.tracks = [];     // [{ pattern, nodes, rest: Quat[], q: Float32Array }]
     this.missing = [];    // patterns that matched nothing: a re-export renamed a joint
 
@@ -489,7 +498,7 @@ export class PropScript {
     this.clipping = null;   // ...and its playback
     this.rest = null;       // Map(node -> { q, p }): where a run's bones go back to
     this.fade = null;       // { from: Map(node -> { q, p }), t } while easing between the two
-    this.actions = [];      // [{ name, label, stop, radius, fn }]
+    this.actions = [];      // [{ name, label, stop, radius, shared, onStart, onStop, run }]
     this.running = [];      // the actions with a run going, oldest first — action.run is the run
     this.ticks = [];        // object.on('tick') handlers
     this.timers = [];       // [{ at, playback }] for wait()
@@ -598,7 +607,7 @@ export class PropScript {
   }
 
   // What a run hands its action: the same members, each playback tied to it.
-  makeRun(action, aim = null) {
+  makeRun(action, aim = null, age = 0) {
     const self = this;
     const live = new Set();
     const tie = (playback) => {
@@ -611,8 +620,12 @@ export class PropScript {
       over: false,
       label: action.stop,
       aim,
+      // When it started, on this object's clock: before now, for a run that
+      // somebody else started and this copy heard of late.
+      began: this.time - Math.max(0, Number(age) || 0),
       api: Object.freeze({
         action: action.name,
+        get age() { return self.time - run.began; },
         get aim() { return run.aim; },
         get ended() { return run.over; },
         get label() { return run.label; },
@@ -649,6 +662,7 @@ export class PropScript {
       label: options.label ?? name,
       stop: options.stop ?? null,         // the word while it runs, not the handler
       radius: options.radius > 0 ? options.radius : DEFAULT_ACTION_RADIUS,
+      shared: options.shared === true,    // the room's: a press anywhere is a press everywhere
       onStart: handlers.start,
       onStop: typeof handlers.stop === 'function' ? handlers.stop : null,
       run: null,
@@ -657,6 +671,9 @@ export class PropScript {
 
   /** The action started most recently and still running, or null. */
   get acting() { return this.running[this.running.length - 1] ?? null; }
+
+  /** Is a shared action running — is this object, for now, on the room's time rather than its own? */
+  get sharing() { return this.running.some((a) => a.shared); }
 
   /** Is the key on offer for this action right now? Not while it runs with no `stop` to call. */
   offers(action) { return !action.run || !!action.onStop; }
@@ -674,8 +691,14 @@ export class PropScript {
    * space (Vec3s or [x, y, z]): what it hits becomes `run.aim`, on the press
    * that starts a run and on every press that asks it to stop. Without one,
    * `run.aim` is null — a consumer that has no view to give says so.
+   *
+   * `age` is how many seconds ago the press that starts the run was made, when
+   * it was made somewhere else: someone in the room set off a shared action,
+   * and this copy is told of it now. The run starts that old — `run.age` — so
+   * the script can pick up where everybody else already is. It means nothing
+   * on a press that asks a running action to stop.
    */
-  trigger(name, { ray = null } = {}) {
+  trigger(name, { ray = null, age = 0 } = {}) {
     const action = name ? this.actions.find((a) => a.name === name) : this.actions[0];
     if (!action) return null;
     const aim = this.aimAt(ray);
@@ -686,7 +709,7 @@ export class PropScript {
       }
       return action;
     }
-    const run = this.makeRun(action, aim);
+    const run = this.makeRun(action, aim, age);
     action.run = run;
     this.running.push(action);
     let out;
@@ -1279,7 +1302,7 @@ export class PropScript {
         + `${p.speed !== 1 ? ` at ${p.speed}x` : ''} on ${p.count} nodes${p.root ? ' + root motion' : ''}`);
     }
     if (this.rig) parts.push(`${this.rig.count} bones posed`);
-    for (const a of this.actions) parts.push(`offers ${a.name} "${a.label}"`);
+    for (const a of this.actions) parts.push(`offers ${a.name} "${a.label}"${a.shared ? ' to the room' : ''}`);
     if (this.ticks.length) parts.push(`${this.ticks.length} tick handler${this.ticks.length > 1 ? 's' : ''}`);
     if (this.surfaces.size) parts.push(`paints ${[...this.surfaces.keys()].join(', ')}`);
     if (this.sounds.length) parts.push(`${this.sounds.length} sound${this.sounds.length > 1 ? 's' : ''}`);

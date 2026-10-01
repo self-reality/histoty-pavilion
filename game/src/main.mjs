@@ -260,7 +260,12 @@ function boot() {
         presence,
         me: () => session && { mode: mode.id, body: mode.body, pos: session.body.pos, yaw: session.body.yaw },
         onChange: showPeople,
+        // A key on something the whole room sees (./actions.mjs): theirs done
+        // here, and what is running here said to whoever walks in.
+        going: () => actions.going(),
+        onActs: (acts) => { for (const act of acts) actions.heard(act); },
       });
+      actions.say = (act) => net.did([act]);
       showPeople();
     }
 
@@ -730,7 +735,14 @@ function heard(event) {
 }
 
 // ---- Loop ----
+let wall = performance.now();
 app.on('update', (dt) => {
+  // When the last frame was, on the wall: a dance the whole room is watching
+  // goes by the seconds that really passed, whatever the engine or the clamp
+  // below makes of them.
+  const now = performance.now();
+  const last = wall;
+  wall = now;
   if (!session) return;
   // A played frame is clamped (tab switches); a stepped one is what was asked.
   const d = clock.held ? dt : Math.min(dt, 0.05);
@@ -743,8 +755,11 @@ app.on('update', (dt) => {
   if (debug) debug.updateReadout();
 
   // Scripts tick on the same clamped step as the controller, so a tab switch
-  // does not fast-forward a dance any more than it fast-forwards a fall.
-  for (const s of scripted) s.update(d);
+  // does not fast-forward a dance any more than it fast-forwards a fall —
+  // unless the dance is the room's (a shared action is running): everyone
+  // else's went on, so it goes by the seconds that really passed, and whoever
+  // looked away comes back to it where it now is.
+  for (const s of scripted) s.update(s.sharing && !clock.held ? actions.since(s, last, now) : d);
 
   // Where this browser is, said to the others; where they are, drawn.
   net?.update();

@@ -1,6 +1,9 @@
-// The network: other people's browsers, and what they say about where they are.
+// The network: other people's browsers, and what they say about where they are
+// and what they set off.
 //
-// It fills the list in ./presence.mjs and does nothing else. The rooms server
+// It fills the list in ./presence.mjs, and passes on a key pressed on
+// something the whole room sees (`acts`, below) — what that key does is
+// ./actions.mjs's, on each side. The rooms server
 // (../../rooms/src/index.mjs) says who is in the room and carries the WebRTC
 // handshake; after that everyone is linked to everyone directly, and where
 // people stand does not touch a server. Nobody is in charge and nothing is
@@ -26,10 +29,19 @@
 //   pos     where the author stands — binary, unordered, never resent: a late
 //           position is worth nothing.
 //           [u32 author][u32 seq][f32 x][f32 y][f32 z][f32 yaw]
-//   events  what the author is — JSON, reliable.
+//   events  what the author is, and what it did — JSON, reliable.
 //           { from, seq, type: 'hello', mode, body }
-// And one message by way of the server, carrying either or both:
-//   { to: [id, …], type: 'say', seq, hello?: { mode, body }, pos?: [x, y, z, yaw] }
+//           { from, seq, type: 'acts', acts: [act, …] }
+// And one message by way of the server, carrying any of them:
+//   { to: [id, …], type: 'say', seq, hello?: { mode, body }, pos?: [x, y, z, yaw], acts?: [act, …] }
+//
+// An act is a key on a shared action, as ./actions.mjs words it:
+//   { object, action, press: 'start' | 'stop', age, ray }
+// `age` is how many seconds ago the press was made — nought when it is said as
+// it happens, more when a newcomer is told what was already running. A length
+// of time rather than a time of day, so no two clocks have to agree. Unlike a
+// hello or a position, the next one does not make up for one lost, so an act
+// is said once, to everyone, by whichever way reaches them now.
 // Every message names its author and counts up, rather than being taken as
 // "from whoever this link goes to", so the same thing may arrive by two ways,
 // or one day by way of someone else, with nothing here changing: a stale or
@@ -73,11 +85,15 @@ export class Net {
    * `me()` is what this browser says about itself, or null while there is no
    * game on stage: { mode, body, pos, yaw } — `pos` the point its game keeps
    * (feet for a walker, lens for a flyer), which is what Presence.move takes.
+   * `going()` is the acts a newcomer should hear — what is running here that
+   * the whole room sees — and `onActs(acts)` is told what others say they did.
    */
-  constructor({ url, room = 'lobby', presence, me, onChange = () => {} }) {
+  constructor({ url, room = 'lobby', presence, me, onChange = () => {}, going = () => [], onActs = () => {} }) {
     this.presence = presence;
     this.me = me;
     this.onChange = onChange;
+    this.going = going;
+    this.onActs = onActs;
     this.room = room;
     this.id = null;
     this.state = 'connecting';     // connecting | open | full | closed
@@ -87,7 +103,7 @@ export class Net {
     // Whether the server had a TURN relay to offer: with one, a pair of
     // networks that refuse each other is still linked, through it.
     this.relay = false;
-    this.heard = new Map();        // author id -> { pos: last seq, events: last seq, at, yaw, to, slow }
+    this.heard = new Map();        // author id -> { pos: last seq, events: last seq, acts: last seq, at, yaw, to, slow }
     this.seq = 0;
     this.since = 0;
     this.sinceServer = 0;
@@ -131,6 +147,8 @@ export class Net {
     this.peers.add(peer);
     this.owed = true;
     this.say([peer], { hello: this.what() });
+    // And what they walked in on: whoever was here first says what is running.
+    this.did(this.going(), [peer]);
     this.onChange();
   }
 
@@ -158,6 +176,7 @@ export class Net {
         const [x, y, z, yaw] = msg.pos;
         this.stands(msg.from, { x, y, z, yaw }, true);
       }
+      if (Array.isArray(msg.acts) && this.fresh(msg.from, 'acts', msg.seq)) this.onActs(msg.acts);
     } else if (msg.from != null) {
       this.met(msg.from);
       const link = this.links.get(msg.from) ?? (msg.type === 'offer' ? this.link(msg.from) : null);
@@ -264,19 +283,42 @@ export class Net {
     if (!only) this.say(this.viaServer(), { hello: what });
   }
 
+  /**
+   * Say what was done to something the whole room sees — once, to everyone, or
+   * to `only` those: over the link to whoever has one open, by way of the
+   * server to the rest.
+   */
+  did(acts, only = null) {
+    if (!acts.length || this.id === null) return;
+    const seq = ++this.seq;
+    const text = JSON.stringify({ from: this.id, seq, type: 'acts', acts });
+    const slow = [];
+    for (const peer of only ?? this.peers) {
+      const link = this.links.get(peer);
+      if (link?.opened && link.events.readyState === 'open') link.events.send(text);
+      else slow.push(peer);
+    }
+    if (slow.length) this.send(slow, { type: 'say', seq, acts });
+  }
+
   // Newer than the last one heard from this author on this channel?
   fresh(author, channel, seq) {
     if (author === this.id) return false;
     let heard = this.heard.get(author);
-    if (!heard) this.heard.set(author, heard = { pos: 0, events: 0, at: null, yaw: 0 });
+    if (!heard) this.heard.set(author, heard = { pos: 0, events: 0, acts: 0, at: null, yaw: 0 });
     if (seq <= heard[channel]) return false;
     heard[channel] = seq;
     return true;
   }
 
+  // Counted apart: a hello that overtook an act by the other way must not
+  // make the act look stale.
   event(msg) {
-    if (!this.fresh(msg.from, 'events', msg.seq)) return;
-    if (msg.type === 'hello') this.joined(msg.from, msg);
+    if (msg.type === 'hello') {
+      if (this.fresh(msg.from, 'events', msg.seq)) this.joined(msg.from, msg);
+    } else if (msg.type === 'acts' && Array.isArray(msg.acts)) {
+      if (this.fresh(msg.from, 'acts', msg.seq)) this.onActs(msg.acts);
+    }
   }
 
   // Joining again is how a change of game is shown: the ghost is redrawn as

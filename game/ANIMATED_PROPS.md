@@ -88,8 +88,8 @@ API. The dancer's, as motion-capture-4 wrote it:
 
 ```js
 export default function (object) {
-  object.action({ name: 'dance', label: 'Dance', stop: 'Stop' }, {
-    start: (run) => run.play('keep_it_gangsta_3', { loop: false }),
+  object.action({ name: 'dance', label: 'Dance', stop: 'Stop', shared: true }, {
+    start: (run) => run.play('keep_it_gangsta_3', { loop: false, from: run.age }),
     stop: (run) => run.end(),
   });
 }
@@ -122,8 +122,8 @@ shows while running, how near "near" is (`radius`, metres, 2 if unsaid), and
 two functions for the key to call:
 
 ```js
-object.action({ name: 'dance', label: 'Dance', stop: 'Stop' }, {
-  start: (run) => run.play('keep_it_gangsta_3', { loop: false }),
+object.action({ name: 'dance', label: 'Dance', stop: 'Stop', shared: true }, {
+  start: (run) => run.play('keep_it_gangsta_3', { loop: false, from: run.age }),
   stop: (run) => run.end(),
 });
 ```
@@ -143,6 +143,15 @@ that one, whatever else runs. `PropScript` in `src/script.mjs` is the only
 place the rules live (`trigger()`, `finish()`). So the dancer's one-off is a
 performance you can cut short, a looped clip with the same `stop` would be a
 switch, and an action that opens a link is over the moment it starts.
+
+`shared: true` makes the dance the room's: with other people in the world
+(README, "Other people") a key any of them presses starts and stops him for
+all of them. `run.age` is how long the run has been going — nought for whoever
+pressed, more for a browser that heard of it late or walked in half-way
+through — and `from: run.age` starts the clip that far in, which is what puts
+every copy on the same beat. `Actions` in `src/actions.mjs` passes the key on
+and does here what was pressed there; only an action marked `shared` is ever
+set off that way.
 
 Who may press the key, and when, is not the asset's business and lives
 elsewhere, in `src/actions.mjs`:
