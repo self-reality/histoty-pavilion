@@ -1,0 +1,17 @@
+// The rooms Worker (src/index.mjs). Run from game/:
+//   npm run rooms:dev       on this machine, ws://localhost:8787 — no account needed
+//   npm run rooms:deploy    to Cloudflare, after `wrangler login`
+{
+  "name": "pavilion-rooms",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  // SQLite-backed: the only kind of Durable Object the free plan has.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }],
+  "vars": {
+    // Who may connect: the game's published origin, and pages on this machine.
+    "ORIGINS": "https://history.singularitymuseum.com,localhost"
+  }
+}

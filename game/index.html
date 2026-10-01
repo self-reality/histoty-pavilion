@@ -138,6 +138,8 @@
     body.playing[data-mode="shooter"] #crosshair { display: block; }
     body.started[data-mode="shooter"] #hud { display: block; }
     #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
+    #people { margin-top: 8px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
+    #people:empty { display: none; }
     .hidden { display: none !important; }
 
     /* Debug mode (?debug): pausing is something you do to reach the tweak panel,
@@ -150,7 +152,8 @@
     }
     body.debug #overlay h1,
     body.debug #overlay .sub,
-    body.debug #overlay .controls { display: none; }
+    body.debug #overlay .controls,
+    body.debug #people { display: none; }
     body.debug #overlay .play {
       margin: 12px; padding: 8px 22px; font-size: 9px; border-radius: 4px;
       box-shadow: 0 5px 15px rgba(255,207,90,0.25);
@@ -190,6 +193,7 @@
     <button class="play" id="playBtn" disabled>Loading…</button>
     <div class="controls" id="controls"></div>
     <div id="loading">Preparing map…</div>
+    <div id="people"></div>
   </div>
 
   <script type="importmap">

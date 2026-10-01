@@ -1,0 +1,134 @@
+// Two browsers in one room see each other, and nothing more than that.
+//
+//   node tests/net.mjs     # needs `npm start` on :5173 and `npm run rooms:dev` on :8787
+//
+// 1) No server named: a page on this machine plays alone and opens no socket,
+//    with the bare URL and with ?rooms=off alike.
+// 2) Two pages in one room: each draws one ghost, where the other stands.
+// 3) One walks: its ghost in the other page follows.
+// 4) One changes game: its ghost is redrawn as what it now moves as.
+// 5) One leaves: its ghost goes.
+// 6) The room turns the ninth away, and turns away a socket that is not from
+//    the game's own pages.
+import { chromium } from 'playwright';
+
+const GAME = 'http://localhost:5173/';
+const ROOMS = 'ws://localhost:8787';
+const room = `test-${Date.now().toString(36)}`;
+const r = {};
+
+const browser = await chromium.launch({
+  args: ['--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader',
+    // Two pages of one browser on one machine: let them name their own address.
+    '--disable-features=WebRtcHideLocalIpsWithMdns'],
+});
+const errs = [];
+async function open(query) {
+  const page = await (await browser.newContext({ viewport: { width: 640, height: 400 } })).newPage();
+  page.on('pageerror', (e) => errs.push(e.message));
+  page.sockets = [];
+  page.on('websocket', (ws) => page.sockets.push(ws.url()));
+  await page.goto(GAME + query, { waitUntil: 'load' });
+  await page.waitForFunction(() => window.game?.mode && !document.getElementById('playBtn').disabled, { timeout: 60000 });
+  return page;
+}
+// The one ghost a page draws: who, as what, and where.
+const ghost = (page) => page.evaluate(() => {
+  const people = [...window.game.presence.people.values()];
+  if (people.length !== 1) return { count: people.length };
+  const p = people[0].entity.getPosition();
+  return { count: 1, id: people[0].id, mode: people[0].mode, body: people[0].body, x: p.x, y: p.y, z: p.z };
+});
+const feet = (page) => page.evaluate(() => { const p = window.game.session.body.pos; return { x: p.x, y: p.y, z: p.z }; });
+const apart = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+// Wait until the ghost `viewer` draws stands where `target` does; how far off it ended.
+async function settled(viewer, target) {
+  let off = Infinity;
+  for (let i = 0; i < 60 && off > 0.1; i++) {
+    await viewer.waitForTimeout(250);
+    off = apart(await ghost(viewer), await feet(target));
+  }
+  return off;
+}
+const linked = (page, n) => page.waitForFunction((n) => window.game.net.others === n && window.game.presence.people.size === n, n, { timeout: 20000 });
+
+// ---- 1) Alone ---------------------------------------------------------------
+for (const [name, query] of [['bare', ''], ['off', '?rooms=off']]) {
+  const page = await open(query);
+  r[name] = { net: await page.evaluate(() => window.game.net), sockets: page.sockets.length,
+    line: await page.evaluate(() => document.getElementById('people').textContent) };
+  await page.context().close();
+}
+
+// ---- 2) Two in a room -------------------------------------------------------
+const q = `?rooms=${ROOMS}&room=${room}`;
+const a = await open(q);
+await a.waitForFunction(() => window.game.net.state === 'open');
+r.first = { others: await a.evaluate(() => window.game.net.others), line: await a.evaluate(() => document.getElementById('people').textContent) };
+// Somewhere the two will not be standing on the same spot.
+await a.evaluate(() => { const g = window.game, p = g.player.pos; g.player.teleport(p.x + 2, p.y, p.z); });
+const b = await open(q);
+await Promise.all([linked(a, 1), linked(b, 1)]);
+r.seen = {
+  aSeesB: await settled(a, b),
+  bSeesA: await settled(b, a),
+  feet: [await feet(a), await feet(b)],
+  aGhost: await ghost(a), bGhost: await ghost(b),
+  ids: [await a.evaluate(() => window.game.net.id), await b.evaluate(() => window.game.net.id)],
+  line: await a.evaluate(() => document.getElementById('people').textContent),
+};
+
+// ---- 3) One walks -----------------------------------------------------------
+const before = await ghost(b);
+await a.evaluate(() => { const g = window.game, p = g.player.pos; g.player.teleport(p.x, p.y, p.z + 3); });
+r.walk = { off: await settled(b, a), moved: apart(before, await ghost(b)) };
+
+// ---- 4) One changes game ----------------------------------------------------
+await a.evaluate(() => window.game.switchMode('flyover'));
+await b.waitForFunction(() => [...window.game.presence.people.values()][0]?.body === 'flyer', null, { timeout: 5000 });
+r.mode = { off: await settled(b, a), ghost: await ghost(b) };
+
+// ---- 5) One leaves ----------------------------------------------------------
+await a.context().close();
+await linked(b, 0);
+r.left = { ghosts: (await ghost(b)).count, line: await b.evaluate(() => document.getElementById('people').textContent) };
+
+// ---- 6) The door ------------------------------------------------------------
+r.door = await b.evaluate(async ([rooms, room]) => {
+  const knock = () => new Promise((done) => {
+    const ws = new WebSocket(`${rooms}/?room=${room}-full`);
+    ws.onmessage = (e) => done(JSON.parse(e.data).type);
+    ws.onerror = () => done('error');
+  });
+  const answers = [];
+  for (let i = 0; i < 9; i++) answers.push(await knock());
+  return answers;
+}, [ROOMS, room]);
+// Node sends no Origin, so it is not one of the game's pages.
+r.stranger = await new Promise((done) => {
+  const ws = new WebSocket(`${ROOMS}/?room=${room}`);
+  ws.onopen = () => done('let in');
+  ws.onerror = () => done('refused');
+});
+
+await browser.close();
+
+const ok = {
+  alone: r.bare.net === null && r.bare.sockets === 0 && r.bare.line === ''
+    && r.off.net === null && r.off.sockets === 0,
+  first: r.first.others === 0 && /nobody else/.test(r.first.line),
+  seen: r.seen.aSeesB < 0.1 && r.seen.bSeesA < 0.1
+    && r.seen.aGhost.id === r.seen.ids[1] && r.seen.bGhost.id === r.seen.ids[0]
+    && r.seen.bGhost.mode === 'shooter' && r.seen.bGhost.body === 'walker' && /1 other here/.test(r.seen.line),
+  walk: r.walk.moved > 2.5 && r.walk.off < 0.1,
+  mode: r.mode.ghost.mode === 'flyover' && r.mode.ghost.body === 'flyer' && r.mode.off < 0.1,
+  left: r.left.ghosts === 0 && /nobody else/.test(r.left.line),
+  door: r.door.slice(0, 8).every((t) => t === 'welcome') && r.door[8] === 'full' && r.stranger === 'refused',
+  errors: errs.length === 0,
+};
+console.log(JSON.stringify(r, null, 2));
+if (errs.length) console.log('page errors:', errs);
+for (const [k, v] of Object.entries(ok)) console.log(`${v ? 'ok  ' : 'FAIL'} ${k}`);
+const pass = Object.values(ok).every(Boolean);
+console.log(pass ? 'NET: PASS' : 'NET: FAIL');
+process.exit(pass ? 0 : 1);

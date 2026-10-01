@@ -22,6 +22,7 @@ import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './
 import { Actions } from './actions.mjs';
 import { SoundBank } from './audio.mjs';
 import { Presence } from './presence.mjs';
+import { Net, roomsUrl } from './net.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
@@ -58,6 +59,7 @@ const ui = {
   sub: document.getElementById('sub'),
   controls: document.getElementById('controls'),
   modes: document.getElementById('modes'),
+  people: document.getElementById('people'),
 };
 
 // ---- Engine ----
@@ -130,6 +132,9 @@ let actions = null;
 let started = false;
 // Everyone else in the world, whatever they play — seen as ghosts (./presence.mjs).
 const presence = new Presence(app);
+// Their browsers, linked to this one; null when there is no rooms server to
+// find them through (./net.mjs), and the list above then stays empty.
+let net = null;
 // What the games are handed (see ./modes/README.md), filled in by boot().
 let world = null;
 // The game being played: its module, and what its enter() returned.
@@ -239,11 +244,25 @@ function boot() {
                     // entry the layout goes through — and see what is animating.
                     loadProp, scripted, switchMode, clock,
                     get mode() { return mode?.id ?? null; },
+                    get net() { return net; },
                     get session() { return session; },
                     get weapon() { return session?.weapon ?? null; },
                     get targets() { return session?.targets ?? null; } };
 
     await switchMode(initialMode());
+
+    // Other people, now that there is a game on stage to tell them about.
+    const rooms = roomsUrl(manifest.rooms);
+    if (rooms) {
+      net = new Net({
+        url: rooms,
+        room: new URLSearchParams(location.search).get('room') || 'lobby',
+        presence,
+        me: () => session && { mode: mode.id, body: mode.body, pos: session.body.pos, yaw: session.body.yaw },
+        onChange: showPeople,
+      });
+      showPeople();
+    }
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
@@ -560,6 +579,8 @@ function switchMode(id, view = null) {
     session = next.enter(world, from);
     // E measures reach from whatever the game moves around as.
     actions.player = session.body;
+    // The others redraw this browser's ghost as whatever it now moves as.
+    net?.hello();
     document.body.dataset.mode = id;
     showMode();
     // The address says what is being played, so a reload or a shared link
@@ -585,6 +606,16 @@ function showMode() {
     ui.controls.append(key, what);
   }
   for (const b of ui.modes.children) b.classList.toggle('picked', b.dataset.mode === mode.id);
+}
+
+// Who else is here, on the overlay. Nothing at all when there is no network.
+function showPeople() {
+  const n = net.others;
+  ui.people.textContent = net.state === 'connecting' ? `Room ${net.room} — connecting…`
+    : net.state === 'full' ? `Room ${net.room} is full — playing alone`
+    : n ? `Room ${net.room} — ${n} other${n > 1 ? 's' : ''} here`
+    : net.state === 'closed' ? 'Playing alone — the rooms server is not answering'
+    : `Room ${net.room} — nobody else here yet`;
 }
 
 for (const [id, name] of Object.entries(MODE_NAMES)) {
@@ -714,6 +745,10 @@ app.on('update', (dt) => {
   // Scripts tick on the same clamped step as the controller, so a tab switch
   // does not fast-forward a dance any more than it fast-forwards a fall.
   for (const s of scripted) s.update(d);
+
+  // Where this browser is, said to the others; where they are, drawn. On the
+  // frame's real time, not the world's: a slow frame is not a slow network.
+  net?.update(dt);
 
   // After the clips, so a dancer is reached where this frame's pose put him;
   // the hints come down with the pause overlay and the crosshair.

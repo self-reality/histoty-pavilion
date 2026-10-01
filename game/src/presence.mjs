@@ -8,10 +8,9 @@
 // walk (and drive, and fly) through them; they are not targets, so a shot
 // passes through them; and they are not props, so E never offers them.
 //
-// Nothing fills the list yet but the console and tests. A network layer will,
-// with join() / move() / leave(), and a meeting that should do more than
-// ghost — a car that knocks a soldier over — is promoted in meet(), one pair
-// at a time.
+// The list is filled by ./net.mjs, from what other people's browsers say, with
+// join() / move() / leave(). A meeting that should do more than ghost — a car
+// that knocks a soldier over — is promoted in meet(), one pair at a time.
 import { Entity, Color, StandardMaterial, BLEND_NORMAL } from 'playcanvas';
 
 /**

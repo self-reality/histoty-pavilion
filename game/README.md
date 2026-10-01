@@ -26,8 +26,45 @@ button for each. Pick another while paused and you switch in place, from where
 you are: take off from where you stood, or land on the floor under the camera.
 `?mode=flyover` opens the fly-over directly. A bare URL opens the shooter,
 because it has to open one of them, not because the shooter comes first. Other
-people, once there is a network, show up as ghosts whatever they are playing.
+people show up as ghosts whatever they are playing.
 How a mode is built and what it may touch is in `src/modes/README.md`.
+
+### Other people
+
+Everyone in the same room sees everyone else as a ghost: a pale figure for
+someone on foot, a small camera for someone flying. That is all there is to it
+— you walk through them, a shot passes through them, nobody is in charge.
+
+```bash
+npm run rooms:dev   # the rooms server on this machine, ws://localhost:8787
+# then, in two windows:
+#   http://localhost:5173/?rooms=ws://localhost:8787
+```
+
+The rooms server (`../rooms/`, a Cloudflare Worker with one Durable Object per
+room) only introduces people: it says who is in the room and carries the
+WebRTC handshake. After that the browsers are linked directly, and where
+anyone stands never touches a server — which is what keeps it inside
+Cloudflare's free plan. `src/net.mjs` is the browser's end and says what is
+sent; `src/presence.mjs` draws it.
+
+| | |
+| --- | --- |
+| `?rooms=ws://…` | use this rooms server instead of the published one |
+| `?rooms=off` | no network; play alone |
+| `?room=<name>` | which room (default `lobby`); a link with a name nobody else has is a private room |
+
+The published server's address is `rooms` in `scene.manifest.mjs`, and it is
+`null` until someone deploys one: `wrangler login`, `npm run rooms:deploy`,
+and paste the `wss://` address it prints. Until then, and whenever the server
+cannot be reached, the world is simply empty of other people. A page on
+`localhost` never uses the published server — it would be turned away (the
+Worker lets in the live site's origin and `localhost` only, see
+`../rooms/wrangler.jsonc`), and a test should not walk into the public lobby.
+
+A room holds 8, because everyone is linked to everyone. People on networks
+that block direct links (some offices and mobile carriers) will not connect
+yet: that needs a TURN relay, which is the next thing to add.
 
 ### Filming it
 
@@ -537,6 +574,7 @@ node tests/anim.mjs    # an animated asset does what its script says: clip ticks
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
+node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves (needs `npm run rooms:dev`)
 node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end, sound mixed
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands

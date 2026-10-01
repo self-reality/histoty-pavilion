@@ -73,6 +73,13 @@ export const manifest = {
     volume: 1,
   },
 
+  // ---- Other people ----
+  // The rooms server people find each other through (../rooms/, a Cloudflare
+  // Worker): the address `npm run rooms:deploy` prints, as wss://. Null until
+  // it is deployed, and then the world is simply empty of other people. Read
+  // by src/net.mjs, which also says how `?rooms=` overrides it.
+  rooms: null,
+
   // ---- Blender-authored layout ----
   // Written by tools/export_scene.py from scene/pavilion.blend; see
   // BLENDER_SCENE.md. Entries here override same-named ones in `props` below,

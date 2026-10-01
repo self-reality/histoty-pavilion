@@ -16,3 +16,6 @@ npm-debug.log*
 # Env / secrets
 .env
 .env.local
+
+# Wrangler (the rooms Worker): local state
+.wrangler/
