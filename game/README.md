@@ -62,10 +62,21 @@ reached, the world is simply empty of other people. A page on
 Worker lets in the live site's origin and `localhost` only, see
 `../rooms/wrangler.jsonc`), and a test should not walk into the public lobby.
 
-A room holds 8, because everyone is linked to everyone. People on networks
-that block direct links (some offices and mobile carriers) will not connect
-yet: that needs a TURN relay, which is the next thing to add. The pause
-overlay says which it is — "nobody else here yet" is an empty room, "no
+A room holds 8, because everyone is linked to everyone.
+
+Some pairs of networks refuse a direct link (home routers of a certain kind,
+offices, mobile carriers). For those the rooms server hands out a relay —
+Cloudflare's TURN service — once it has been given a key: create one in the
+Cloudflare dashboard (Realtime → TURN Server), then, from `game/`,
+
+```bash
+wrangler secret put TURN_KEY_ID        --config ../rooms/wrangler.jsonc
+wrangler secret put TURN_KEY_API_TOKEN --config ../rooms/wrangler.jsonc
+```
+
+No deploy is needed after that, and the game does not change: each newcomer
+is told which servers to use in the room's welcome. Without a key such pairs
+simply cannot be linked. The pause overlay says which it is — "nobody else here yet" is an empty room, "no
 direct link could be made" is someone there whom this browser cannot reach.
 
 ### Filming it

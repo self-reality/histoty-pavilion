@@ -10,9 +10,18 @@
 //
 //   wss://<host>/?room=<name>     join a room; `lobby` when none is named
 //
-// To the newcomer:  { type: 'welcome', id, peers: [id, …] }   or   { type: 'full' }
+// To the newcomer:  { type: 'welcome', id, peers: [id, …], ice: [server, …] }   or   { type: 'full' }
 // Between two:      { to, type: 'offer' | 'answer' | 'candidate', … }  →  the same, `to` replaced by `from`
 // To everyone left: { type: 'leave', id }
+//
+// `ice` is how the newcomer's browser is to reach the others: always a STUN
+// server, which tells it its own public address and is enough for most pairs
+// of networks, and — when this Worker has been given a TURN key — a relay for
+// the pairs that refuse each other outright. The key is two secrets, set once:
+//   wrangler secret put TURN_KEY_ID          --config ../rooms/wrangler.jsonc
+//   wrangler secret put TURN_KEY_API_TOKEN   --config ../rooms/wrangler.jsonc
+// from the Cloudflare dashboard (Realtime → TURN Server → Create). It never
+// leaves here: a browser is handed a credential made from it that expires.
 import { DurableObject } from 'cloudflare:workers';
 
 // A room is a full mesh — everyone linked to everyone — so its size is what
@@ -21,9 +30,44 @@ const ROOM_SIZE = 8;
 // A handshake message is a session description at most; anything larger is
 // not one.
 const MESSAGE_BYTES = 16 * 1024;
+const STUN = [{ urls: 'stun:stun.cloudflare.com:3478' }];
+// How long a relay credential lasts: longer than anyone stays in a room. A
+// link already made keeps working past it; only making a new one needs it.
+const TURN_SECONDS = 24 * 60 * 60;
+
+// The servers a newcomer is told to use. Anything wrong with the relay — no
+// key, a refused key, Cloudflare not answering — leaves STUN alone, which is
+// the game as it was before there was a relay, not a failure to join.
+async function iceServers(env) {
+  if (!env.TURN_KEY_ID || !env.TURN_KEY_API_TOKEN) return STUN;
+  try {
+    const res = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_KEY_ID}/credentials/generate-ice-servers`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ttl: TURN_SECONDS }),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const { iceServers: given } = await res.json();
+    const servers = (Array.isArray(given) ? given : [given]).map((server) => ({
+      ...server,
+      // Port 53 is offered for networks that allow nothing else, and browsers
+      // refuse to use it: left in, each link waits for it to time out.
+      urls: [].concat(server.urls).filter((url) => !/:53(\?|$)/.test(url)),
+    })).filter((server) => server.urls.length);
+    if (!servers.some((server) => server.credential)) throw new Error('no relay in the answer');
+    return servers;
+  } catch (err) {
+    console.error(`[rooms] no relay credential (${err.message}) — STUN only`);
+    return STUN;
+  }
+}
 
 export class Room extends DurableObject {
   async fetch() {
+    // Asked for before the room is looked at: while this waits, someone else
+    // may join, and who is here must be read and added to in one breath.
+    const ice = await iceServers(this.env);
     const others = this.ctx.getWebSockets();
     const { 0: client, 1: server } = new WebSocketPair();
     // The hibernating accept: the object may be put to sleep with the socket
@@ -40,7 +84,7 @@ export class Room extends DurableObject {
     let id;
     do { id = crypto.getRandomValues(new Uint32Array(1))[0]; } while (id === 0 || peers.includes(id));
     server.serializeAttachment({ id });
-    server.send(JSON.stringify({ type: 'welcome', id, peers }));
+    server.send(JSON.stringify({ type: 'welcome', id, peers, ice }));
     return new Response(null, { status: 101, webSocket: client });
   }
 

@@ -68,7 +68,9 @@ for (const [name, query] of [['bare', ''], ['off', '?rooms=off']]) {
 const q = `?rooms=${ROOMS}&room=${room}`;
 const a = await open(q);
 await a.waitForFunction(() => window.game.net.state === 'open');
-r.first = { others: await a.evaluate(() => window.game.net.others), line: await a.evaluate(() => document.getElementById('people').textContent) };
+r.first = { others: await a.evaluate(() => window.game.net.others),
+  // The server says how to reach people; with no TURN key set, by STUN alone.
+  ice: await a.evaluate(() => window.game.net.ice), relay: await a.evaluate(() => window.game.net.relay), line: await a.evaluate(() => document.getElementById('people').textContent) };
 // Somewhere the two will not be standing on the same spot.
 await a.evaluate(() => { const g = window.game, p = g.player.pos; g.player.teleport(p.x + 2, p.y, p.z); });
 const b = await open(q);
@@ -137,7 +139,8 @@ await browser.close();
 const ok = {
   alone: r.bare.net === null && r.bare.sockets === 0 && r.bare.line === ''
     && r.off.net === null && r.off.sockets === 0,
-  first: r.first.others === 0 && /nobody else/.test(r.first.line),
+  first: r.first.others === 0 && /nobody else/.test(r.first.line)
+    && /^stun:/.test([].concat(r.first.ice[0]?.urls)[0]) && (process.env.ROOMS ? true : r.first.relay === false),
   seen: r.seen.aSeesB < 0.1 && r.seen.bSeesA < 0.1
     && r.seen.aGhost.id === r.seen.ids[1] && r.seen.bGhost.id === r.seen.ids[0]
     && r.seen.bGhost.mode === 'shooter' && r.seen.bGhost.body === 'walker' && /1 other here/.test(r.seen.line),

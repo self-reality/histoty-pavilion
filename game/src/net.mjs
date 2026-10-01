@@ -27,6 +27,8 @@
 // way of someone else (one person feeding many) with nothing here changing:
 // a stale or repeated one is dropped by its number.
 
+// How a browser reaches another, until the rooms server says otherwise: its
+// welcome brings the list to use, with a relay in it when the server has one.
 const ICE = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 const SEND_HZ = 12;
 // How fast a ghost closes on the last place it was said to be: about a send
@@ -71,6 +73,10 @@ export class Net {
     // two networks that refuse each other. Said on the overlay, because from
     // the inside it looks exactly like an empty room.
     this.lost = new Set();
+    this.ice = ICE;
+    // Whether the server had a relay to offer, for the overlay: without one, a
+    // pair of networks that refuse each other cannot be linked at all.
+    this.relay = false;
     this.heard = new Map();        // author id -> { pos: last seq, events: last seq, at, yaw }
     this.seq = 0;
     this.since = 0;
@@ -104,7 +110,10 @@ export class Net {
     if (msg.type === 'welcome') {
       this.id = msg.id;
       this.state = 'open';
-      console.log(`[net] in room "${this.room}" as ${this.id}, ${msg.peers.length} already here`);
+      if (Array.isArray(msg.ice) && msg.ice.length) this.ice = msg.ice;
+      this.relay = this.ice.some((server) => server.credential);
+      console.log(`[net] in room "${this.room}" as ${this.id}, ${msg.peers.length} already here`
+        + (this.relay ? '' : ' (no relay: networks that block direct links will not connect)'));
       // The newcomer calls everyone already here, so no two ever call each other.
       for (const peer of msg.peers) this.call(peer);
       this.onChange();
@@ -131,7 +140,7 @@ export class Net {
   }
 
   link(peer) {
-    const pc = new RTCPeerConnection({ iceServers: ICE });
+    const pc = new RTCPeerConnection({ iceServers: this.ice });
     // Agreed in advance by number, so neither side waits to be told of them.
     const pos = pc.createDataChannel('pos', { negotiated: true, id: 0, ordered: false, maxRetransmits: 0 });
     const events = pc.createDataChannel('events', { negotiated: true, id: 1 });
