@@ -1,12 +1,12 @@
 // The rooms: where people in the world find each other.
 //
 // A Cloudflare Worker with one Durable Object per room. It introduces the
-// people in a room and carries the WebRTC handshake between them, and that is
-// all it does: where anyone stands goes browser to browser, never through
-// here (see ../game/src/net.mjs for the other end). So a room is busy for the
-// second or two someone takes to join and asleep the rest of the time, which
-// is what keeps this inside the free plan — a hibernated room keeps its
-// sockets open and costs nothing.
+// people in a room and carries the WebRTC handshake between them; where
+// anyone stands then goes browser to browser (see ../game/src/net.mjs for the
+// other end). So a room is busy for the second or two someone takes to join
+// and asleep the rest of the time, which is what keeps this inside the free
+// plan — a hibernated room keeps its sockets open and costs nothing. The one
+// thing it carries besides is `say`, below, for a pair that cannot link.
 //
 //   wss://<host>/?room=<name>     join a room; `lobby` when none is named
 //

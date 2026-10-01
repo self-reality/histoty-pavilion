@@ -48,11 +48,12 @@ npm run rooms:dev   # the rooms server on this machine, ws://localhost:8787
 ```
 
 The rooms server (`../rooms/`, a Cloudflare Worker with one Durable Object per
-room) only introduces people: it says who is in the room and carries the
-WebRTC handshake. After that the browsers are linked directly, and where
-anyone stands never touches a server — which is what keeps it inside
-Cloudflare's free plan. `src/net.mjs` is the browser's end and says what is
-sent; `src/presence.mjs` draws it.
+room) introduces people: it says who is in the room and carries the WebRTC
+handshake. After that the browsers are linked directly, and where anyone
+stands goes straight between them while the room sleeps — which is what keeps
+it inside Cloudflare's free plan. The one exception is a pair that cannot link
+directly, below. `src/net.mjs` is the browser's end and says what is sent;
+`src/presence.mjs` draws it.
 
 | | |
 | --- | --- |
@@ -79,11 +80,11 @@ costs anything on the free plan, which counts every message through the
 server; a pair talking this way all day uses a real share of it, a pair
 linked directly uses none.
 
-A TURN relay would carry such pairs without the server: the Worker hands one
-out once it is given a Cloudflare TURN key (`TURN_KEY_ID` and
+The Worker also hands out a TURN relay, which carries such pairs without
+waking the room, whenever it holds a Cloudflare TURN key (`TURN_KEY_ID` and
 `TURN_KEY_API_TOKEN`, as `wrangler secret put … --config
-../rooms/wrangler.jsonc`). Cloudflare asks for a payment method before it
-will make a key, so there is none, and nothing depends on it.
+../rooms/wrangler.jsonc`). It holds none: Cloudflare asks for a payment method
+before it makes a key. Nothing depends on it.
 
 ### Filming it
 
