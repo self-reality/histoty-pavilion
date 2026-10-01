@@ -9,8 +9,8 @@
 // 3) One walks: its ghost in the other page follows.
 // 4) One changes game: its ghost is redrawn as what it now moves as.
 // 5) One leaves: its ghost goes.
-// 6) Two whose networks will not link directly are told so, not shown an
-//    empty room.
+// 6) Two whose networks will not link directly see each other all the same,
+//    by way of the rooms server, and the overlay says that is how.
 // 7) The room turns the ninth away, and turns away a socket that is not from
 //    the game's own pages.
 import { chromium } from 'playwright';
@@ -31,7 +31,8 @@ async function open(query, init = null) {
   if (init) await page.addInitScript(init);
   page.on('pageerror', (e) => errs.push(e.message));
   page.sockets = [];
-  page.on('websocket', (ws) => page.sockets.push(ws.url()));
+  page.said = 0;       // messages sent to the rooms server
+  page.on('websocket', (ws) => { page.sockets.push(ws.url()); ws.on('framesent', () => page.said++); });
   await page.goto(GAME + query, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.game?.mode && !document.getElementById('playBtn').disabled, { timeout: 60000 });
   return page;
@@ -107,13 +108,25 @@ const c = await open(q, () => {
   window.RTCPeerConnection = function (config) { return new Real({ ...config, iceTransportPolicy: 'relay' }); };
 });
 const line = () => document.getElementById('people').textContent;
-r.blocked = { early: await c.evaluate(line) };
-await Promise.all([b, c].map((p) => p.waitForFunction(() => window.game.net.lost.size === 1, null, { timeout: 60000 })));
+// Seen at once, long before the link is given up on.
+await Promise.all([linked(b, 1), linked(c, 1)]);
+r.blocked = { early: [await settled(b, c), await settled(c, b)], linkStillTried: await b.evaluate(() => window.game.net.links.size) };
+await Promise.all([b, c].map((p) => p.waitForFunction(() => window.game.net.indirect === 1, null, { timeout: 60000 })));
 r.blocked.b = await b.evaluate(line);
 r.blocked.c = await c.evaluate(line);
-r.blocked.ghosts = (await ghost(b)).count + (await ghost(c)).count;
+// Followed that way too, and redrawn on a change of game.
+await c.evaluate(() => { const g = window.game, p = g.player.pos; g.player.teleport(p.x, p.y, p.z + 3); });
+r.blocked.walk = await settled(b, c);
+await c.evaluate(() => window.game.switchMode('flyover'));
+await b.waitForFunction(() => [...window.game.presence.people.values()][0]?.body === 'flyer', null, { timeout: 10000 });
+r.blocked.mode = (await ghost(b)).body;
+// Standing still says nothing: every message through the server is counted.
+await b.waitForTimeout(1000);
+const said = b.said;
+await b.waitForTimeout(3000);
+r.blocked.idle = b.said - said;
 await c.context().close();
-await b.waitForFunction(() => window.game.net.lost.size === 0, null, { timeout: 20000 });
+await linked(b, 0);
 r.blocked.after = await b.evaluate(line);
 
 // ---- 7) The door ------------------------------------------------------------
@@ -147,8 +160,9 @@ const ok = {
   walk: r.walk.moved > 2.5 && r.walk.off < 0.1,
   mode: r.mode.ghost.mode === 'flyover' && r.mode.ghost.body === 'flyer' && r.mode.off < 0.1,
   left: r.left.ghosts === 0 && /nobody else/.test(r.left.line),
-  blocked: /linking/.test(r.blocked.early) && /no direct link/.test(r.blocked.b) && /no direct link/.test(r.blocked.c)
-    && r.blocked.ghosts === 0 && /nobody else/.test(r.blocked.after),
+  blocked: r.blocked.early.every((off) => off < 0.1) && r.blocked.linkStillTried === 1
+    && /1 other here \(1 by way of the server\)/.test(r.blocked.b) && /1 other here \(1 by way of the server\)/.test(r.blocked.c)
+    && r.blocked.walk < 0.1 && r.blocked.mode === 'flyer' && r.blocked.idle === 0 && /nobody else/.test(r.blocked.after),
   door: r.door.slice(0, 8).every((t) => t === 'welcome') && r.door[8] === 'full' && r.stranger === 'refused',
   errors: errs.length === 0,
 };

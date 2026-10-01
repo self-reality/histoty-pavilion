@@ -65,19 +65,19 @@ Worker lets in the live site's origin and `localhost` only, see
 A room holds 8, because everyone is linked to everyone.
 
 Some pairs of networks refuse a direct link (home routers of a certain kind,
-offices, mobile carriers). For those the rooms server hands out a relay —
-Cloudflare's TURN service — once it has been given a key: create one in the
-Cloudflare dashboard (Realtime → TURN Server), then, from `game/`,
+offices, mobile carriers). Those two still see each other: whatever a browser
+has no open link for, it says by way of the rooms server instead — five times
+a second rather than twelve, and only when it has moved. The pause overlay
+says so: "1 other here (1 by way of the server)". This is the one thing that
+costs anything on the free plan, which counts every message through the
+server; a pair talking this way all day uses a real share of it, a pair
+linked directly uses none.
 
-```bash
-wrangler secret put TURN_KEY_ID        --config ../rooms/wrangler.jsonc
-wrangler secret put TURN_KEY_API_TOKEN --config ../rooms/wrangler.jsonc
-```
-
-No deploy is needed after that, and the game does not change: each newcomer
-is told which servers to use in the room's welcome. Without a key such pairs
-simply cannot be linked. The pause overlay says which it is — "nobody else here yet" is an empty room, "no
-direct link could be made" is someone there whom this browser cannot reach.
+A TURN relay would carry such pairs without the server: the Worker hands one
+out once it is given a Cloudflare TURN key (`TURN_KEY_ID` and
+`TURN_KEY_API_TOKEN`, as `wrangler secret put … --config
+../rooms/wrangler.jsonc`). Cloudflare asks for a payment method before it
+will make a key, so there is none, and nothing depends on it.
 
 ### Filming it
 
@@ -587,7 +587,7 @@ node tests/anim.mjs    # an animated asset does what its script says: clip ticks
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here
 node tests/modes.mjs   # the world never imports a game; fly-over boots alone, keeps off walls, switches both ways in place; ghosts are only seen
-node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves; two that cannot link are told so (needs `npm run rooms:dev`)
+node tests/net.mjs     # two browsers in a room: each draws the other where it stands, follows it, redraws it on a change of game, drops it when it leaves; two that cannot link see each other through the server (needs `npm run rooms:dev`)
 node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end, sound mixed
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands

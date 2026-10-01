@@ -610,13 +610,10 @@ function showMode() {
 
 // Who else is here, on the overlay. Nothing at all when there is no network.
 function showPeople() {
-  const n = net.others, lost = net.lost.size;
-  const s = (k) => (k > 1 ? 's' : '');
+  const n = net.others, indirect = net.indirect;
   ui.people.textContent = net.state === 'connecting' ? `Room ${net.room} — connecting…`
     : net.state === 'full' ? `Room ${net.room} is full — playing alone`
-    : n ? `Room ${net.room} — ${n} other${s(n)} here` + (lost ? `, ${lost} more could not be reached` : '')
-    : net.linking ? `Room ${net.room} — someone is here, linking…`
-    : lost ? `Room ${net.room} — ${lost} other${s(lost)} here, but no direct link could be made: a network is blocking it`
+    : n ? `Room ${net.room} — ${n} other${n > 1 ? 's' : ''} here` + (indirect ? ` (${indirect} by way of the server)` : '')
     : net.state === 'closed' ? 'Playing alone — the rooms server is not answering'
     : `Room ${net.room} — nobody else here yet`;
 }

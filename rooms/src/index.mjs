@@ -12,6 +12,11 @@
 //
 // To the newcomer:  { type: 'welcome', id, peers: [id, …], ice: [server, …] }   or   { type: 'full' }
 // Between two:      { to, type: 'offer' | 'answer' | 'candidate', … }  →  the same, `to` replaced by `from`
+// To several:       { to: [id, …], type: 'say', … }                   →  the same to each, likewise
+//
+// `say` is for a pair whose networks refuse a direct link: what they would
+// have told each other over it goes through here instead (net.mjs says what,
+// and how sparingly). It is the one thing that keeps a room awake.
 // To everyone left: { type: 'leave', id }
 //
 // `ice` is how the newcomer's browser is to reach the others: always a STUN
@@ -93,10 +98,12 @@ export class Room extends DurableObject {
     if (from === null || typeof text !== 'string' || text.length > MESSAGE_BYTES) return;
     let msg;
     try { msg = JSON.parse(text); } catch { return; }
-    if (!['offer', 'answer', 'candidate'].includes(msg?.type)) return;
+    if (!['offer', 'answer', 'candidate', 'say'].includes(msg?.type)) return;
     const { to, ...rest } = msg;
+    const targets = [].concat(to).slice(0, ROOM_SIZE);
+    const passed = JSON.stringify({ ...rest, from });
     for (const peer of this.ctx.getWebSockets()) {
-      if (idOf(peer) === to) peer.send(JSON.stringify({ ...rest, from }));
+      if (peer !== ws && targets.includes(idOf(peer))) peer.send(passed);
     }
   }
 
