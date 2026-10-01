@@ -1,6 +1,7 @@
 // Two browsers in one room see each other, and nothing more than that.
 //
 //   node tests/net.mjs     # needs `npm start` on :5173 and `npm run rooms:dev` on :8787
+//   ROOMS=wss://… node tests/net.mjs     # the same against a deployed rooms server
 //
 // 1) No server named: a page on this machine plays alone and opens no socket,
 //    with the bare URL and with ?rooms=off alike.
@@ -13,7 +14,7 @@
 import { chromium } from 'playwright';
 
 const GAME = 'http://localhost:5173/';
-const ROOMS = 'ws://localhost:8787';
+const ROOMS = (process.env.ROOMS ?? 'ws://localhost:8787').replace(/\/$/, '');
 const room = `test-${Date.now().toString(36)}`;
 const r = {};
 

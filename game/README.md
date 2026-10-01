@@ -54,10 +54,10 @@ sent; `src/presence.mjs` draws it.
 | `?rooms=off` | no network; play alone |
 | `?room=<name>` | which room (default `lobby`); a link with a name nobody else has is a private room |
 
-The published server's address is `rooms` in `scene.manifest.mjs`, and it is
-`null` until someone deploys one: `wrangler login`, `npm run rooms:deploy`,
-and paste the `wss://` address it prints. Until then, and whenever the server
-cannot be reached, the world is simply empty of other people. A page on
+The published server's address is `rooms` in `scene.manifest.mjs`. Changes to
+`../rooms/` go out with `npm run rooms:deploy` (after `wrangler login`), which
+prints that address. With it `null`, and whenever the server cannot be
+reached, the world is simply empty of other people. A page on
 `localhost` never uses the published server — it would be turned away (the
 Worker lets in the live site's origin and `localhost` only, see
 `../rooms/wrangler.jsonc`), and a test should not walk into the public lobby.

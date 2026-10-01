@@ -75,10 +75,10 @@ export const manifest = {
 
   // ---- Other people ----
   // The rooms server people find each other through (../rooms/, a Cloudflare
-  // Worker): the address `npm run rooms:deploy` prints, as wss://. Null until
-  // it is deployed, and then the world is simply empty of other people. Read
+  // Worker): the address `npm run rooms:deploy` prints, as wss://. Null, or a
+  // server that does not answer, and the world is simply empty of other people. Read
   // by src/net.mjs, which also says how `?rooms=` overrides it.
-  rooms: null,
+  rooms: 'wss://pavilion-rooms.porobov-p3798.workers.dev',
 
   // ---- Blender-authored layout ----
   // Written by tools/export_scene.py from scene/pavilion.blend; see
