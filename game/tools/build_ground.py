@@ -17,6 +17,10 @@ Run it again whenever the map GLB or its `scale` / `euler` in
 scene.manifest.mjs changes; the anchor's position is printed at the end, and
 moves only if the map's bounding box did.
 
+The .blend keeps a copy of every prop's meshes under its anchor, to look at;
+the game never reads it. That copy is replaced here too, or Blender would go
+on showing the ground as it was — File > Revert if the file is open.
+
 What is ground
 --------------
 Everywhere you could not stand under the sky. Looking straight down on a
@@ -81,6 +85,7 @@ from pc_axes import B2PC, pc_trs_to_matrix  # noqa: E402
 
 GAME_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(GAME_DIR, 'assets', 'ground.glb')
+BLEND = os.path.join(GAME_DIR, 'scene', 'pavilion.blend')
 
 SIZE = 6.0        # the plane, as a multiple of the map's own extent on each axis
 MARGIN = 4.0      # metres around the map that are triangulated finely (see plane())
@@ -752,6 +757,50 @@ def write_glb(path, meshes):
         fh.write(struct.pack('<II', len(blob), 0x004E4942) + bytes(blob))
 
 
+def refresh_blend(glb):
+    """Swap the meshes under the ground's anchor in the .blend for the ones
+    just written. Only the look of the file changes: the anchor is not moved,
+    and it is the anchor that is exported."""
+    if not os.path.exists(BLEND):
+        return None
+    bpy.ops.wm.open_mainfile(filepath=BLEND)
+    ref = './' + os.path.relpath(glb, GAME_DIR).replace(os.sep, '/')
+    anchors = [o for o in bpy.data.objects if o.get('glb') == ref]
+    if not anchors:
+        return None
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=glb)
+    fresh = [o for o in bpy.data.objects if o not in before]
+    for anchor in anchors[1:] + anchors[:1]:      # the last one takes the import itself
+        old = [o for o in anchor.children_recursive if o not in fresh]
+        names = {o.name: o for o in old}
+        mine = fresh if anchor is anchors[0] else [o.copy() for o in fresh]
+        twin = dict(zip(fresh, mine))
+        for src, obj in twin.items():
+            for coll in list(obj.users_collection):
+                coll.objects.unlink(obj)
+            for coll in anchor.users_collection:
+                coll.objects.link(obj)
+            obj.parent = twin.get(src.parent, anchor)
+            if src.parent is None:
+                obj.matrix_parent_inverse.identity()
+            was = names.get(src.name.rsplit('.', 1)[0])
+            obj.hide_select = True
+            if was is not None:
+                obj.hide_viewport, obj.hide_render = was.hide_viewport, was.hide_render
+        for obj in old:
+            name = obj.name
+            data = obj.data
+            bpy.data.objects.remove(obj)
+            if data is not None and data.users == 0:
+                bpy.data.meshes.remove(data)
+            for src, new in twin.items():
+                if src.name.rsplit('.', 1)[0] == name and new.name != name:
+                    new.name = name
+    bpy.ops.wm.save_mainfile()
+    return [a.name for a in anchors]
+
+
 def main():
     args = script_args()
     out_path = os.path.abspath(args[args.index('--out') + 1]) if '--out' in args else OUT
@@ -812,6 +861,11 @@ def main():
               'the rim there takes its neighbour\'s height')
     print(f'[ground] wrote  {os.path.relpath(out_path, GAME_DIR)} ({os.path.getsize(out_path):,} bytes)')
     print(f'[ground] anchor pos {origin[0]:.5f}, {origin[1]:.5f}, {origin[2]:.5f} (game space)')
+    if out_path == OUT:
+        shown = refresh_blend(out_path)
+        if shown:
+            print(f'[ground] scene  {os.path.relpath(BLEND, GAME_DIR)}: new meshes under {", ".join(shown)} '
+                  '— File > Revert if it is open in Blender')
 
 
 main()
