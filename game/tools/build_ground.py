@@ -64,6 +64,15 @@ ground's height there is no rim at all.
   ground_rim     the faces between the plane's holes and the map, facing the
                  open side, and the steps, facing the lower ground
 
+The side
+--------
+The plane is white; the rim and the steps show what the ground is made of —
+tools/ground_side.jpg, a cake cut through. The picture is hung by height, not
+by face: its top edge is at the height of the plane around the map, its
+bottom edge at the lowest point any rim reaches, so a layer is at one height
+all over the map and a short rim shows only the top few. Along a face it
+repeats, every other time mirrored so it has no seam, at its own proportions.
+
 Everything is in the game's space — metres, Y-up — which is glTF's as well, so
 the file is written directly rather than through Blender's exporter.
 """
@@ -90,6 +99,7 @@ BLEND = os.path.join(GAME_DIR, 'scene', 'pavilion.blend')
 SIZE = 6.0        # the plane, as a multiple of the map's own extent on each axis
 MARGIN = 4.0      # metres around the map that are triangulated finely (see plane())
 WHITE = (1.0, 1.0, 1.0, 1.0)
+SIDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ground_side.jpg')
 
 WELD = 1e-4       # metres: two map vertices closer than this are one point from above
 FLAT = 1e-6       # square metres: a triangle smaller than this from above is a wall
@@ -675,10 +685,16 @@ def plane_mesh(pts, tris, level, origin):
     return np.array(pos), np.tile((0.0, 1.0, 0.0), (len(pos), 1)), np.array(idx)
 
 
-def rim_mesh(faces, origin):
+def rim_mesh(faces, origin, top, bottom, aspect):
     """One flat face per stretch, [(a, b, y_a, y_b, toward, top)]: from the
-    ground at `top` down to y_a .. y_b, facing `toward`."""
-    pos, nrm, idx = [], [], []
+    ground at `top` down to y_a .. y_b, facing `toward`.
+
+    The picture on them runs from `top` to `bottom` whatever the face's own
+    height, and along the face by where the face is in the map, so two faces
+    in one line carry on from each other. `aspect` is its width over its
+    height."""
+    pos, nrm, uvs, idx = [], [], [], []
+    span = top - bottom
     for a, b, ya, yb, toward, top_here in faces:
         if top_here - ya < TINY and top_here - yb < TINY:
             continue      # the map comes all the way up here
@@ -693,19 +709,42 @@ def rim_mesh(faces, origin):
             quad.pop(2)
         elif top_here - ya < TINY:
             quad.pop(3)
-        q = np.array(quad) - origin
+        q = np.array(quad)
+        along = d / np.hypot(*d)
+        uv = np.stack([(q[:, [0, 2]] @ along) / (span * aspect), (top - q[:, 1]) / span], axis=1)
+        q = q - origin
         if np.cross(q[1] - q[0], q[2] - q[0]) @ normal < 0:
-            q = q[::-1]
+            q, uv = q[::-1], uv[::-1]
         base = len(pos)
         pos.extend(q)
         nrm.extend([normal] * len(q))
+        uvs.extend(uv)
         idx.extend((base, base + i, base + i + 1) for i in range(1, len(q) - 1))
-    return np.array(pos), np.array(nrm), np.array(idx)
+    return np.array(pos), np.array(nrm), np.array(idx), np.array(uvs)
 
 
-def write_glb(path, meshes):
-    """A root node, one child per mesh, one white material. `meshes` is
-    [(name, positions, normals, triangles)]."""
+def lowest(faces):
+    """The lowest point any face of the rim reaches."""
+    return min(min(ya, yb) for _a, _b, ya, yb, _toward, top_here in faces
+               if top_here - min(ya, yb) >= TINY)
+
+
+def jpeg_size(data):
+    """(width, height) of a JPEG, from its frame header."""
+    at = 2
+    while at < len(data):
+        marker, length = data[at + 1], struct.unpack('>H', data[at + 2:at + 4])[0]
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            height, width = struct.unpack('>HH', data[at + 5:at + 9])
+            return width, height
+        at += 2 + length
+    raise SystemExit(f'[ground] {os.path.relpath(SIDE, GAME_DIR)} is not a JPEG')
+
+
+def write_glb(path, meshes, side):
+    """A root node, one child per mesh. `meshes` is [(name, positions,
+    normals, triangles)], white, or with a fifth, texture coordinates, in
+    which case it wears `side`, the bytes of a JPEG."""
     blob, views, accessors = bytearray(), [], []
 
     def accessor(data, kind, component, target, bounds=False):
@@ -724,15 +763,17 @@ def write_glb(path, meshes):
 
     nodes = [{'name': 'ground', 'children': list(range(1, len(meshes) + 1))}]
     gl_meshes = []
-    for name, pos, nrm, tris in meshes:
+    for name, pos, nrm, tris, *uv in meshes:
         prim = {
             'attributes': {
                 'POSITION': accessor(pos.astype('<f4'), 'VEC3', 5126, 34962, bounds=True),
                 'NORMAL': accessor(nrm.astype('<f4'), 'VEC3', 5126, 34962),
             },
             'indices': accessor(tris.astype('<u4').reshape(-1), 'SCALAR', 5125, 34963),
-            'material': 0,
+            'material': len(uv),
         }
+        if uv:
+            prim['attributes']['TEXCOORD_0'] = accessor(uv[0].astype('<f4'), 'VEC2', 5126, 34962)
         nodes.append({'name': name, 'mesh': len(gl_meshes)})
         gl_meshes.append({'name': name, 'primitives': [prim]})
 
@@ -742,12 +783,25 @@ def write_glb(path, meshes):
         'scenes': [{'name': 'ground', 'nodes': [0]}],
         'nodes': nodes,
         'meshes': gl_meshes,
-        'materials': [{'name': 'ground_white', 'pbrMetallicRoughness': {
-            'baseColorFactor': list(WHITE), 'metallicFactor': 0.0, 'roughnessFactor': 1.0}}],
+        'materials': [
+            {'name': 'ground_white', 'pbrMetallicRoughness': {
+                'baseColorFactor': list(WHITE), 'metallicFactor': 0.0, 'roughnessFactor': 1.0}},
+            {'name': 'ground_side', 'pbrMetallicRoughness': {
+                'baseColorTexture': {'index': 0}, 'metallicFactor': 0.0, 'roughnessFactor': 1.0}},
+        ],
+        'textures': [{'sampler': 0, 'source': 0}],
+        # Mirrored along the face, so the picture meets itself; held at its
+        # edge up and down, where it is hung to fit.
+        'samplers': [{'magFilter': 9729, 'minFilter': 9987, 'wrapS': 33648, 'wrapT': 33071}],
+        'images': [{'name': 'ground_side', 'mimeType': 'image/jpeg', 'bufferView': len(views)}],
         'accessors': accessors,
         'bufferViews': views,
-        'buffers': [{'byteLength': len(blob)}],
     }
+    while len(blob) % 4:
+        blob.append(0)
+    views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(side)})
+    blob.extend(side)
+    gltf['buffers'] = [{'byteLength': len(blob) + (-len(blob) % 4)}]
     text = json.dumps(gltf, separators=(',', ':')).encode()
     text += b' ' * (-len(text) % 4)
     blob += b'\0' * (-len(blob) % 4)
@@ -832,16 +886,22 @@ def main():
     risers = steps(pts, tris, across, level)
     all_pts, ring = skirt(pts, tris, inner, outer)
     plane_pos, plane_nrm, plane_idx = plane_mesh(all_pts, tris + ring, list(level) + [top] * 8, origin)
-    rim_pos, rim_nrm, rim_idx = rim_mesh(faces + risers, origin)
+    with open(SIDE, 'rb') as fh:
+        side = fh.read()
+    width, height = jpeg_size(side)
+    bottom = lowest(faces + risers)
+    rim_pos, rim_nrm, rim_idx, rim_uv = rim_mesh(faces + risers, origin, top, bottom, width / height)
 
     write_glb(out_path, [('ground_plane', plane_pos, plane_nrm, plane_idx),
-                         ('ground_rim', rim_pos, rim_nrm, rim_idx)])
+                         ('ground_rim', rim_pos, rim_nrm, rim_idx, rim_uv)], side)
 
     size = (hi - lo) * SIZE
     print(f'[ground] map    {hi[0] - lo[0]:.1f} x {hi[2] - lo[2]:.1f} m, highest point {top:.3f} m')
     print(f'[ground] plane  {size[0]:.1f} x {size[2]:.1f} m, {len(plane_idx)} triangles')
     print(f'[ground] rim    {len(edges)} edges of the holes -> {len(pieces)} stretches, {len(rim_idx)} triangles, '
           f'down to {min(min(p[2], p[3]) for p in pieces):.2f} m at the lowest')
+    print(f'[ground] side   {os.path.relpath(SIDE, GAME_DIR)}, {width} x {height}: its top at {top:.2f} m, '
+          f'its bottom at {bottom:.2f} m, once every {(top - bottom) * width / height:.1f} m along')
     print(f'[ground] steps  {len(risers)}, {sum(float(np.hypot(*(b - a))) for a, b, *_r in risers):.1f} m of them, '
           f'the tallest {max((r[5] - r[2] for r in risers), default=0):.2f} m')
     patch = patches(tris, across, level)

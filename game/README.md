@@ -273,9 +273,19 @@ streets all round it — needs none: there are six, between 6.2 m and 9.6 m.
 It is the one asset made on this side, because it is cut from this map: the
 tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
 the GLB directly. Run it again if the map or its scale changes. Two meshes,
-`ground_plane` and `ground_rim` (the steps are in the rim), one white material,
-about 600 triangles. How the holes, the rim and the heights are found is at the
-top of the tool.
+`ground_plane` and `ground_rim` (the steps are in the rim), about 600
+triangles. How the holes, the rim and the heights are found is at the top of
+the tool.
+
+The plane is white; its sides — the rim and the steps — are a cake cut
+through. The picture is `tools/ground_side.jpg`, and the build hangs it by
+height rather than by face: its top edge at the height of the plane around
+the map (10.4 m), its bottom edge at the lowest point any rim reaches
+(0.8 m), so each layer is at one height all over the map and a short rim
+shows only the top few. Along a face it repeats every 9.6 m — its own
+proportions — every other time mirrored, so it has no seam. To change it,
+replace the file (a JPEG, its top edge the surface of the ground) and build
+again; it is carried inside `assets/ground.glb`.
 
 ### Assets
 
