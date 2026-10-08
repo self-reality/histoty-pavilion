@@ -255,6 +255,11 @@ facing up when you look straight down — streets, roofs, the tops of crates.
 So from inside, a wall with nothing behind it now carries on up, in white, to
 the height of the ground.
 
+A patch of ground that stands alone inside the map — a pillar, a tower with
+streets all round it — is not raised to 10.4 m. It sits as low as it can, on
+the highest thing the map has in it or along its edge: a lid on its walls.
+There are six, between 6.2 m and 9.6 m, and the build lists them.
+
 It is the one asset made on this side, because it is cut from this map: the
 tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
 the GLB directly. Run it again if the map or its scale changes. Two meshes,

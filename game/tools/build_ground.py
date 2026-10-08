@@ -25,6 +25,14 @@ map, in a yard the map walls in but never floored, in the gap between the two
 faces of a wall — or if the first thing met is the back of a ceiling, which is
 a tunnel: under the ground, not in a hole in it.
 
+Islands
+-------
+A patch of ground that stands alone inside the map — a pillar, a tower with
+streets all round it — is not raised to the height of the rest. It sits as
+low as it can: on the highest thing the map has in it or along its edge.
+Where the walls around it all end at that height it is a lid on them; where
+some end lower, a rim comes down to those.
+
 How the holes are found
 -----------------------
 Seen from above, the map is a pile of overlapping triangles. Blender's
@@ -163,19 +171,71 @@ def hole_edges(tris3, inner):
 
     pts, tris, _e, _oe, _of = cdt(points, frame, faces)
     # With Y up, a triangle whose (x, z) footprint winds negative faces the sky.
-    is_open = open_to_sky(pts, tris, tris3[kept], area[kept] < 0)
+    is_open, under = open_to_sky(pts, tris, tris3[kept], area[kept] < 0)
     across = edge_map(tris)
     heal_cracks(pts, tris, across, is_open)
+    island_of, islands = find_islands(pts, tris, across, is_open, under, tris3)
 
     edges = []
     for key, fs in across.items():
         if len(fs) != 2 or (fs[0] in is_open) == (fs[1] in is_open):
             continue
         a, b = (pts[i] for i in key)
-        m = fs[0] if fs[0] in is_open else fs[1]
-        edges.append((a, b, pts[list(tris[m])].mean(axis=0)))
+        m, g = (fs[0], fs[1]) if fs[0] in is_open else (fs[1], fs[0])
+        edges.append((a, b, pts[list(tris[m])].mean(axis=0), island_of.get(g)))
     ground = sum(tri_area(pts[list(tri)]) for f, tri in enumerate(tris) if f not in is_open)
-    return edges, ground, (tris3[kept], area[kept] < 0)
+    return edges, ground, (tris3[kept], area[kept] < 0), islands
+
+
+def find_islands(pts, tris, across, is_open, under, tris3):
+    """The patches of ground that stand alone inside the map — a pillar, a
+    block between four streets — as distinct from the ground around the map
+    and everything joined to it.
+
+    Returns ({triangle: island}, {island: height}). The height is the highest
+    the map gets anywhere in or on the patch: the back of a ceiling under it,
+    a wall standing in it or around it. That is as low as a lid on the patch
+    can sit without anything of the map poking through it. The tops of the
+    walls along its edge are added in rim_pieces(), which is where they are
+    measured."""
+    group = list(range(len(tris)))
+
+    def find(f):
+        while group[f] != f:
+            group[f] = group[group[f]]
+            f = group[f]
+        return f
+
+    for fs in across.values():
+        if len(fs) == 2 and fs[0] not in is_open and fs[1] not in is_open:
+            group[find(fs[0])] = find(fs[1])
+    outside = {find(fs[0]) for fs in across.values() if len(fs) == 1}
+    cells = defaultdict(list)
+    for f in range(len(tris)):
+        if f not in is_open and find(f) not in outside:
+            cells[find(f)].append(f)
+
+    verts = np.unique(tris3.reshape(-1, 3), axis=0)
+    island_of, heights = {}, {}
+    for n, fs in enumerate(cells.values()):
+        height = max(under[f] for f in fs)
+        lo = pts[[i for f in fs for i in tris[f]]].min(axis=0) - ON_LINE
+        hi = pts[[i for f in fs for i in tris[f]]].max(axis=0) + ON_LINE
+        near = verts[(verts[:, [0, 2]] >= lo).all(axis=1) & (verts[:, [0, 2]] <= hi).all(axis=1)]
+        for f in fs:
+            island_of[f] = n
+            a, b, c = pts[list(tris[f])]
+            v0, v1, p = b - a, c - a, near[:, [0, 2]] - a
+            den = v0[0] * v1[1] - v0[1] * v1[0]
+            u = (p[:, 0] * v1[1] - p[:, 1] * v1[0]) / den
+            v = (v0[0] * p[:, 1] - v0[1] * p[:, 0]) / den
+            # Loosely: a wall standing on the patch's edge counts as in it.
+            slack = ON_LINE / max(np.sqrt(abs(den)), TINY)
+            inside = (u >= -slack) & (v >= -slack) & (u + v <= 1 + slack)
+            if inside.any():
+                height = max(height, float(near[inside, 1].max()))
+        heights[n] = height
+    return island_of, heights
 
 
 def heal_cracks(pts, tris, across, is_open):
@@ -226,23 +286,38 @@ def open_to_sky(pts, tris, faces3, faces_up):
     seen from above a level is nothing but overlap: it came back "all of
     them". So each output triangle's middle is tested against every footprint
     instead — the overlay's triangles never straddle a footprint's edge, so
-    the middle speaks for the whole triangle."""
+    the middle speaks for the whole triangle.
+
+    Returns the open triangles, and for every triangle the highest the map
+    gets over it (-inf where there is none)."""
     a, b, c = faces3[:, 0], faces3[:, 1], faces3[:, 2]
     v0, v1 = (b - a)[:, [0, 2]], (c - a)[:, [0, 2]]
     den = v0[:, 0] * v1[:, 1] - v0[:, 1] * v1[:, 0]
-    mids = pts[np.array(tris)].mean(axis=1)
-    found = set()
-    for start in range(0, len(mids), 512):
-        p = mids[start:start + 512, None, :] - a[None][..., [0, 2]]
+    corners = pts[np.array(tris)]
+    mids = corners.mean(axis=1)
+    found, under = set(), np.full(len(mids), -np.inf)
+
+    def height_at(q):
+        p = q[:, None, :] - a[None][..., [0, 2]]
         u = (p[..., 0] * v1[:, 1] - p[..., 1] * v1[:, 0]) / den
         v = (v0[:, 0] * p[..., 1] - v0[:, 1] * p[..., 0]) / den
-        inside = (u >= 0) & (v >= 0) & (u + v <= 1)
-        y = np.where(inside, a[:, 1] + u * (b - a)[:, 1] + v * (c - a)[:, 1], -np.inf)
+        return (u >= 0) & (v >= 0) & (u + v <= 1), a[:, 1] + u * (b - a)[:, 1] + v * (c - a)[:, 1]
+
+    for start in range(0, len(mids), 512):
+        chunk = slice(start, start + 512)
+        inside, y = height_at(mids[chunk])
+        y = np.where(inside, y, -np.inf)
         highest = y.max(axis=1, keepdims=True)
         # A sheet modelled as two faces back to back is open: up wins a tie.
         up = (inside & faces_up[None] & (y >= highest - SAME_HEIGHT)).any(axis=1)
         found.update(start + int(i) for i in np.nonzero(up)[0])
-    return found
+        # How high the map gets over the whole triangle, not just its middle:
+        # the faces over the middle are over all of it, so their heights at
+        # its three corners bound them.
+        for k in range(3):
+            at_corner = np.where(inside, height_at(corners[chunk, k])[1], -np.inf)
+            under[chunk] = np.maximum(under[chunk], at_corner.max(axis=1))
+    return found, under
 
 
 def tri_area(p):
@@ -308,18 +383,18 @@ def envelope(a, b, ends_a, ends_b, top):
 
 
 def rim_pieces(edges, tris3, top):
-    """Each edge of the hole, cut where the map's height along it changes:
-    [(a, b, y_a, y_b, toward)] with a, b in (x, z)."""
+    """Each edge of a hole, cut where the map's height along it changes:
+    [(a, b, y_a, y_b, toward, island)] with a, b in (x, z)."""
     ends_a = tris3.reshape(-1, 3)
     ends_b = tris3[:, [1, 2, 0]].reshape(-1, 3)
     out, missing = [], 0.0
-    for a, b, toward in edges:
+    for a, b, toward, island in edges:
         length = float(np.hypot(*(b - a)))
         d = (b - a) / length
         pieces, lost = envelope(a, b, ends_a, ends_b, top)
         missing += lost
         for s, ys, e, ye in pieces:
-            out.append((a + d * s, a + d * e, ys, ye, toward))
+            out.append((a + d * s, a + d * e, ys, ye, toward, island))
     return merge_straight(out), missing
 
 
@@ -339,11 +414,11 @@ def merge_straight(pieces):
     def straight(i, j, k):
         """Pieces i and j meet at point-key k: one line, in plan and in height?"""
         def outward(n):   # the piece as (far end, far y, near y, length), seen from k
-            a, b, ya, yb, _t = pieces[n]
+            a, b, ya, yb = pieces[n][:4]
             return (b, yb, ya, a) if key(a) == k else (a, ya, yb, b)
         fi, fyi, nyi, here = outward(i)
         fj, fyj, nyj, _h = outward(j)
-        if abs(nyi - nyj) > TINY:
+        if pieces[i][5] != pieces[j][5] or abs(nyi - nyj) > TINY:
             return False
         u, v = fi - here, fj - here
         lu, lv = float(np.hypot(*u)), float(np.hypot(*v))
@@ -356,7 +431,7 @@ def merge_straight(pieces):
         if start in used:
             continue
         used.add(start)
-        a, b, ya, yb, toward = pieces[start]
+        a, b, ya, yb, toward, island = pieces[start]
         ends = [[a, ya, start], [b, yb, start]]
         for end in ends:
             while True:
@@ -368,15 +443,16 @@ def merge_straight(pieces):
                 if nxt in used or not straight(end[2], nxt, k):
                     break
                 used.add(nxt)
-                na, nb, nya, nyb, _t = pieces[nxt]
+                na, nb, nya, nyb = pieces[nxt][:4]
                 end[0], end[1], end[2] = (nb, nyb, nxt) if key(na) == k else (na, nya, nxt)
-        out.append((ends[0][0], ends[1][0], ends[0][1], ends[1][1], toward))
+        out.append((ends[0][0], ends[1][0], ends[0][1], ends[1][1], toward, island))
     return out
 
 
-def plane(pieces, inner, outer, sky):
-    """The plane as (points in (x, z), triangles): finely triangulated between
-    the hole and `inner`, and eight big triangles from there out to `outer`.
+def plane(pieces, inner, outer, sky, heights, top):
+    """The plane as (points in (x, z), triangles, each triangle's height):
+    finely triangulated between the holes and `inner`, and eight big triangles
+    from there out to `outer`. An island's triangles are at its own height.
 
     Two rectangles rather than one because the triangulation fans the hole's
     edge out to whatever frame it is given, and a fan of slivers each 300 m
@@ -395,13 +471,39 @@ def plane(pieces, inner, outer, sky):
     corners = [vid(p) for p in inner]
     edges += [(corners[i], corners[(i + 1) % 4]) for i in range(4)]
 
-    pts, tris, _e, _oe, _of = cdt(points, edges, [])
+    pts, tris, out_edges, orig_edges, _of = cdt(points, edges, [])
     # Which side of the rim each triangle is on is asked of the map again, not
     # walked across the rim's edges: where two of the map's vertices sit a
     # hair apart the rim has a gap that size, and a walk would leak through it
     # and turn everything beyond inside out.
-    is_open = open_to_sky(pts, tris, *sky)
+    is_open = open_to_sky(pts, tris, *sky)[0]
     tris = [list(tri) for f, tri in enumerate(tris) if f not in is_open]
+
+    # Which island each triangle is part of: the one its stretch of rim says,
+    # and the same for every triangle joined to it. A patch whose rim cannot
+    # agree stays at the top, where it is right whatever it is.
+    across = edge_map(tris)
+    group = list(range(len(tris)))
+
+    def patch(f):
+        while group[f] != f:
+            group[f] = group[group[f]]
+            f = group[f]
+        return f
+
+    for fs in across.values():
+        if len(fs) == 2:
+            group[patch(fs[0])] = patch(fs[1])
+    said = defaultdict(set)
+    for i, src in enumerate(orig_edges):
+        for n in src:
+            if n < len(pieces):
+                for f in across.get(frozenset(out_edges[i]), ()):
+                    said[patch(f)].add(pieces[n][5])
+    level = []
+    for f in range(len(tris)):
+        islands = said[patch(f)]
+        level.append(heights[next(iter(islands))] if len(islands) == 1 and None not in islands else top)
 
     # Out to the full size. The inner rectangle's corners are looked up in what
     # the triangulation returned, which may have reordered its input.
@@ -414,25 +516,35 @@ def plane(pieces, inner, outer, sky):
         j = (i + 1) % 4
         tris.append([ring_in[i], ring_in[j], ring_out[j]])
         tris.append([ring_in[i], ring_out[j], ring_out[i]])
-    return pts, tris
+    return pts, tris, level + [top] * 8
 
 
-def plane_mesh(pts, tris, origin):
-    """Face-up triangles at the origin's height."""
-    pos = np.column_stack([pts[:, 0] - origin[0], np.zeros(len(pts)), pts[:, 1] - origin[2]])
-    idx = []
-    for a, b, c in tris:
-        up = (pos[b, 2] - pos[a, 2]) * (pos[c, 0] - pos[a, 0]) - (pos[b, 0] - pos[a, 0]) * (pos[c, 2] - pos[a, 2])
+def plane_mesh(pts, tris, level, origin):
+    """Face-up triangles, each at its own height. Two patches at different
+    heights that touch at a corner get a vertex each there."""
+    index, pos, idx = {}, [], []
+
+    def vid(i, y):
+        if (i, y) not in index:
+            index[(i, y)] = len(pos)
+            pos.append((pts[i][0] - origin[0], y - origin[1], pts[i][1] - origin[2]))
+        return index[(i, y)]
+
+    for (a, b, c), y in zip(tris, level):
+        pa, pb, pc = pts[a], pts[b], pts[c]
+        up = (pb[1] - pa[1]) * (pc[0] - pa[0]) - (pb[0] - pa[0]) * (pc[1] - pa[1])
+        a, b, c = vid(a, y), vid(b, y), vid(c, y)
         idx.append((a, b, c) if up > 0 else (a, c, b))
-    nrm = np.tile((0.0, 1.0, 0.0), (len(pos), 1))
-    return pos, nrm, np.array(idx)
+    return np.array(pos), np.tile((0.0, 1.0, 0.0), (len(pos), 1)), np.array(idx)
 
 
-def rim_mesh(pieces, origin, top):
-    """One flat face per piece, from the plane down to the map, facing the pit."""
+def rim_mesh(pieces, origin, heights, top):
+    """One flat face per piece, from the ground above it down to the map,
+    facing the open side."""
     pos, nrm, idx = [], [], []
-    for a, b, ya, yb, toward in pieces:
-        if top - ya < TINY and top - yb < TINY:
+    for a, b, ya, yb, toward, island in pieces:
+        top_here = top if island is None else heights[island]
+        if top_here - ya < TINY and top_here - yb < TINY:
             continue      # the map comes all the way up here
         d = b - a
         n = np.array([-d[1], d[0]])
@@ -440,10 +552,10 @@ def rim_mesh(pieces, origin, top):
             n = -n
         n = n / np.hypot(*n)
         normal = (n[0], 0.0, n[1])
-        quad = [(a[0], top, a[1]), (b[0], top, b[1]), (b[0], yb, b[1]), (a[0], ya, a[1])]
-        if top - yb < TINY:
+        quad = [(a[0], top_here, a[1]), (b[0], top_here, b[1]), (b[0], yb, b[1]), (a[0], ya, a[1])]
+        if top_here - yb < TINY:
             quad.pop(2)
-        elif top - ya < TINY:
+        elif top_here - ya < TINY:
             quad.pop(3)
         q = np.array(quad) - origin
         if np.cross(q[1] - q[0], q[2] - q[0]) @ normal < 0:
@@ -524,11 +636,18 @@ def main():
     outer = rect((centre[0] - half[0] * SIZE, centre[2] - half[2] * SIZE),
                  (centre[0] + half[0] * SIZE, centre[2] + half[2] * SIZE))
 
-    edges, ground, sky = hole_edges(tris3, inner)
+    edges, ground, sky, heights = hole_edges(tris3, inner)
     pieces, missing = rim_pieces(edges, tris3, top)
-    pts, tris = plane(pieces, inner, outer, sky)
-    plane_pos, plane_nrm, plane_idx = plane_mesh(pts, tris, origin)
-    rim_pos, rim_nrm, rim_idx = rim_mesh(pieces, origin, top)
+    # An island is as low as it can be: on the highest thing the map has in
+    # it or along its edge. Where the walls around it are all that height it
+    # is a lid on them and has no rim at all.
+    for _a, _b, ya, yb, _toward, island in pieces:
+        if island is not None:
+            heights[island] = max(heights[island], ya, yb)
+    heights = {n: (top if top - y < TINY else y) for n, y in heights.items()}
+    pts, tris, level = plane(pieces, inner, outer, sky, heights, top)
+    plane_pos, plane_nrm, plane_idx = plane_mesh(pts, tris, level, origin)
+    rim_pos, rim_nrm, rim_idx = rim_mesh(pieces, origin, heights, top)
 
     # The second triangulation must fill exactly what the first found to be
     # ground, or a piece of rim was lost between them.
@@ -545,6 +664,12 @@ def main():
     print(f'[ground] plane  {size[0]:.1f} x {size[2]:.1f} m, {len(plane_idx)} triangles')
     print(f'[ground] rim    {len(edges)} edges of the holes -> {len(pieces)} stretches, {len(rim_idx)} triangles, '
           f'down to {min(min(p[2], p[3]) for p in pieces):.2f} m at the lowest')
+    for n, y in sorted(heights.items(), key=lambda item: item[1]):
+        mine = [p for p in pieces if p[5] == n]
+        xs = np.array([q for p in mine for q in (p[0], p[1])])
+        low = min(min(p[2], p[3]) for p in mine)
+        print(f'[ground] island at {xs[:, 0].mean():.1f}, {xs[:, 1].mean():.1f}: {y:.2f} m'
+              + (' — a lid' if y - low < TINY else f', rim down to {low:.2f} m'))
     if missing > 1e-3:
         print(f'[ground] WARNING {missing:.2f} m of the holes has no map edge under it; '
               'the rim there takes its neighbour\'s height')
