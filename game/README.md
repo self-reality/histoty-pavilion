@@ -255,16 +255,27 @@ facing up when you look straight down — streets, roofs, the tops of crates.
 So from inside, a wall with nothing behind it now carries on up, in white, to
 the height of the ground.
 
-A patch of ground that stands alone inside the map — a pillar, a tower with
-streets all round it — is not raised to 10.4 m. It sits as low as it can, on
-the highest thing the map has in it or along its edge: a lid on its walls.
-There are six, between 6.2 m and 9.6 m, and the build lists them.
+Inside the map the ground is lower than around it. A block between streets, a
+walled-in yard, the ground over a tunnel sits as low as it can — on the
+highest thing the map has under it or along its edge: a lid on its walls, with
+a rim only where a wall ends lower. Four blocks come down from 10.4 m to
+between 8.0 m and 9.6 m, some 3,200 m² in all, and the build lists them.
+
+That ground is one piece with the ground around the map, joined past the end
+of a wall or over a tunnel, so it comes down in steps: a white face across the
+neck where a block meets higher ground — eight of them, 70 m in all, none
+taller than 1.6 m. A step is put only where it lets enough ground sit lower to
+be worth it (`STEP` in the tool: 12 m² for every metre of step), which is what
+keeps a pit from opening over a tunnel and a bay in the map's outline at the
+height of the plane. A patch that stands alone — a pillar, a tower with
+streets all round it — needs none: there are six, between 6.2 m and 9.6 m.
 
 It is the one asset made on this side, because it is cut from this map: the
 tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
 the GLB directly. Run it again if the map or its scale changes. Two meshes,
-`ground_plane` and `ground_rim`, one white material, about 800 triangles. How
-the holes and the rim are found is at the top of the tool.
+`ground_plane` and `ground_rim` (the steps are in the rim), one white material,
+about 600 triangles. How the holes, the rim and the heights are found is at the
+top of the tool.
 
 ### Assets
 
