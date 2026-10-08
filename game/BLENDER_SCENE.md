@@ -67,6 +67,11 @@ never exported. It is there so you can see where the ground is.
   separates a marker from a loose import whose root happens to be an Empty —
   see Gotchas.)
 
+One anchor in it is not for moving: **`ground_01`**, the white ground the map
+is dug into. Its shape is cut from the map by `npm run ground:build`, so it
+fits where it is and nowhere else (see "The ground" in README.md). It is big —
+hide it in the Outliner if it is in the way; hidden or not, it exports.
+
 **`NEG`** — negative spaces: cutters that take geometry *out* of the map. Red
 wireframes, each wired into the `REF` objects it overlaps by a Boolean modifier
 so the hole is visible while you place it. See below.

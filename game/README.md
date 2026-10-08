@@ -234,6 +234,29 @@ At load it's rotated -90° about X (Z-up → Y-up) and scaled by `MAP_SCALE` (0.
 human proportions (~112 m across). Collision triangles are extracted from the loaded mesh in
 world space and indexed into a 2 m grid.
 
+### The ground
+
+The map sits in a pit: a white plane at the height of its highest point
+(10.4 m), six times its size on each axis (672 × 797 m), with a hole the shape
+of the map seen from above and a rim joining the edge of that hole to the map
+under it — the top of an outer wall, or the lip of a floor that has none. The map is not touched — the ground is a prop,
+`assets/ground.glb`, placed by the anchor `ground_01`, solid like any other, so
+the plane can be walked on.
+
+```bash
+npm run ground:build     # tools/build_ground.py -> assets/ground.glb
+```
+
+It is the one asset made on this side, because it is cut from this map: the
+tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
+the GLB directly. Run it again if the map or its scale changes. Two meshes,
+`ground_plane` and `ground_rim`, one white material, about 600 triangles.
+
+Only the map's **outer** boundary is cut. A courtyard the map encloses without
+roofing it is not ground and still shows the sky, and a piece of the map that
+stands off on its own gets a hole of its own. How the outline and the rim are
+found is at the top of the tool.
+
 ### Assets
 
 Assets are **not built here**. They arrive finished, and `assets/*.glb` is

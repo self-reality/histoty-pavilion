@@ -31,6 +31,14 @@
       "manifest": "./assets/g-man-sit/g-man-sit.manifest.json"
     },
     {
+      "name": "ground_01",
+      "pos": [-8.0, 10.4, -28.0],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "glb": "./assets/ground.glb"
+    },
+    {
       "name": "picture_01_teether_01",
       "pos": [-49.90623, 0.45511, 3.09112],
       "rot": [0.0, 1.0, 0.0, 0.0],
