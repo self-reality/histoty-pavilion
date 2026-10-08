@@ -198,6 +198,7 @@ Red dummies are scattered around the map — shoot them for points. They respawn
 | `src/presence.mjs` | Everyone else in the world, drawn as ghosts, and `meet()`: what two modes do when their players meet (today: nothing) |
 | `src/spawn.mjs` | Where the player starts: map centre, then the `.blend`'s marker, then `?at=`/`?look=` in the address |
 | `src/atmosphere.mjs` | Distance fog + the map's PBR surface response |
+| `src/icing.mjs` | The coloured balls scattered over the white ground: worked out from a seed, the same in every browser, and only around the view |
 | `src/collision.mjs` | Triangle-soup collider: uniform XZ grid, closest-point-on-triangle, grid-walked ray/triangle |
 | `src/negatives.mjs` | Negative spaces: closed volumes of any shape — the level's, and the ones placed assets carry — cut out of the map's collision and its meshes at load |
 | `src/player.mjs` | Capsule collide-and-slide controller (gravity, jump, stair-stepping, resting-hold, ground-glue, mouse-look) |
@@ -274,8 +275,8 @@ It is the one asset made on this side, because it is cut from this map: the
 tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
 the GLB directly. Run it again if the map or its scale changes. Two meshes,
 `ground_plane` and `ground_rim` (the steps are in the rim), about 600
-triangles, and the balls below. How the holes, the rim and the heights are
-found is at the top of the tool.
+triangles. How the holes, the rim and the heights are found is at the top of
+the tool.
 
 The plane is white; its sides — the rim and the steps — are a cake cut
 through. The picture is `tools/ground_side.jpg`, and the build hangs it by
@@ -287,17 +288,22 @@ proportions — every other time mirrored, so it has no seam. To change it,
 replace the file (a JPEG, its top edge the surface of the ground) and build
 again; it is carried inside `assets/ground.glb`.
 
-The white is iced: some 21,000 balls the size of a baseball (7.4 cm across,
-give or take a fifth) in seven colours, scattered over every part of the
-plane at whatever height it is, each sunk in to its middle. One lies at a
-random spot in every 5 m square, so they are 5 m apart on average and never in
-a heap; none hangs over the edge of a hole or a step. The size, the spacing,
-the colours and the seed of the scattering are `BALL`, `BALL_VARIES`,
-`BALL_APART`, `COLOURS` and `BALL_SEED` in the tool. The file holds one dome
-and, for each colour, where its balls lie (`EXT_mesh_gpu_instancing`), so the
-game draws a colour in one call and the GLB stays under a megabyte. They are
-not solid (`ground_balls_<colour>_nocol`), and the `.blend` does not show
-them: Blender's importer would make an object of every one.
+The white is iced: balls the size of a baseball (7.4 cm across, give or take
+a fifth) in seven colours, scattered over every part of the plane at whatever
+height it is, each sunk in to its middle. One lies at a random spot in every
+5 m square, so they are 5 m apart on average and never in a heap; none hangs
+over the edge of a hole or a step.
+
+None of them is in a file. `src/icing.mjs` works each ball out in the browser
+from the two numbers of its square and a seed, in whole-number arithmetic that
+comes out the same everywhere — so everyone in the room sees the same balls
+with nothing sent between them (`tests/icing.mjs` stands two browsers in
+different places and compares). Only the squares within 150 m of the view are
+worked out and drawn, some 2,600 balls of the 21,000 the plane would hold, one
+draw call a colour. The seed, the spacing, the size, the colours and that
+distance are `icing` in `scene.manifest.mjs`, which also names the mesh that
+gets iced (`ground_plane`). The balls are not solid, and Blender does not show
+them.
 
 ### Assets
 
@@ -668,6 +674,7 @@ node tests/sound.mjs   # right voice at the right moment; no phantom thud on fla
 node tests/negatives.mjs # a cutter opens a doorway in the picture and the collision alike
 node tests/spawn.mjs   # the spawn marker is obeyed: place, bearing, somewhere you can stand; ?at= / ?look= override it
 node tests/rescue.mjs  # falling out of the map puts you back where you fell, never round the same hole twice
+node tests/icing.mjs   # two browsers come to the same balls on the white ground, all of them lying on it
 node tests/anim.mjs    # an animated asset does what its script says: clip ticks, head follows the spine, nothing collides
 node tests/script.mjs  # script API 1 on a Game of Life box: canvas, tick, wait, sound, video, open, and a stop that stops it all
 node tests/runtime.mjs # src/script.mjs and src/rig.mjs are the kit's runtime/ — edit there, `npm run runtime:pull` here

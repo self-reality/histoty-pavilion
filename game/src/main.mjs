@@ -22,6 +22,7 @@ import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './
 import { Actions } from './actions.mjs';
 import { SoundBank } from './audio.mjs';
 import { Presence } from './presence.mjs';
+import { Icing } from './icing.mjs';
 import { Net, roomsUrl } from './net.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
@@ -132,6 +133,8 @@ let actions = null;
 let started = false;
 // Everyone else in the world, whatever they play — seen as ghosts (./presence.mjs).
 const presence = new Presence(app);
+// The balls scattered over the white ground, the same for everyone (./icing.mjs).
+const icing = manifest.icing ? new Icing(app, manifest.icing) : null;
 // Their browsers, linked to this one; null when there is no rooms server to
 // find them through (./net.mjs), and the list above then stays empty.
 let net = null;
@@ -239,7 +242,7 @@ function boot() {
     // Lightweight debug handle (handy for tweaking / automated checks). What
     // belongs to a game is read through `session`, so it is always the game
     // being played now: `game.weapon` is null in the fly-over.
-    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, surface, presence, camera: cameraEntity, root: playerRoot,
+    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, surface, presence, icing, camera: cameraEntity, root: playerRoot,
                     // Place a prop by hand from the console or a test — the same
                     // entry the layout goes through — and see what is animating.
                     loadProp, scripted, switchMode, clock,
@@ -485,6 +488,7 @@ function placeProp(prop, asset, loaded) {
     root.syncHierarchy();          // world transforms must be final before we
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root, rig, script);
+    const iced = icing?.cover(root);              // the white ground, if this is it
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
     const volumes = hideVolumes(root);            // `_neg` / `_act`: read from the manifest long ago
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
@@ -503,6 +507,7 @@ function placeProp(prop, asset, loaded) {
       + (proxies ? ` (${proxies} collision proxy mesh hidden)` : '')
       + (volumes ? ` (${volumes} volume mesh hidden)` : '')
       + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
+      + (iced ? ` (iced: ${iced} faces of ${manifest.icing.on})` : '')
       + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : '')
       + (script ? ` (package: ${script.describe()})` : ''));
     return script;
@@ -751,6 +756,8 @@ app.on('update', (dt) => {
 
   // The game first: it moves the view everything below is measured from.
   session.update(d, live);
+
+  icing?.update(cameraEntity.getPosition());
 
   if (debug) debug.updateReadout();
 

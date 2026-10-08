@@ -37,6 +37,29 @@ export const manifest = {
     density: 0.012,           // exp/exp2 only; ignored by linear
   },
 
+  // ---- Icing: small coloured balls scattered over the white ground ----
+  // Nothing of them is in a file: src/icing.mjs works each one out from these
+  // numbers, the same in every browser, so everyone in the room sees the same
+  // balls. One lies at a random spot in every `apart`-metre square of the mesh
+  // named `on`, sunk in to its middle; another `seed` is another scattering.
+  icing: {
+    on: 'ground_plane',  // the mesh to ice: the plane of assets/ground.glb
+    seed: 1,
+    apart: 5,            // metres between one ball and the next, on average
+    radius: 0.037,       // metres — a baseball is 74 mm across
+    varies: 0.2,         // a ball is bigger or smaller than that by up to this much of it
+    range: 150,          // metres around the view inside which they are drawn
+    colors: [            // as they look on a screen, not linear
+      [0.898, 0.220, 0.231],  // red
+      [1.000, 0.541, 0.122],  // orange
+      [1.000, 0.824, 0.247],  // yellow
+      [0.239, 0.796, 0.424],  // green
+      [0.180, 0.608, 1.000],  // blue
+      [0.608, 0.365, 0.898],  // violet
+      [1.000, 0.435, 0.710],  // pink
+    ],
+  },
+
   // ---- Map surface response (PBR) ----
   // Applied to the map's 34 materials by src/atmosphere.mjs, live-tweakable in
   // the debug panel.
