@@ -19,7 +19,8 @@ moves only if the map's bounding box did.
 
 The .blend keeps a copy of every prop's meshes under its anchor, to look at;
 the game never reads it. That copy is replaced here too, or Blender would go
-on showing the ground as it was — File > Revert if the file is open.
+on showing the ground as it was — File > Revert if the file is open. The
+balls (below) are left out of it.
 
 What is ground
 --------------
@@ -73,6 +74,23 @@ bottom edge at the lowest point any rim reaches, so a layer is at one height
 all over the map and a short rim shows only the top few. Along a face it
 repeats, every other time mirrored so it has no seam, at its own proportions.
 
+The balls
+---------
+The white is iced: small balls in a handful of colours lie scattered over
+every part of the plane, at whatever height it is, each sunk in to its middle
+— so a ball is a dome, and has no underside. One is put at a random spot in
+each BALL_APART square of the plane, which is what keeps them that far apart
+on average without two ever lying in a heap, and left out where it would hang
+over the edge of a hole or of a step. They are the same balls in the same
+places every time (BALL_SEED).
+
+There are some twenty thousand, so the file does not hold them one by one:
+one dome, and for each colour a node that says where its balls lie and how
+big each is (EXT_mesh_gpu_instancing), which the game draws in one go. They
+are not solid — a ball is a bump under the sole (`_nocol`).
+
+  ground_balls_<colour>_nocol   the balls of one colour
+
 Everything is in the game's space — metres, Y-up — which is glTF's as well, so
 the file is written directly rather than through Blender's exporter.
 """
@@ -108,6 +126,14 @@ TINY = 1e-5       # metres: shortest stretch of rim worth a face
 THIN = 0.02       # metres: a patch narrower than this is a crack between triangles, not a place
 STEP = 12.0       # square metres of ground a metre of step must let down to be worth having (see settle)
 SAME_HEIGHT = 1e-3  # metres: two surfaces this close in height are one, seen from above
+
+BALL = 0.037      # metres: a ball's radius — a baseball is 74 mm across
+BALL_VARIES = 0.2  # a ball is bigger or smaller than that by up to this much of it
+BALL_APART = 5.0  # metres between one ball and the next, on average
+BALL_SEED = 1     # another number, another scattering
+BALL_ROUND = (10, 3)  # the dome: how many sides around, how many rings up
+COLOURS = (('red', 0xE5383B), ('orange', 0xFF8A1F), ('yellow', 0xFFD23F), ('green', 0x3DCB6C),
+           ('blue', 0x2E9BFF), ('violet', 0x9B5DE5), ('pink', 0xFF6FB5))
 
 
 def script_args():
@@ -666,6 +692,67 @@ def skirt(pts, tris, inner, outer):
     return np.vstack([pts, outer]), out
 
 
+def heights(pts, tris, level, q):
+    """The height of the plane at each of `q` in (x, z); nan where it has a hole."""
+    out = np.full(len(q), np.nan)
+    for tri, y in zip(tris, level):
+        a, b, c = pts[tri]
+        v0, v1 = b - a, c - a
+        den = v0[0] * v1[1] - v0[1] * v1[0]
+        near = np.nonzero(((q >= np.minimum(np.minimum(a, b), c))
+                           & (q <= np.maximum(np.maximum(a, b), c))).all(axis=1))[0]
+        if abs(den) < 1e-12 or not len(near):
+            continue
+        p = q[near] - a
+        u = (p[:, 0] * v1[1] - p[:, 1] * v1[0]) / den
+        v = (v0[0] * p[:, 1] - v0[1] * p[:, 0]) / den
+        out[near[(u >= 0) & (v >= 0) & (u + v <= 1)]] = y
+    return out
+
+
+def scatter(pts, tris, level, outer):
+    """The balls: (where in (x, z), the height of the plane there, radius,
+    which of COLOURS), one at a random spot in each BALL_APART square of the
+    plane — unless that spot is a hole, or so near the edge of one, or of a
+    step, that the ball would hang over it."""
+    rng = np.random.default_rng(BALL_SEED)
+    lo, hi = np.array(outer[0]), np.array(outer[2])
+    nx, nz = np.ceil((hi - lo) / BALL_APART).astype(int)
+    cells = np.stack(np.meshgrid(np.arange(nx), np.arange(nz), indexing='ij'), axis=-1).reshape(-1, 2)
+    at = lo + (cells + rng.random(cells.shape)) * BALL_APART
+    radius = BALL * (1 + BALL_VARIES * rng.uniform(-1, 1, len(at)))
+    colour = rng.integers(len(COLOURS), size=len(at))
+    y = heights(pts, tris, level, at)
+    keep = ~np.isnan(y)
+    for turn in np.arange(8) * np.pi / 4:
+        keep &= heights(pts, tris, level, at + radius[:, None] * (np.cos(turn), np.sin(turn))) == y
+    return at[keep], y[keep], radius[keep], colour[keep]
+
+
+def dome():
+    """The half of a ball that shows, a metre in radius, its middle at the
+    origin: (positions, normals, triangles)."""
+    around, up = BALL_ROUND
+    pos = [(np.cos(rise) * np.cos(turn), np.sin(rise), np.cos(rise) * np.sin(turn))
+           for rise in np.arange(up) * np.pi / 2 / up
+           for turn in np.arange(around) * 2 * np.pi / around] + [(0.0, 1.0, 0.0)]
+    idx = []
+    for r in range(up):
+        for i in range(around):
+            a, b = r * around + i, r * around + (i + 1) % around
+            if r == up - 1:
+                idx.append((a, len(pos) - 1, b))
+            else:
+                idx += [(a, a + around, b + around), (a, b + around, b)]
+    return np.array(pos), np.array(pos), np.array(idx)
+
+
+def linear(rgb):
+    """0xRRGGBB as it looks on a screen -> the factors a material wants."""
+    c = np.array([rgb >> 16 & 255, rgb >> 8 & 255, rgb & 255]) / 255
+    return [float(v) for v in np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)] + [1.0]
+
+
 def plane_mesh(pts, tris, level, origin):
     """Face-up triangles, each at its own height. Ground at two heights gets
     a vertex for each where they touch."""
@@ -741,17 +828,23 @@ def jpeg_size(data):
     raise SystemExit(f'[ground] {os.path.relpath(SIDE, GAME_DIR)} is not a JPEG')
 
 
-def write_glb(path, meshes, side):
+def write_glb(path, meshes, side, ball, balls):
     """A root node, one child per mesh. `meshes` is [(name, positions,
     normals, triangles)], white, or with a fifth, texture coordinates, in
-    which case it wears `side`, the bytes of a JPEG."""
+    which case it wears `side`, the bytes of a JPEG.
+
+    Then one child per entry of `balls`, [(name, colour, where, sizes)]: the
+    mesh `ball`, (positions, normals, triangles), in that colour, once at each
+    of `where` and as big as `sizes` says."""
     blob, views, accessors = bytearray(), [], []
 
     def accessor(data, kind, component, target, bounds=False):
         while len(blob) % 4:
             blob.append(0)
         raw = data.tobytes()
-        views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(raw), 'target': target})
+        views.append({'buffer': 0, 'byteOffset': len(blob), 'byteLength': len(raw)})
+        if target:      # none for what is said of a whole ball rather than of a vertex
+            views[-1]['target'] = target
         blob.extend(raw)
         acc = {'bufferView': len(views) - 1, 'componentType': component,
                'count': int(data.size if kind == 'SCALAR' else len(data)), 'type': kind}
@@ -777,18 +870,33 @@ def write_glb(path, meshes, side):
         nodes.append({'name': name, 'mesh': len(gl_meshes)})
         gl_meshes.append({'name': name, 'primitives': [prim]})
 
+    materials = [
+        {'name': 'ground_white', 'pbrMetallicRoughness': {
+            'baseColorFactor': list(WHITE), 'metallicFactor': 0.0, 'roughnessFactor': 1.0}},
+        {'name': 'ground_side', 'pbrMetallicRoughness': {
+            'baseColorTexture': {'index': 0}, 'metallicFactor': 0.0, 'roughnessFactor': 1.0}},
+    ]
+    pos, nrm, tris = ball
+    shape = {'attributes': {'POSITION': accessor(pos.astype('<f4'), 'VEC3', 5126, 34962, bounds=True),
+                            'NORMAL': accessor(nrm.astype('<f4'), 'VEC3', 5126, 34962)},
+             'indices': accessor(tris.astype('<u4').reshape(-1), 'SCALAR', 5125, 34963)}
+    for name, colour, where, sizes in balls:
+        nodes[0]['children'].append(len(nodes))
+        nodes.append({'name': name, 'mesh': len(gl_meshes), 'extensions': {'EXT_mesh_gpu_instancing': {
+            'attributes': {'TRANSLATION': accessor(where.astype('<f4'), 'VEC3', 5126, None),
+                           'SCALE': accessor(sizes.astype('<f4'), 'VEC3', 5126, None)}}}})
+        gl_meshes.append({'name': name, 'primitives': [dict(shape, material=len(materials))]})
+        materials.append({'name': name.removesuffix('_nocol'), 'pbrMetallicRoughness': {
+            'baseColorFactor': colour, 'metallicFactor': 0.0, 'roughnessFactor': 0.5}})
+
     gltf = {
         'asset': {'version': '2.0', 'generator': 'tools/build_ground.py'},
         'scene': 0,
         'scenes': [{'name': 'ground', 'nodes': [0]}],
         'nodes': nodes,
         'meshes': gl_meshes,
-        'materials': [
-            {'name': 'ground_white', 'pbrMetallicRoughness': {
-                'baseColorFactor': list(WHITE), 'metallicFactor': 0.0, 'roughnessFactor': 1.0}},
-            {'name': 'ground_side', 'pbrMetallicRoughness': {
-                'baseColorTexture': {'index': 0}, 'metallicFactor': 0.0, 'roughnessFactor': 1.0}},
-        ],
+        'extensionsUsed': ['EXT_mesh_gpu_instancing'],
+        'materials': materials,
         'textures': [{'sampler': 0, 'source': 0}],
         # Mirrored along the face, so the picture meets itself; held at its
         # edge up and down, where it is hung to fit.
@@ -825,6 +933,13 @@ def refresh_blend(glb):
     before = set(bpy.data.objects)
     bpy.ops.import_scene.gltf(filepath=glb)
     fresh = [o for o in bpy.data.objects if o not in before]
+    # Not the balls: the importer makes an object of every one, and twenty
+    # thousand objects are a file nobody can work in.
+    balls = [o for o in fresh if o.name.startswith('ground_balls_')]
+    shapes = {o.data for o in balls if o.data is not None}
+    fresh = [o for o in fresh if o not in balls]
+    bpy.data.batch_remove(balls)
+    bpy.data.batch_remove([m for m in shapes if m.users == 0])
     for anchor in anchors[1:] + anchors[:1]:      # the last one takes the import itself
         old = [o for o in anchor.children_recursive if o not in fresh]
         names = {o.name: o for o in old}
@@ -892,8 +1007,13 @@ def main():
     bottom = lowest(faces + risers)
     rim_pos, rim_nrm, rim_idx, rim_uv = rim_mesh(faces + risers, origin, top, bottom, width / height)
 
+    at, at_y, radius, colour = scatter(all_pts, tris + ring, list(level) + [top] * 8, outer)
+    where = np.stack([at[:, 0], at_y, at[:, 1]], axis=1) - origin
+    balls = [(f'ground_balls_{name}_nocol', linear(rgb), where[colour == n], np.repeat(radius[colour == n], 3).reshape(-1, 3))
+             for n, (name, rgb) in enumerate(COLOURS)]
+
     write_glb(out_path, [('ground_plane', plane_pos, plane_nrm, plane_idx),
-                         ('ground_rim', rim_pos, rim_nrm, rim_idx, rim_uv)], side)
+                         ('ground_rim', rim_pos, rim_nrm, rim_idx, rim_uv)], side, dome(), balls)
 
     size = (hi - lo) * SIZE
     print(f'[ground] map    {hi[0] - lo[0]:.1f} x {hi[2] - lo[2]:.1f} m, highest point {top:.3f} m')
@@ -904,6 +1024,9 @@ def main():
           f'its bottom at {bottom:.2f} m, once every {(top - bottom) * width / height:.1f} m along')
     print(f'[ground] steps  {len(risers)}, {sum(float(np.hypot(*(b - a))) for a, b, *_r in risers):.1f} m of them, '
           f'the tallest {max((r[5] - r[2] for r in risers), default=0):.2f} m')
+    print(f'[ground] balls  {len(at)} in {len(COLOURS)} colours, {radius.min() * 200:.1f} to {radius.max() * 200:.1f} cm across, '
+          f'{int((top - at_y > TINY).sum())} of them on the ground inside the map; '
+          f'a dome of {len(dome()[2])} triangles each')
     patch = patches(tris, across, level)
     lowered = 0.0
     for r in sorted({p for f, p in enumerate(patch) if top - level[f] > TINY}, key=lambda p: (level[p], p)):

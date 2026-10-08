@@ -274,8 +274,8 @@ It is the one asset made on this side, because it is cut from this map: the
 tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
 the GLB directly. Run it again if the map or its scale changes. Two meshes,
 `ground_plane` and `ground_rim` (the steps are in the rim), about 600
-triangles. How the holes, the rim and the heights are found is at the top of
-the tool.
+triangles, and the balls below. How the holes, the rim and the heights are
+found is at the top of the tool.
 
 The plane is white; its sides — the rim and the steps — are a cake cut
 through. The picture is `tools/ground_side.jpg`, and the build hangs it by
@@ -286,6 +286,18 @@ shows only the top few. Along a face it repeats every 9.6 m — its own
 proportions — every other time mirrored, so it has no seam. To change it,
 replace the file (a JPEG, its top edge the surface of the ground) and build
 again; it is carried inside `assets/ground.glb`.
+
+The white is iced: some 21,000 balls the size of a baseball (7.4 cm across,
+give or take a fifth) in seven colours, scattered over every part of the
+plane at whatever height it is, each sunk in to its middle. One lies at a
+random spot in every 5 m square, so they are 5 m apart on average and never in
+a heap; none hangs over the edge of a hole or a step. The size, the spacing,
+the colours and the seed of the scattering are `BALL`, `BALL_VARIES`,
+`BALL_APART`, `COLOURS` and `BALL_SEED` in the tool. The file holds one dome
+and, for each colour, where its balls lie (`EXT_mesh_gpu_instancing`), so the
+game draws a colour in one call and the GLB stays under a megabyte. They are
+not solid (`ground_balls_<colour>_nocol`), and the `.blend` does not show
+them: Blender's importer would make an object of every one.
 
 ### Assets
 
