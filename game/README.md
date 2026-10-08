@@ -236,26 +236,30 @@ world space and indexed into a 2 m grid.
 
 ### The ground
 
-The map sits in a pit: a white plane at the height of its highest point
-(10.4 m), six times its size on each axis (672 × 797 m), with a hole the shape
-of the map seen from above and a rim joining the edge of that hole to the map
-under it — the top of an outer wall, or the lip of a floor that has none. The map is not touched — the ground is a prop,
-`assets/ground.glb`, placed by the anchor `ground_01`, solid like any other, so
-the plane can be walked on.
+The map is dug into white ground: a plane at the height of its highest point
+(10.4 m), six times its size on each axis (672 × 797 m), with holes where the
+map is open to the sky and a rim joining the edge of each hole to the map
+under it — the top of a wall, the lip of a floor that has none, the mouth of a
+tunnel. The map is not touched — the ground is a prop, `assets/ground.glb`,
+placed by the anchor `ground_01`, solid like any other, so the plane can be
+walked on.
 
 ```bash
 npm run ground:build     # tools/build_ground.py -> assets/ground.glb
 ```
 
+Ground is everywhere you could not stand under the sky: beyond the map, in a
+yard it walls in but never floored, in the gap between the two faces of a
+wall, and over every tunnel. What stays open is whatever shows a surface
+facing up when you look straight down — streets, roofs, the tops of crates.
+So from inside, a wall with nothing behind it now carries on up, in white, to
+the height of the ground.
+
 It is the one asset made on this side, because it is cut from this map: the
 tool reads `assets/de_dust2.glb` as `scene.manifest.mjs` places it and writes
 the GLB directly. Run it again if the map or its scale changes. Two meshes,
-`ground_plane` and `ground_rim`, one white material, about 600 triangles.
-
-Only the map's **outer** boundary is cut. A courtyard the map encloses without
-roofing it is not ground and still shows the sky, and a piece of the map that
-stands off on its own gets a hole of its own. How the outline and the rim are
-found is at the top of the tool.
+`ground_plane` and `ground_rim`, one white material, about 800 triangles. How
+the holes and the rim are found is at the top of the tool.
 
 ### Assets
 

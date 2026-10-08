@@ -3,9 +3,9 @@
     npm run ground:build
 
 A white plane at the height of the map's highest point, several times the
-map's size, with a hole the shape of the map seen from above — and a rim: the
-faces that join the edge of that hole to whatever of the map stands under it,
-so the level reads as a pit sunk into a flat white ground.
+map's size, with holes where the map is open to the sky — and a rim: the faces
+that join the edge of each hole to whatever of the map stands under it, so the
+level reads as streets and yards sunk into flat white ground.
 
 The map is only read. What comes out is a prop like any other: one GLB, placed
 by an anchor in the .blend (`ground_01`), solid, so the plane can be walked on.
@@ -16,27 +16,33 @@ Run it again whenever the map GLB or its `scale` / `euler` in
 scene.manifest.mjs changes; the anchor's position is printed at the end, and
 moves only if the map's bounding box did.
 
-How the hole is found
----------------------
-Seen from above, the map is a union of triangles. Blender's constrained
-Delaunay triangulation is handed all of them at once and gives back a
-triangulation of their overlay, in which every output triangle lies wholly
-under the map or wholly clear of it. The ground is the clear part, taken from
-the outside in: emptiness the map
-encloses (a courtyard between four buildings with no roof and no floor) is not
-reached, so only the map's OUTER boundary is cut. A detached piece of the map
-standing off on its own gets a hole of its own.
+What is ground
+--------------
+Everywhere you could not stand under the sky. Looking straight down on a
+point, it is OPEN if the first thing met is a surface facing up — a street, a
+roof, the top of a crate. It is GROUND if nothing is met at all — beyond the
+map, in a yard the map walls in but never floored, in the gap between the two
+faces of a wall — or if the first thing met is the back of a ceiling, which is
+a tunnel: under the ground, not in a hole in it.
+
+How the holes are found
+-----------------------
+Seen from above, the map is a pile of overlapping triangles. Blender's
+constrained Delaunay triangulation is handed all of them at once and gives
+back a triangulation of their overlay, across any one triangle of which the
+answer above cannot change. Each is asked, and the edges between an open one
+and a ground one are the edges of the holes.
 
 How the rim is found
 --------------------
-An edge of the hole lies under some edge of the map — the top of an outer
-wall, or the lip of a floor that has no wall. Every map edge that runs along
-it is collected and the highest of them at each point (their upper envelope)
-is where the rim comes down to. Where the map already reaches the ground's
-height there is no rim at all.
+An edge of a hole lies under some edge of the map — the top of a wall, the
+lip of a floor that has none, the mouth of a tunnel. Every map edge that runs
+along it is collected and the highest of them at each point (their upper
+envelope) is where the rim comes down to. Where the map already reaches the
+ground's height there is no rim at all.
 
   ground_plane   the plane, facing up
-  ground_rim     the faces between the plane's hole and the map, facing the pit
+  ground_rim     the faces between the plane's holes and the map, facing the open side
 
 Everything is in the game's space — metres, Y-up — which is glTF's as well, so
 the file is written directly rather than through Blender's exporter.
@@ -47,7 +53,7 @@ import os
 import struct
 import subprocess
 import sys
-from collections import defaultdict, deque
+from collections import defaultdict
 
 import bpy
 import numpy as np
@@ -68,6 +74,8 @@ WELD = 1e-4       # metres: two map vertices closer than this are one point from
 FLAT = 1e-6       # square metres: a triangle smaller than this from above is a wall
 ON_LINE = 2e-3    # metres: how far off an edge of the hole a map edge may run and still be "along" it
 TINY = 1e-5       # metres: shortest stretch of rim worth a face
+THIN = 0.02       # metres: a patch narrower than this is a crack between triangles, not a place
+SAME_HEIGHT = 1e-3  # metres: two surfaces this close in height are one, seen from above
 
 
 def script_args():
@@ -113,28 +121,13 @@ def cdt(points, edges, faces):
     return np.array([tuple(v) for v in verts]), tris, _edges, orig_edges, orig_faces
 
 
-def flood_from_hull(tris, blocked):
-    """The triangles reachable from the hull's edge without entering a `blocked`
-    one or crossing a `blocked` edge. `blocked` is (set of faces, set of edges)."""
-    no_face, no_edge = blocked
+def edge_map(tris):
+    """Which triangles lie on either side of each edge."""
     across = defaultdict(list)
     for f, tri in enumerate(tris):
         for i in range(3):
             across[frozenset((tri[i], tri[(i + 1) % 3]))].append(f)
-    start = {fs[0] for fs in across.values() if len(fs) == 1 and fs[0] not in no_face}
-    seen, queue = set(start), deque(start)
-    while queue:
-        f = queue.popleft()
-        tri = tris[f]
-        for i in range(3):
-            key = frozenset((tri[i], tri[(i + 1) % 3]))
-            if key in no_edge:
-                continue
-            for g in across[key]:
-                if g not in seen and g not in no_face:
-                    seen.add(g)
-                    queue.append(g)
-    return seen, across
+    return across
 
 
 def rect(lo, hi):
@@ -142,14 +135,16 @@ def rect(lo, hi):
 
 
 def hole_edges(tris3, inner):
-    """The edges of the hole: [(a, b)] in (x, z), each with the ground on one
-    side and the map on the other, and `toward` — the side the map is on."""
+    """The edges of the holes: [(a, b, toward)] in (x, z), each with ground on
+    one side and open map on the other; `toward` is a point on the map's side.
+    Also the area that is ground inside `inner`, for main() to check against,
+    and the map's faces as open_to_sky() wants them, for plane() to ask again."""
     xz = tris3[:, :, [0, 2]]
     area = ((xz[:, 1, 0] - xz[:, 0, 0]) * (xz[:, 2, 1] - xz[:, 0, 1])
             - (xz[:, 1, 1] - xz[:, 0, 1]) * (xz[:, 2, 0] - xz[:, 0, 0])) / 2
     seen_from_above = np.abs(area) > FLAT
 
-    index, points, faces = {}, [], []
+    index, points, faces, kept = {}, [], [], []
 
     def vid(p):
         key = (round(p[0] / WELD), round(p[1] / WELD))
@@ -158,52 +153,96 @@ def hole_edges(tris3, inner):
             points.append((float(p[0]), float(p[1])))
         return index[key]
 
-    for tri, a in zip(xz[seen_from_above], area[seen_from_above]):
-        ids = [vid(p) for p in tri]
+    for n in np.nonzero(seen_from_above)[0]:
+        ids = [vid(p) for p in xz[n]]
         if len(set(ids)) == 3:
-            faces.append(ids if a > 0 else ids[::-1])
+            faces.append(ids if area[n] > 0 else ids[::-1])
+            kept.append(n)
     corners = [vid(p) for p in inner]
     frame = [(corners[i], corners[(i + 1) % 4]) for i in range(4)]
 
     pts, tris, _e, _oe, _of = cdt(points, frame, faces)
-    covered = under_the_map(pts, tris, np.array([[points[i] for i in f] for f in faces]))
-    ground, across = flood_from_hull(tris, (covered, set()))
+    # With Y up, a triangle whose (x, z) footprint winds negative faces the sky.
+    is_open = open_to_sky(pts, tris, tris3[kept], area[kept] < 0)
+    across = edge_map(tris)
+    heal_cracks(pts, tris, across, is_open)
 
     edges = []
     for key, fs in across.items():
-        if len(fs) != 2 or (fs[0] in ground) == (fs[1] in ground):
+        if len(fs) != 2 or (fs[0] in is_open) == (fs[1] in is_open):
             continue
-        g, m = (fs[0], fs[1]) if fs[0] in ground else (fs[1], fs[0])
-        if m not in covered:
-            continue          # emptiness the flood did not reach cannot border it
         a, b = (pts[i] for i in key)
-        centre = pts[list(tris[m])].mean(axis=0)
-        edges.append((a, b, centre))
-    empty = sum(tri_area(pts[list(tris[f])]) for f in ground)
-    return edges, empty
+        m = fs[0] if fs[0] in is_open else fs[1]
+        edges.append((a, b, pts[list(tris[m])].mean(axis=0)))
+    ground = sum(tri_area(pts[list(tri)]) for f, tri in enumerate(tris) if f not in is_open)
+    return edges, ground, (tris3[kept], area[kept] < 0)
 
 
-def under_the_map(pts, tris, footprints):
-    """Which triangles of the overlay have map over them.
+def heal_cracks(pts, tris, across, is_open):
+    """Give a patch too narrow to be anything to whatever surrounds it.
 
-    The triangulation offers this itself (which input faces an output face came
-    from), but that answer assumes faces that do not overlap, and seen from
-    above a level is nothing but overlap: it came back "all of them". So each
-    output triangle's middle is tested against every footprint instead — the
-    overlay's triangles never straddle a footprint's edge, so the middle
-    speaks for the whole triangle."""
-    a, b, c = footprints[:, 0], footprints[:, 1], footprints[:, 2]
-    v0, v1 = b - a, c - a
+    Two floor triangles that should share an edge and miss by a hundredth of a
+    millimetre leave a crack metres long between them: nothing of the map is
+    there, so it is ground, and it would get a rim ten metres tall on both
+    sides. A patch — of ground or of open map — whose area over half its
+    outline is under THIN changes sides. Updates `is_open` in place."""
+    group = list(range(len(tris)))
+
+    def find(f):
+        while group[f] != f:
+            group[f] = group[group[f]]
+            f = group[f]
+        return f
+
+    borders = []
+    for key, fs in across.items():
+        if len(fs) == 2 and (fs[0] in is_open) == (fs[1] in is_open):
+            group[find(fs[0])] = find(fs[1])
+        else:
+            borders.append((key, fs))
+    size, outline = defaultdict(float), defaultdict(float)
+    for f, tri in enumerate(tris):
+        size[find(f)] += tri_area(pts[list(tri)])
+    for key, fs in borders:
+        a, b = (pts[i] for i in key)
+        for f in fs:
+            outline[find(f)] += float(np.hypot(*(b - a)))
+    for f in range(len(tris)):
+        g = find(f)
+        if outline[g] and size[g] / (outline[g] / 2) < THIN:
+            is_open.symmetric_difference_update({f})
+
+
+def open_to_sky(pts, tris, faces3, faces_up):
+    """Which triangles of the overlay are open map: looking straight down on
+    them, the first thing met is a surface that faces up — a floor, a roof.
+
+    Everything else is ground. Nothing there at all (beyond the map, or the
+    gap between the two faces of a wall), or the first thing met is the back
+    of a ceiling: a tunnel, which is under the ground rather than in a hole.
+
+    The triangulation offers part of this itself (which input faces an output
+    face came from), but that answer assumes faces that do not overlap, and
+    seen from above a level is nothing but overlap: it came back "all of
+    them". So each output triangle's middle is tested against every footprint
+    instead — the overlay's triangles never straddle a footprint's edge, so
+    the middle speaks for the whole triangle."""
+    a, b, c = faces3[:, 0], faces3[:, 1], faces3[:, 2]
+    v0, v1 = (b - a)[:, [0, 2]], (c - a)[:, [0, 2]]
     den = v0[:, 0] * v1[:, 1] - v0[:, 1] * v1[:, 0]
     mids = pts[np.array(tris)].mean(axis=1)
-    covered = set()
+    found = set()
     for start in range(0, len(mids), 512):
-        p = mids[start:start + 512, None, :] - a[None]
+        p = mids[start:start + 512, None, :] - a[None][..., [0, 2]]
         u = (p[..., 0] * v1[:, 1] - p[..., 1] * v1[:, 0]) / den
         v = (v0[:, 0] * p[..., 1] - v0[:, 1] * p[..., 0]) / den
-        inside = ((u >= 0) & (v >= 0) & (u + v <= 1)).any(axis=1)
-        covered.update(start + int(i) for i in np.nonzero(inside)[0])
-    return covered
+        inside = (u >= 0) & (v >= 0) & (u + v <= 1)
+        y = np.where(inside, a[:, 1] + u * (b - a)[:, 1] + v * (c - a)[:, 1], -np.inf)
+        highest = y.max(axis=1, keepdims=True)
+        # A sheet modelled as two faces back to back is open: up wins a tie.
+        up = (inside & faces_up[None] & (y >= highest - SAME_HEIGHT)).any(axis=1)
+        found.update(start + int(i) for i in np.nonzero(up)[0])
+    return found
 
 
 def tri_area(p):
@@ -335,7 +374,7 @@ def merge_straight(pieces):
     return out
 
 
-def plane(pieces, inner, outer):
+def plane(pieces, inner, outer, sky):
     """The plane as (points in (x, z), triangles): finely triangulated between
     the hole and `inner`, and eight big triangles from there out to `outer`.
 
@@ -356,11 +395,13 @@ def plane(pieces, inner, outer):
     corners = [vid(p) for p in inner]
     edges += [(corners[i], corners[(i + 1) % 4]) for i in range(4)]
 
-    pts, tris, out_edges, orig_edges, _of = cdt(points, edges, [])
-    hole = {frozenset(out_edges[i]) for i, src in enumerate(orig_edges)
-            if any(s < len(pieces) for s in src)}
-    ground, _across = flood_from_hull(tris, (set(), hole))
-    tris = [list(tris[f]) for f in sorted(ground)]
+    pts, tris, _e, _oe, _of = cdt(points, edges, [])
+    # Which side of the rim each triangle is on is asked of the map again, not
+    # walked across the rim's edges: where two of the map's vertices sit a
+    # hair apart the rim has a gap that size, and a walk would leak through it
+    # and turn everything beyond inside out.
+    is_open = open_to_sky(pts, tris, *sky)
+    tris = [list(tri) for f, tri in enumerate(tris) if f not in is_open]
 
     # Out to the full size. The inner rectangle's corners are looked up in what
     # the triangulation returned, which may have reordered its input.
@@ -483,18 +524,18 @@ def main():
     outer = rect((centre[0] - half[0] * SIZE, centre[2] - half[2] * SIZE),
                  (centre[0] + half[0] * SIZE, centre[2] + half[2] * SIZE))
 
-    edges, empty = hole_edges(tris3, inner)
+    edges, ground, sky = hole_edges(tris3, inner)
     pieces, missing = rim_pieces(edges, tris3, top)
-    pts, tris = plane(pieces, inner, outer)
+    pts, tris = plane(pieces, inner, outer, sky)
     plane_pos, plane_nrm, plane_idx = plane_mesh(pts, tris, origin)
     rim_pos, rim_nrm, rim_idx = rim_mesh(pieces, origin, top)
 
-    # The second triangulation must fill exactly what the first found empty,
-    # or a piece of rim was lost between them.
+    # The second triangulation must fill exactly what the first found to be
+    # ground, or a piece of rim was lost between them.
     filled = sum(tri_area(pts[t]) for t in tris[:-8])
-    if abs(filled - empty) > 1e-3 * empty:
-        raise SystemExit(f'[ground] the plane covers {filled:.2f} m2 around the map, '
-                         f'but {empty:.2f} m2 is empty there — the hole did not close')
+    if abs(filled - ground) > 1e-3 * ground:
+        raise SystemExit(f'[ground] the plane covers {filled:.2f} m2 in and around the map, '
+                         f'but {ground:.2f} m2 is ground there — a hole did not close')
 
     write_glb(out_path, [('ground_plane', plane_pos, plane_nrm, plane_idx),
                          ('ground_rim', rim_pos, rim_nrm, rim_idx)])
@@ -502,10 +543,10 @@ def main():
     size = (hi - lo) * SIZE
     print(f'[ground] map    {hi[0] - lo[0]:.1f} x {hi[2] - lo[2]:.1f} m, highest point {top:.3f} m')
     print(f'[ground] plane  {size[0]:.1f} x {size[2]:.1f} m, {len(plane_idx)} triangles')
-    print(f'[ground] rim    {len(edges)} edges of the hole -> {len(pieces)} stretches, {len(rim_idx)} triangles, '
+    print(f'[ground] rim    {len(edges)} edges of the holes -> {len(pieces)} stretches, {len(rim_idx)} triangles, '
           f'down to {min(min(p[2], p[3]) for p in pieces):.2f} m at the lowest')
     if missing > 1e-3:
-        print(f'[ground] WARNING {missing:.2f} m of the hole has no map edge under it; '
+        print(f'[ground] WARNING {missing:.2f} m of the holes has no map edge under it; '
               'the rim there takes its neighbour\'s height')
     print(f'[ground] wrote  {os.path.relpath(out_path, GAME_DIR)} ({os.path.getsize(out_path):,} bytes)')
     print(f'[ground] anchor pos {origin[0]:.5f}, {origin[1]:.5f}, {origin[2]:.5f} (game space)')

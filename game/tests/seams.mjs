@@ -24,14 +24,27 @@ const res = await page.evaluate((SPOTS) => {
   const GO = { forward: 1, strafe: 0, jump: false, sprint: true };
   const orig = p._groundSnap.bind(p);
 
+  // The highest surface of the MAP at the spot. A prop over it is looked
+  // through — the ground the map is dug into (ground_01) lies above one of
+  // these spots, and it is the map's seams that are under test.
+  const mapFloor = (s) => {
+    const from = p.pos.clone(), down = p.pos.clone().set(0, -1, 0);
+    for (let top = 40, i = 0; i < 8; i++) {
+      const hit = col.raycast(from.set(s.x, top, s.z), down, 400);
+      if (!hit) return null;
+      if (!hit.tri.prop) return hit.point.y;
+      top = hit.point.y - 0.01;
+    }
+    return null;
+  };
+
   // Stand on the real floor at the spot, then walk outward in 16 directions.
   // Count directions where the capsule drops through / off (fell) and can't
   // recover. Real floor = highest surface found from above at that XZ.
   const testSpot = (s, glueOn) => {
     p._groundSnap = glueOn ? orig : () => false;
-    const gh = col.groundBelow(s.x, s.z, 40, 400);
-    if (!gh) return { floorY: null, dirs: 0, fell: 0 };
-    const floorY = gh.y;
+    const floorY = mapFloor(s);
+    if (floorY === null) return { floorY: null, dirs: 0, fell: 0 };
     let dirs = 0, fell = 0;
     for (let a = 0; a < 16; a++) {
       const ang = a * Math.PI / 8;
