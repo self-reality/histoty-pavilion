@@ -13,6 +13,15 @@
       "manifest": "./assets/cisterna/cisterna.manifest.json"
     },
     {
+      "name": "disco-ball_01",
+      "pos": [-52.43519, 6.65005, 20.06061],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "glb": "./assets/disco-ball/disco-ball.glb",
+      "manifest": "./assets/disco-ball/disco-ball.manifest.json"
+    },
+    {
       "name": "g-man-dance_01",
       "pos": [-43.46228, 0.0, -5.81613],
       "rot": [0.0, 0.70711, 0.0, 0.70711],
@@ -209,13 +218,6 @@
     }
   ],
   "markers": [
-    {
-      "name": "disco-ball_root",
-      "pos": [-52.43519, 6.65005, 20.06061],
-      "rot": [0.0, 0.0, 0.0, 1.0],
-      "euler": [0.0, 0.0, 0.0],
-      "scale": [1.0, 1.0, 1.0]
-    },
     {
       "name": "spawn_01",
       "pos": [-40.87, 0.2, -4.56],

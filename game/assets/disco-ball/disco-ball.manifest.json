@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "generator": "singularity-development-kit",
+  "object": {
+    "file": "disco-ball.glb",
+    "root": "disco-ball_root",
+    "sha256": "6d37da14ec15a9c5a5b06aa532f1fee7dd980e6843f11bb612b4416408e38072"
+  },
+  "script": "disco-ball.script.js"
+}

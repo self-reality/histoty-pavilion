@@ -26,6 +26,7 @@
 //   object.sound(file, opts)            an audio file of the folder, from where it stands
 //   object.video(file, { material })    a video on one of its materials
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
+//   object.turn([x, y, z])              the whole object turned from the way it stands
 //   object.on('tick', fn)               fn(dt) every frame, in game time
 //   object.wait(seconds)                a promise, in game time
 //   object.action(options, { start, stop })   what a player standing by it can set off
@@ -543,6 +544,8 @@ export class PropScript {
     this.voiceCount = 0;    // ids for report()
     this.sounds = [];       // how many a script started — for the placement log
     this.surfaces = new Map();  // material name -> [{ mi, material }] this copy owns
+    this.turned = null;     // [{ node, q, p }] once a script turns it: the object as it stood
+    this.misturned = false; // a turn that was not three numbers has been warned of
     this.started = false;
     this.object = this.makeObject();
   }
@@ -626,6 +629,7 @@ export class PropScript {
       sound: (file, opts) => self.playSound(file, opts, null),
       video: (file, opts) => self.playVideo(file, opts, null),
       canvas: (material, opts) => self.canvas(material, opts),
+      turn: (angles) => self.turn(angles),
       wait: (seconds) => self.wait(seconds, null),
       on(event, fn) {
         if (event !== 'tick') { self.warn(`on("${event}"): script API ${SCRIPT_API} has only "tick"`); return; }
@@ -1270,6 +1274,37 @@ export class PropScript {
     texture?.setSource(element);
     if (texture) this.paint(material, texture, glow);
     return { canvas: element, context, width, height, update() { texture?.upload(); } };
+  }
+
+  // ---- Turning ----------------------------------------------------------------
+
+  /**
+   * Turn the whole object from the way it stands: euler degrees about its own
+   * axes, through its origin. Not a step — `[0, 90, 0]` twice is a quarter
+   * turn, and `[0, 0, 0]` is how it was placed.
+   *
+   * The root is the consumer's — where it put this copy — so it is what hangs
+   * under the root that turns, each node about the root's origin, from where it
+   * stood the first time a script asked: posed, attached, placed. A clip moves
+   * bones below these and goes round with them.
+   */
+  turn(angles) {
+    const [x, y, z] = (Array.isArray(angles) ? angles : []).map(Number);
+    if (![x, y, z].every(Number.isFinite)) {
+      // Said once: a script that turns does it every frame.
+      if (!this.misturned) this.warn(`turn: ${JSON.stringify(angles)} is not [x, y, z] in degrees`);
+      this.misturned = true;
+      return;
+    }
+    this.turned ??= this.root.children.map((node) => (
+      { node, q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() }));
+    const turn = new Quat().setFromEulerAngles(x, y, z);
+    const q = new Quat();
+    const p = new Vec3();
+    for (const stood of this.turned) {
+      stood.node.setLocalRotation(q.mul2(turn, stood.q));
+      stood.node.setLocalPosition(turn.transformVector(stood.p, p));
+    }
   }
 
   // ---- Menus ------------------------------------------------------------------
