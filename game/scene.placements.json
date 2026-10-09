@@ -205,13 +205,14 @@
       "rot": [0.0, 0.0, 0.0, 1.0],
       "euler": [0.0, 0.0, 0.0],
       "scale": [1.0, 1.0, 1.0],
-      "glb": "./assets/pillars.glb"
+      "glb": "./assets/pillars/pillars.glb",
+      "manifest": "./assets/pillars/pillars.manifest.json"
     },
     {
       "name": "salt_01",
       "pos": [-28.5143, 3.20001, 11.81535],
       "rot": [0.0, -0.32159, 0.0, 0.94688],
-      "euler": [0.0, -37.5185, 0.0],
+      "euler": [0.0, -37.5182, 0.0],
       "scale": [1.0, 1.0, 1.0],
       "glb": "./assets/salt_van/salt_van.glb",
       "manifest": "./assets/salt_van/salt_van.manifest.json"
