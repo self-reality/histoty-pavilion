@@ -16,6 +16,7 @@ import { extractTriangles, findFloors,
          propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient } from './world.mjs';
 import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
 import { applyFog, SurfaceLook } from './atmosphere.mjs';
+import { studioEnvAtlas, reflectStudio } from './studio.mjs';
 import { rigForProp } from './rig.mjs';
 import { loadManifest, loadPackage, page, PropScript } from './script.mjs';
 import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './negatives.mjs';
@@ -78,6 +79,8 @@ window.addEventListener('resize', () => app.resizeCanvas());
 
 app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
 if ('exposure' in app.scene) app.scene.exposure = 1.0;
+// What a prop's metal reflects: the kit viewer's studio (see ./studio.mjs).
+const studio = studioEnvAtlas(app.graphicsDevice);
 
 // Distance haze, straight from the manifest. Live sliders on the debug URL (?debug).
 applyFog(app.scene, manifest.fog);
@@ -494,6 +497,7 @@ function placeProp(prop, asset, loaded) {
     const proxies = hideCollisionProxies(root);   // after collision, before the first frame
     const volumes = hideVolumes(root);            // `_neg` / `_act`: read from the manifest long ago
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
+    const mirrored = reflectStudio(root, studio); // a metal needs a room to reflect
     // Now the script: on stage, posed, collision baked, so nothing it plays is
     // frozen into the collider. Whatever it offers a player is then in reach
     // of the E key.
@@ -509,6 +513,7 @@ function placeProp(prop, asset, loaded) {
       + (proxies ? ` (${proxies} collision proxy mesh hidden)` : '')
       + (volumes ? ` (${volumes} volume mesh hidden)` : '')
       + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
+      + (mirrored ? ` (${mirrored} metal material reflecting the studio)` : '')
       + (iced ? ` (iced: ${iced} faces of ${manifest.icing.on})` : '')
       + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : '')
       + (script ? ` (package: ${script.describe()})` : ''));

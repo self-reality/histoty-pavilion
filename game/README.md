@@ -714,6 +714,9 @@ Most feel knobs live at the top of their modules:
   `LAND_MIN`, `LAND_HARD`, `JITTER_DB`). How the sounds themselves are *made* is not
   tunable here — that is `sounds.config.json` in the sound-design repo.
 - Lighting: `sun` / `fill` / ambient in `src/main.mjs`.
+- Reflections: a prop's metal reflects the asset kit viewer's painted studio —
+  `src/studio.mjs`, the same picture as the kit's `viewer/src/viewer.mjs`. It is
+  set per material, on metals only, so the level's ambient is untouched.
 - Fog + map surface: the `fog` / `surface` blocks in `scene.manifest.mjs`, applied by
   `src/atmosphere.mjs`. Note that `surface.roughness` is authored as **roughness**, not
   as PlayCanvas's `gloss` — glTF-imported materials carry `glossInvert = true`, so
