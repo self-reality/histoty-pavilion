@@ -421,6 +421,30 @@ function loadContainer(url) {
   return asset;
 }
 
+// Props are placed one per rendered frame. Placing one is cheap; drawing it for
+// the first time is not — its textures are uploaded and its shaders linked in
+// that frame. On a fast link, or a second visit served from the cache, most of
+// the layout arrives within a few frames of each other, and paying for all of
+// it at once froze the picture for half a second, several times, just as the
+// player was let in. A queue hands out one turn a frame, so each frame carries
+// one prop's first draw however fast the files land.
+// Frames stop coming in a hidden tab, so a timer hands the turns out when no
+// frame has for a moment: the props still land there, as they did before.
+// A held clock is not paced at all — whoever holds it is drawing frames to be
+// kept (tools/record.mjs), and a prop landing some frames late would be filmed
+// arriving. hold() places everything that was waiting, and what lands while
+// held is placed as it lands.
+const propTurns = [];
+let propTurnAt = 0;
+function nextPropTurn() {
+  propTurnAt = performance.now();
+  const next = propTurns.shift();
+  if (next) next();
+}
+app.on('frameend', nextPropTurn);
+setInterval(() => { if (performance.now() - propTurnAt > 100) nextPropTurn(); }, 50);
+const propTurn = () => (clock.held ? Promise.resolve() : new Promise((resolve) => propTurns.push(resolve)));
+
 // Place one authored prop. Kept in world space (child of root) so its numbers
 // match what the exporter wrote.
 //
@@ -443,7 +467,7 @@ function loadProp(prop) {
       return null;
     })
     : Promise.resolve(null);
-  asset.ready(() => pkg.then((loaded) => placeProp(prop, asset, loaded)).catch((err) => {
+  asset.ready(() => pkg.then(async (loaded) => { await propTurn(); return placeProp(prop, asset, loaded); }).catch((err) => {
     // Same reason boot() does this: inside a promise chain a throw is a silent
     // rejection, and a prop that failed to place should fail the smoke test.
     console.error(`[prop ${prop.name}] failed to place:`, err);
@@ -766,6 +790,7 @@ const clock = {
     if (this.held) return;
     this.held = true;
     this.log = [];
+    while (propTurns.length) propTurns.shift()();   // see propTurn: nothing waits on a held clock
     cancelAnimationFrame(app.frameRequestId);
     app.frameRequestId = null;
   },
