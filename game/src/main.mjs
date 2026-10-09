@@ -17,7 +17,7 @@ import { extractTriangles, findFloors,
 import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
 import { applyFog, SurfaceLook } from './atmosphere.mjs';
 import { rigForProp } from './rig.mjs';
-import { loadManifest, loadPackage, PropScript } from './script.mjs';
+import { loadManifest, loadPackage, page, PropScript } from './script.mjs';
 import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './negatives.mjs';
 import { Actions } from './actions.mjs';
 import { SoundBank } from './audio.mjs';
@@ -61,6 +61,8 @@ const ui = {
   controls: document.getElementById('controls'),
   modes: document.getElementById('modes'),
   people: document.getElementById('people'),
+  askText: document.getElementById('askText'),
+  askButtons: document.getElementById('askButtons'),
 };
 
 // ---- Engine ----
@@ -667,6 +669,53 @@ app.keyboard.on(pc.EVENT_KEYDOWN, (e) => {
 ui.playBtn.addEventListener('click', () => {
   if (ui.playBtn.disabled) return;
   app.mouse.enablePointerLock();
+});
+
+// ---- A script's menu ----
+// object.menu (the asset contract, section 6, "Menus"): the words are the
+// script's, the screen is this one — the pause overlay, with only the question
+// on it. Asking takes the mouse off the game, as pausing does, and any button
+// gives it back; Esc leaves the question unanswered and the player paused.
+let asking = null;                 // the answer() of the menu that is up
+function closeMenu() {
+  asking = null;
+  ui.overlay.classList.remove('asking');
+  ui.askButtons.replaceChildren();
+  ui.overlay.classList.toggle('hidden', isLocked());
+}
+page.menu = ({ text, buttons }, answer) => {
+  asking = answer;
+  ui.askText.textContent = text;
+  ui.askButtons.replaceChildren(...buttons.map((word) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'play'; b.textContent = word;
+    b.addEventListener('click', () => {
+      closeMenu();
+      // Straight back into the game, with no pause screen in between: the
+      // click is what lets the mouse be taken again. A browser that refuses
+      // says so in pointerlockerror, below.
+      ui.overlay.classList.add('hidden');
+      Promise.resolve(document.body.requestPointerLock?.()).catch(() => {});
+      answer(word);
+    });
+    return b;
+  }));
+  ui.overlay.classList.add('asking');
+  ui.overlay.classList.remove('hidden');
+  document.exitPointerLock?.();
+  // The script took it down, or its run ended: the question goes, and what is
+  // left is the pause screen if the mouse is still off the game.
+  return () => { if (asking === answer) closeMenu(); };
+};
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Escape' || !asking) return;
+  const answer = asking;
+  closeMenu();
+  answer(null);
+});
+// The mouse was not given back after all (the browser's say): paused, then.
+document.addEventListener('pointerlockerror', () => {
+  if (!isLocked()) ui.overlay.classList.remove('hidden');
 });
 
 // Backtick toggles the debug panel; V cycles view mode (handled in PlayCanvas keydown).

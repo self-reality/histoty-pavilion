@@ -191,6 +191,15 @@
       "glb": "./assets/picture_innocent_full_hd_2.glb"
     },
     {
+      "name": "salt_01",
+      "pos": [-52.51408, 3.20001, 20.05664],
+      "rot": [0.0, 0.43218, 0.0, 0.90179],
+      "euler": [0.0, 51.2115, 0.0],
+      "scale": [1.0, 1.0, 1.0],
+      "glb": "./assets/salt_van/salt_van.glb",
+      "manifest": "./assets/salt_van/salt_van.manifest.json"
+    },
+    {
       "name": "tent_01",
       "pos": [14.92287, 0.0, 3.72979],
       "rot": [0.0, -0.99565, 0.0, 0.09322],
@@ -200,6 +209,13 @@
     }
   ],
   "markers": [
+    {
+      "name": "disco-ball_root",
+      "pos": [-52.43519, 6.65005, 20.06061],
+      "rot": [0.0, 0.0, 0.0, 1.0],
+      "euler": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+    },
     {
       "name": "spawn_01",
       "pos": [-40.87, 0.2, -4.56],

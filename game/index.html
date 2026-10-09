@@ -137,6 +137,19 @@
     body.playing #dot { display: block; }
     body.playing[data-mode="shooter"] #crosshair { display: block; }
     body.started[data-mode="shooter"] #hud { display: block; }
+    /* A question an object's script puts to the player (object.menu — see
+       page.menu in src/main.mjs): this same screen, with only the question
+       and its buttons on it. The first button is the one in the accent. */
+    #ask { display: none; max-width: 600px; padding: 0 24px; }
+    #overlay.asking > :not(#ask) { display: none; }
+    #overlay.asking #ask { display: block; }
+    #askText { font-size: 20px; line-height: 1.5; margin-bottom: 34px; }
+    #askButtons { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    #askButtons .play + .play {
+      color: #eee; background: rgba(255,255,255,0.06); box-shadow: none;
+      outline: 1px solid rgba(255,255,255,0.25); outline-offset: -1px;
+    }
+    #askButtons .play + .play:hover { color: var(--accent); outline-color: var(--accent); box-shadow: none; }
     #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
     #people { margin-top: 8px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
     #people:empty { display: none; }
@@ -157,6 +170,10 @@
     body.debug #overlay .play {
       margin: 12px; padding: 8px 22px; font-size: 9px; border-radius: 4px;
       box-shadow: 0 5px 15px rgba(255,207,90,0.25);
+    }
+    /* A question is asked the same in debug: in the middle, over a dim. */
+    body.debug #overlay.asking {
+      align-items: center; justify-content: center; background: rgba(8,9,12,0.8);
     }
     body.debug #loading {
       position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
@@ -194,6 +211,10 @@
     <div class="controls" id="controls"></div>
     <div id="loading">Preparing map…</div>
     <div id="people"></div>
+    <div id="ask">
+      <p id="askText"></p>
+      <div id="askButtons"></div>
+    </div>
   </div>
 
   <script type="importmap">

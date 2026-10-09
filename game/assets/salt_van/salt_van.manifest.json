@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "generator": "singularity-development-kit",
+  "object": {
+    "file": "salt_van.glb",
+    "root": "salt_van_root",
+    "sha256": "d57bf6c2c79d338378108392fd2bb1da77b51455a63d6a8ebb7f73a9ed642d69"
+  },
+  "script": "salt_van.script.js"
+}

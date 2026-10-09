@@ -30,10 +30,11 @@
 //   object.wait(seconds)                a promise, in game time
 //   object.action(options, { start, stop })   what a player standing by it can set off
 //   object.open(url, { newTab })        a link out of the page
+//   object.menu({ text, buttons })      a question put to the player; the button pressed
 //
-// Each of play / sound / video / wait hands back a PLAYBACK: a promise with a
-// stop(). The key on an action calls its script's `start(run)` — a RUN is the
-// same four, tied to that one time the action was started, plus end() and a
+// Each of play / sound / video / wait / menu hands back a PLAYBACK: a promise
+// with a stop(). The key on an action calls its script's `start(run)` — a RUN is
+// the same five, tied to that one time the action was started, plus end() and a
 // label — and the action runs until what start returned settles or the script
 // ends the run. The key on a running action calls its `stop(run)`, and what
 // that means is the script's to say: this side never ends a run by itself.
@@ -409,6 +410,13 @@ export class Stopped extends Error {
 /**
  * Where the browser goes when a script opens a link — one place, so a test
  * can see what a script asked for without leaving the page.
+ *
+ * And what a script's menu looks like, which is the consumer's: it puts its
+ * own in here (`page.menu = …`, as the pavilion does with its pause screen).
+ * The one below is the plain one, for a consumer that has no menus of its own
+ * — the kit's viewer. Either way: show `text` and a button per word, call
+ * `answer(word)` once with the one pressed or `answer(null)` if the player
+ * left without pressing any, and return a function that takes the menu down.
  */
 export const page = {
   open(url, newTab) {
@@ -416,7 +424,33 @@ export const page = {
     if (newTab) window.open(url, '_blank', 'noopener');
     else location.assign(url);
   },
+  menu({ text, buttons }, answer) {
+    document.exitPointerLock?.();
+    const box = document.createElement('dialog');
+    box.style.cssText = 'max-width: 420px; padding: 24px; border: 1px solid #555; border-radius: 8px; '
+      + 'background: #15171c; color: #eee; font: 15px/1.5 system-ui, sans-serif; text-align: center;';
+    const line = document.createElement('p');
+    line.textContent = text;
+    line.style.margin = '0 0 18px';
+    box.append(line);
+    const close = () => box.remove();
+    for (const word of buttons) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = word;
+      b.style.cssText = 'margin: 0 6px; padding: 8px 20px; font: inherit; cursor: pointer;';
+      b.addEventListener('click', () => { close(); answer(word); });
+      box.append(b);
+    }
+    box.addEventListener('cancel', () => { close(); answer(null); });   // Esc
+    document.body.append(box);
+    box.showModal();
+    return close;
+  },
 };
+
+// The menu on screen, of every object's: there is one player to ask.
+let asked = null;
 
 /**
  * A playback: a promise with a stop(). `halt` is what stopping means for the
@@ -443,8 +477,9 @@ function makePlayback(halt = () => {}) {
     stop() { finish(true); },
     // For the runtime, never the script: ended by itself — `halting` false
     // when what it played should stay as it ended, a one-off holding its last
-    // key — or cut short by the run that started it.
-    end(halting = true) { return finish(true, undefined, halting); },
+    // key — or cut short by the run that started it. `value` is what the
+    // script's await gets: a menu's answer.
+    end(halting = true, value = undefined) { return finish(true, value, halting); },
     cancel(reason = new Stopped()) { return finish(false, reason); },
     get settled() { return settled; },
   });
@@ -602,6 +637,7 @@ export class PropScript {
         console.log(`[script ${self.label}] opening ${url}${newTab ? ' in a new tab' : ''}`);
         page.open(String(url), !!newTab);
       },
+      menu: (spec) => self.menu(spec, null),
       log: (...args) => console.log(`[script ${self.label}]`, ...args),
     });
   }
@@ -635,6 +671,7 @@ export class PropScript {
         sound: (file, opts) => tie(self.playSound(file, opts, run)),
         video: (file, opts) => tie(self.playVideo(file, opts, run)),
         wait: (seconds) => tie(self.wait(seconds, run)),
+        menu: (spec) => tie(self.menu(spec, run)),
       }),
       // Rule 3: what a run started stops with it, however it ends.
       end() {
@@ -1233,6 +1270,37 @@ export class PropScript {
     texture?.setSource(element);
     if (texture) this.paint(material, texture, glow);
     return { canvas: element, context, width, height, update() { texture?.upload(); } };
+  }
+
+  // ---- Menus ------------------------------------------------------------------
+
+  /**
+   * Put a question to the player. The words are the script's, the menu is the
+   * consumer's (`page.menu`). The playback resolves with the word of the
+   * button pressed, or null: left unanswered, taken down by the script, or
+   * pushed out by the next one — there is one player and so one menu.
+   */
+  menu(spec, run) {
+    const text = String(spec?.text ?? '');
+    const buttons = (Array.isArray(spec?.buttons) ? spec.buttons : []).map(String).filter(Boolean);
+    if (!buttons.length) buttons.push('OK');
+    asked?.end(true, null);
+    let close = null;
+    const playback = makePlayback(() => { if (asked === playback) asked = null; close?.(); });
+    playback.stop = () => { playback.end(true, null); };
+    asked = playback;
+    console.log(`[script ${this.label}] asks: ${text} [${buttons.join(' / ')}]`);
+    try {
+      // Answered, the consumer has already taken it down: nothing to halt.
+      close = page.menu({ text, buttons }, (word) => {
+        close = null;
+        playback.end(true, buttons.includes(word) ? word : null);
+      });
+    } catch (err) {
+      this.fail('menu', err);
+      playback.end(true, null);
+    }
+    return playback;
   }
 
   // ---- Time -------------------------------------------------------------------
