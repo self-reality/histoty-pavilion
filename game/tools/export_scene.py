@@ -103,6 +103,7 @@ PICTURE_PREFIX = 'picture_'
 
 # Blender's uniquifying suffix on a name that was already taken — see base_names().
 DEDUP_SUFFIX = re.compile(r'\.\d{3}$')
+NOCOL_SUFFIX = re.compile(r'_nocol(?:[._]\d+)*$', re.I)   # the kit's pattern, ASSET_CONTRACT.md section 2
 
 
 def script_args():
@@ -134,8 +135,14 @@ def base_names(names):
     sitting right there. Normalising both sides costs nothing: a node the GLB
     genuinely calls `foo.001` reduces to the same `foo` on both sides, so it
     still matches itself.
+
+    `_nocol` comes off too. It says whether a part collides, not which part it
+    is, and the kit puts it on or takes it off in a rebuild: the disco ball's
+    two meshes became `Disco_ball_ext_nocol` and `Disco_ball_int_nocol` while
+    the copy placed in the .blend still had the names it was imported under,
+    and the prop went back to being a marker.
     """
-    return {DEDUP_SUFFIX.sub('', n) for n in names}
+    return {NOCOL_SUFFIX.sub('', DEDUP_SUFFIX.sub('', n)) for n in names}
 
 
 MANIFEST_SUFFIX = '.manifest.json'

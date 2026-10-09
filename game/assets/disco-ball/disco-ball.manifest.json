@@ -4,7 +4,7 @@
   "object": {
     "file": "disco-ball.glb",
     "root": "disco-ball_root",
-    "sha256": "6d37da14ec15a9c5a5b06aa532f1fee7dd980e6843f11bb612b4416408e38072"
+    "sha256": "83fad93777ce7d1f7b9b51b94d0a146a29a427701fc931eb85e42acbbd46692b"
   },
   "script": "disco-ball.script.js"
 }
