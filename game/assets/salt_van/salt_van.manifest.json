@@ -4,7 +4,17 @@
   "object": {
     "file": "salt_van.glb",
     "root": "salt_van_root",
-    "sha256": "d57bf6c2c79d338378108392fd2bb1da77b51455a63d6a8ebb7f73a9ed642d69"
+    "sha256": "ca2b446546766d4697f557c23572b58a5a119a86b8118334a3de1da8ddc4f622"
   },
-  "script": "salt_van.script.js"
+  "script": "salt_van.script.js",
+  "levels": [
+    {
+      "file": "salt_van.lod0.glb",
+      "bytes": 1370936,
+      "sha256": "04378e91282cb0aa70a083d590658c4d89586cf1e3671c5fb44a9849fd23f3b6",
+      "triangles": 39980,
+      "texture": 0,
+      "screen": 0.4
+    }
+  ]
 }
