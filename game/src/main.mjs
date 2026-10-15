@@ -232,7 +232,7 @@ function boot() {
     if (DebugTools) {
       debug = new DebugTools({
         app, player, collider, mapRender: renderRoot, spawn,
-        surface, sun, fill, camera: cameraEntity,
+        surface, sun, fill, camera: cameraEntity, sceneColor: manifest.glass.length > 0,
       });
     }
 

@@ -142,7 +142,7 @@ export function togglePanel() {
  * exactly what it was before, so nothing here needs a fully-wired scene.
  */
 export class DebugTools {
-  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera }) {
+  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera, sceneColor = false }) {
     this.app = app;
     this.player = player;
     this.collider = collider;
@@ -152,6 +152,8 @@ export class DebugTools {
     this.sun = sun;               // key directional light (optional)
     this.fill = fill;             // bounce/sky fill light (optional)
     this.camera = camera;         // main camera entity — owns the sky clear colour
+    this.sceneColor = sceneColor; // the scene has glass that samples a grab-pass
+    this.frame = null;            // pc.CameraFrame while bloom is on, else null
 
     this.mode = 0;                // 0 textured, 1 wireframe, 2 normals
     this._frame = 0;
@@ -278,6 +280,7 @@ export class DebugTools {
     this._buildAtmosphere(bodyWrap);
     this._buildSurface(bodyWrap);
     this._buildLighting(bodyWrap);
+    this._buildBloom(bodyWrap);
 
     // Actions.
     section(bodyWrap, 'Actions');
@@ -425,6 +428,77 @@ export class DebugTools {
     if (this.camera?.camera) {
       colorPicker(parent, 'sky', this.camera.camera.clearColor, (c) => this.camera.camera.clearColor = c);
     }
+  }
+
+  // ---- Bloom: a trial, not a setting. Off, the camera renders exactly as in
+  // production; On puts it behind a pc.CameraFrame - an HDR target, a blur of
+  // the whole frame mixed back in, and tone mapping at the end. PlayCanvas's
+  // bloom has no threshold: everything gets `intensity` of its own blur, so only
+  // what is brighter than white visibly glows. Nothing here is saved - read the
+  // numbers off the panel (or `game.debug.bloomSettings()`) to keep them.
+  _buildBloom(parent) {
+    if (!this.camera?.camera || !pc.CameraFrame) return;
+    const s = this.bloom = {
+      on: false, intensity: 0.03, blurLevel: 16, toneMapping: 'linear', samples: 4, emissive: 1,
+    };
+    const TONEMAPS = {
+      linear: pc.TONEMAP_LINEAR, neutral: pc.TONEMAP_NEUTRAL, aces2: pc.TONEMAP_ACES2, filmic: pc.TONEMAP_FILMIC,
+    };
+    const apply = () => {
+      if (!s.on) {
+        this.frame?.destroy();
+        this.frame = null;
+        return;
+      }
+      if (!this.frame) this.frame = new pc.CameraFrame(this.app, this.camera.camera);
+      const f = this.frame;
+      // Production's camera has MSAA from the device and a grab-pass for glass;
+      // the frame renders to its own target, so it has to ask for both again.
+      f.rendering.samples = s.samples;
+      f.rendering.sceneColorMap = this.sceneColor;
+      f.rendering.toneMapping = TONEMAPS[s.toneMapping];
+      f.bloom.intensity = s.intensity;
+      f.bloom.blurLevel = s.blurLevel;
+      f.update();
+    };
+    this._applyBloom = apply;
+
+    section(parent, 'Bloom');
+    segmented(parent, ['off', 'on'], 0, (name) => { s.on = name === 'on'; apply(); });
+    slider(parent, 'intensity', 0.001, 0.2, 0.001, s.intensity, (v) => { s.intensity = v; apply(); }, 3);
+    slider(parent, 'blur level', 1, 16, 1, s.blurLevel, (v) => { s.blurLevel = v; apply(); }, 0);
+    // Linear is production's look: white stays white. The others are curves that
+    // keep the highlights apart and grey the whites a little.
+    segmented(parent, Object.keys(TONEMAPS), 0, (name) => { s.toneMapping = name; apply(); });
+    segmented(parent, ['MSAA 1', 'MSAA 4'], 1, (name) => { s.samples = name === 'MSAA 4' ? 4 : 1; apply(); });
+    // Only light above white glows, and a neon tube is authored at 1. This
+    // scales every lit material that emits (unlit pictures excluded), so a sign
+    // can be pushed over white to see it bloom. Props that land after the
+    // slider moved keep their own until it moves again.
+    slider(parent, 'emissive ×', 1, 10, 0.1, s.emissive, (v) => { s.emissive = v; this._scaleEmissive(v); }, 1);
+  }
+
+  _scaleEmissive(k) {
+    const seen = new Set();
+    for (const rc of this.app.root.findComponents('render')) {
+      for (const mi of rc.meshInstances) {
+        const m = mi.material;
+        if (seen.has(m) || !(m instanceof pc.StandardMaterial) || !m.useLighting) continue;
+        seen.add(m);
+        const e = m.emissive;
+        if (!m.emissiveMap && e.r + e.g + e.b === 0) continue;
+        // Remember what the file asked for, so the slider scales it, not itself.
+        m._dbgEmissive ??= m.emissiveIntensity;
+        m.emissiveIntensity = m._dbgEmissive * k;
+        m.update();
+      }
+    }
+  }
+
+  bloomSettings() {
+    if (!this.bloom) return null;
+    const { on, intensity, blurLevel, toneMapping, samples, emissive } = this.bloom;
+    return { on, intensity, blurLevel, toneMapping, samples, emissive };
   }
 
   // Called from the game loop; light DOM writes, throttled.
