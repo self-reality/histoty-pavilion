@@ -434,11 +434,14 @@ function placementsUrl() {
 // One container asset per URL — a scattered prop placed 50 times downloads and
 // parses its GLB once, then instantiates 50 render entities off it.
 const containers = new Map();
+// Containers whose load errored. The error fires once, so a prop asking for one
+// afterwards has to be told here or it would wait for an event already gone.
+const failedContainers = new Set();
 function loadContainer(url) {
   let asset = containers.get(url);
   if (!asset) {
     asset = new Asset(url, 'container', { url });
-    asset.on('error', (err) => console.error(`[prop] ${url} failed to load:`, err));
+    asset.on('error', (err) => { failedContainers.add(asset); console.error(`[prop] ${url} failed to load:`, err); });
     app.assets.add(asset);
     app.assets.load(asset);
     containers.set(url, asset);
@@ -491,7 +494,8 @@ function loadProp(prop) {
   let waiting = true;
   const landed = () => { if (waiting) { waiting = false; layoutPending--; } };
   // A GLB that fails is never placed: it is not waited on either.
-  asset.once('error', landed);
+  if (failedContainers.has(asset)) landed();
+  else asset.once('error', landed);
   if (prop.script && !prop.manifest) {
     console.warn(`[prop ${prop.name}] names a script (${prop.script}) and no manifest — a layout from before `
       + 'scripts were code; run `npm run scene:export` again');
