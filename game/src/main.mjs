@@ -21,6 +21,7 @@ import { rigForProp } from './rig.mjs';
 import { loadManifest, loadPackage, page, PropScript } from './script.mjs';
 import { collectVolumes, volumeFromMesh, matrixOf, carve, carveRender } from './negatives.mjs';
 import { Actions } from './actions.mjs';
+import { Levels } from './levels.mjs';
 import { SoundBank } from './audio.mjs';
 import { Presence } from './presence.mjs';
 import { Icing } from './icing.mjs';
@@ -135,6 +136,8 @@ let debug = null;
 let audio = null;
 let rescue = null;
 let actions = null;
+// Finer drawings of the leveled props, fetched as the view wants them (./levels.mjs).
+let levels = null;
 let started = false;
 // Everyone else in the world, whatever they play — seen as ghosts (./presence.mjs).
 const presence = new Presence(app);
@@ -221,6 +224,22 @@ function boot() {
     // register with it as they do.
     actions = new Actions({ app, camera: cameraEntity, player, layer: ui.actions });
 
+    // Which drawing of each leveled prop the view wants, and fetching it once
+    // the layout is in (see ./levels.mjs). Built here for the same reason:
+    // props register with it as they land. A level drawn is a prop's
+    // materials met for the first time, so they get what placeProp gives a
+    // prop's — both are no-ops on a material already done — and the E key
+    // measures the instances now drawn.
+    levels = new Levels({
+      app, camera: cameraEntity, loadContainer, propTurn, clock,
+      drained: () => layoutPending === 0,
+      after: (root, name) => {
+        unlitIgnoreAmbient(root);
+        reflectStudio(root, studio);
+        actions.refresh(name);
+      },
+    });
+
     // The whole bank is ~170 KB, so it loads up front rather than streaming —
     // the first footstep must not be the one that stalls. It is not gated on
     // below: "Ready" means the map is walkable, and the audio lands long
@@ -232,7 +251,7 @@ function boot() {
     if (DebugTools) {
       debug = new DebugTools({
         app, player, collider, mapRender: renderRoot, spawn,
-        surface, sun, fill, camera: cameraEntity, sceneColor: manifest.glass.length > 0,
+        surface, sun, fill, camera: cameraEntity, sceneColor: manifest.glass.length > 0, levels,
       });
     }
 
@@ -247,7 +266,7 @@ function boot() {
     // Lightweight debug handle (handy for tweaking / automated checks). What
     // belongs to a game is read through `session`, so it is always the game
     // being played now: `game.weapon` is null in the fly-over.
-    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, surface, presence, icing, camera: cameraEntity, root: playerRoot,
+    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, levels, surface, presence, icing, camera: cameraEntity, root: playerRoot,
                     // Place a prop by hand from the console or a test — the same
                     // entry the layout goes through — and see what is animating.
                     loadProp, scripted, switchMode, clock,
@@ -445,6 +464,11 @@ app.on('frameend', nextPropTurn);
 setInterval(() => { if (performance.now() - propTurnAt > 100) nextPropTurn(); }, 50);
 const propTurn = () => (clock.held ? Promise.resolve() : new Promise((resolve) => propTurns.push(resolve)));
 
+// Props asked for and not yet placed. Levels fetches nothing finer while any
+// are: the layout's objects come first, and a level file in the queue ahead
+// of one would only make the room take longer to fill.
+let layoutPending = 0;
+
 // Place one authored prop. Kept in world space (child of root) so its numbers
 // match what the exporter wrote.
 //
@@ -457,6 +481,11 @@ const propTurn = () => (clock.held ? Promise.resolve() : new Promise((resolve) =
 // is reported and the object still lands, as a statue.
 function loadProp(prop) {
   const asset = loadContainer(prop.glb);
+  layoutPending++;
+  let waiting = true;
+  const landed = () => { if (waiting) { waiting = false; layoutPending--; } };
+  // A GLB that fails is never placed: it is not waited on either.
+  asset.once('error', landed);
   if (prop.script && !prop.manifest) {
     console.warn(`[prop ${prop.name}] names a script (${prop.script}) and no manifest — a layout from before `
       + 'scripts were code; run `npm run scene:export` again');
@@ -472,7 +501,7 @@ function loadProp(prop) {
     // rejection, and a prop that failed to place should fail the smoke test.
     console.error(`[prop ${prop.name}] failed to place:`, err);
     setTimeout(() => { throw err; });
-  }));
+  }).finally(landed));
   return asset;
 }
 
@@ -528,6 +557,8 @@ function placeProp(prop, asset, loaded) {
     if (script) {
       script.start();
       actions?.add(prop.name, root, script);
+      // Drawn as the object until the view wants finer and the layout is in.
+      levels?.add({ name: prop.name, root, script, loaded });
     }
     // Scale is in the line because "is my Blender edit actually in this tab?" is
     // the question you ask most while placing, and a stale placements file
@@ -809,7 +840,9 @@ const clock = {
   async step(dt) {
     if (!this.held) throw new Error('clock.step: hold the clock first');
     app.update(dt);              // the engine's systems, then the loop body below
-    await Promise.all(scripted.map((s) => s.ready?.()));
+    // The loop body asked for the levels this frame's view wants (see
+    // levels.update below); they are fetched and drawn before it is.
+    await Promise.all([...scripted.map((s) => s.ready?.()), levels?.ready()]);
     app.render();
   },
 };
@@ -835,6 +868,10 @@ app.on('update', (dt) => {
 
   // The game first: it moves the view everything below is measured from.
   session.update(d, live);
+
+  // From where the game has just put the camera: which drawing of each
+  // leveled prop it wants, and fetching it.
+  levels?.update();
 
   icing?.update(cameraEntity.getPosition());
 

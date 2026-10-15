@@ -683,6 +683,7 @@ node tests/net.mjs     # two browsers in a room: each draws the other where it s
 node tests/record.mjs  # a held clock stands still, a stepped one films the same frames every time; tools/record.mjs end to end, sound mixed
 node tests/actions.mjs # in reach shows an E, E sets the action off and stops it, the key goes to what you look at
 node tests/package.mjs # a packaged asset brings its hole, its area, its collision and its action, and puts them where it stands
+node tests/levels.mjs  # a leveled package is drawn as its object until the view wants finer; then the level file is fetched and drawn under the parts, collider and painted screen unchanged; ?levels=off, ?level=n
 node tests/cutters.mjs # a cutter drawn in Blender is the same volume in game, every shape, and round-trips (needs Blender, no server)
 node tests/carried.mjs # a prop's own volumes show under its anchor and are never exported; an anchor follows its asset into a package (Blender)
 node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1 = over)
@@ -690,7 +691,10 @@ node tests/perf.mjs    # per-frame draw calls / triangles + budget check (exit 1
 
 `perf.mjs` runs against a real GPU (ANGLE Metal) and counts the actual WebGL
 command stream, splitting the frame into camera passes vs. the sun's shadow pass
-by A/B-ing `castShadows`. It reports work submitted rather than frame times on
+by A/B-ing `castShadows`. What it counts depends on where it looks now that
+props come in levels (src/levels.mjs): `URL='http://localhost:5173/?level=2'
+node tests/perf.mjs` measures every leveled prop at its finest, the worst case,
+and `?levels=off` the objects alone. It reports work submitted rather than frame times on
 purpose — headless Chrome's present path dominates wall-clock timings and makes
 them useless, whereas draw-call and triangle counts are exact and are what a
 weak GPU actually chokes on.

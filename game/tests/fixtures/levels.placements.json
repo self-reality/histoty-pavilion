@@ -1,0 +1,17 @@
+{
+  "_generated": "by hand, for tests/levels.mjs — the life box, packed with a level beside it (tests/fixtures/levels/), stood where tests/record.mjs films its own",
+  "version": 1,
+  "source": null,
+  "props": [
+    {
+      "name": "life_lv",
+      "glb": "./tests/fixtures/levels/life.glb",
+      "manifest": "./tests/fixtures/levels/life.manifest.json",
+      "pos": [-43.46, 0, -4.8],
+      "rot": [0, 0, 0, 1],
+      "scale": [1, 1, 1]
+    }
+  ],
+  "markers": [],
+  "negatives": []
+}

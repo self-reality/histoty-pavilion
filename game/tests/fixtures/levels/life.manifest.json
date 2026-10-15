@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "generator": "singularity-development-kit",
+  "object": {
+    "file": "life.glb",
+    "root": "life_root",
+    "sha256": "d540baccbe13c325c0c331158e363fe39738c03df8ca9ab230c2e0f7735ef9a1"
+  },
+  "script": "life.script.js",
+  "videos": [
+    {
+      "file": "film.webm",
+      "fps": 10,
+      "duration": 1,
+      "width": 64,
+      "height": 64,
+      "sha256": "4f68bb2a9024ec67c30084804665d019d12b05b897c96fee61312a03722a3df3"
+    }
+  ],
+  "levels": [
+    {
+      "file": "life.lod0.glb",
+      "bytes": 2488,
+      "sha256": "d540baccbe13c325c0c331158e363fe39738c03df8ca9ab230c2e0f7735ef9a1",
+      "triangles": 10,
+      "texture": 0,
+      "screen": 0.3
+    }
+  ]
+}

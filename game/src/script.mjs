@@ -26,7 +26,10 @@
 //   object.sound(file, opts)            an audio file of the folder, from where it stands
 //   object.video(file, { material })    a video on one of its materials
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
-//   object.turn([x, y, z])              the whole object turned from the way it stands
+//   object.turn([x, y, z], { about, part, by })   the whole object turned from the way it stands — or one part of it — and shifted
+//   object.shade(how, { part })         how its surfaces are drawn: 'wireframe', or 'textured' as it ships
+//   object.spawn(part, { name, by })    another of one of its parts, the same mesh drawn again somewhere else
+//   object.param(name, value, opts)     a number of the script's a consumer may set
 //   object.on('tick', fn)               fn(dt) every frame, in game time
 //   object.wait(seconds)                a promise, in game time
 //   object.action(options, { start, stop })   what a player standing by it can set off
@@ -76,6 +79,15 @@
 // of it: the asset says what it is anywhere, the consumer says what this copy
 // is here.
 //
+// A package may carry LEVELS of its object (the manifest's `levels`): finer
+// drawings of it in files of their own, with its node and material names and
+// its origin and nothing else. The object as shipped is the coarsest, and the
+// one collision is baked from. Which level is drawn is the consumer's to say —
+// the pavilion by how big the object is on screen, the viewer by a select —
+// and relevel() draws it, under the parts a script already holds, so a
+// script cannot tell: nothing of Script API 1 changes, and there is nothing
+// to listen for.
+//
 // ---- Clips are deltas on the bind pose, composed the OTHER way round ----
 //
 // A `rigs` pose is `rest * delta`: a hand-dialled euler triple reads as "bend
@@ -97,6 +109,8 @@ export const SCRIPT_API = 1;
 // a consumer's container cache does for the GLB.
 const manifests = new Map();
 const packages = new Map();
+// What a level file draws, by part name, read once per container resource — shared, like the container, by every copy.
+const levelSources = new WeakMap();
 
 /**
  * The manifest's JSON and nothing else — no clips, no script.
@@ -187,6 +201,30 @@ export function loadPackage(url) {
   }
   return pending;
 }
+
+/** Put a texture on one material: emitted like a screen (`glow`), or lit like paint. */
+function wear(material, texture, glow) {
+  if (glow) {
+    material.emissiveMap = texture;
+    material.emissive = new Color(1, 1, 1);
+    material.diffuseMap = null;
+    material.diffuse = new Color(0, 0, 0);
+  } else {
+    material.diffuseMap = texture;
+    material.diffuse = new Color(1, 1, 1);
+  }
+  material.update();
+}
+
+/** A level's own child under a part: `${part}~level${n}`. Never a part itself. */
+const LEVEL_CHILD = /~level(\d+)$/;
+
+/**
+ * A collision stand-in or a volume — `_col`, `_neg`, `_act`, on the node or the
+ * node it hangs from, as the contract reads roles. Nobody draws one, and a
+ * level file has none, so relevel leaves them as they are.
+ */
+const UNDRAWN = /_(?:col|neg|act)(?:[._]\d+)*$/i;
 
 function isUnder(node, ancestor) {
   for (let n = node; n; n = n.parent) if (n === ancestor) return true;
@@ -496,7 +534,7 @@ function makePlayback(halt = () => {}) {
  * script plays can end up frozen into the collider.
  */
 export class PropScript {
-  constructor(root, { url, manifest, clips, setup }, label = '', { app = null, held = null, report = null } = {}) {
+  constructor(root, { url, manifest, clips, setup }, label = '', { app = null, held = null, report = null, params = null } = {}) {
     this.root = root;
     this.url = url;
     this.label = label;
@@ -510,6 +548,8 @@ export class PropScript {
     this.held = typeof held === 'function' ? held : () => false;
     // Told of every sound this object starts, and of any cut short — see voice().
     this.report = typeof report === 'function' ? report : null;
+    // What this placement says a parameter of the script's is — { name: number }.
+    this.given = params && typeof params === 'object' ? params : {};
     this.warnings = [];
     this.attached = [];   // [{ node, to }] as actually done
 
@@ -546,6 +586,16 @@ export class PropScript {
     this.surfaces = new Map();  // material name -> [{ mi, material }] this copy owns
     this.turned = null;     // [{ node, q, p }] once a script turns it: the object as it stood
     this.misturned = false; // a turn that was not three numbers has been warned of
+    this.misshaded = new Set(); // shades and parts a script asked for that there are none of, each warned of once
+    this.spawned = [];      // the names of the copies a script made of its parts — object.spawn
+    this.copyOf = new Map();  // spawned copy entity -> the name of the part it was made from — what relevel draws it as
+    this.painted = new Map(); // material name -> { texture, glow }: the last paint, replayed on a level's own material
+    this.level = 0;         // the level drawn — 0 the object as shipped, n the manifest's levels[n - 1]; see relevel()
+    this.levelled = new Map();  // base entity -> [{ mi, visible, castShadow }]: its own instances, as they were before a level hid them
+    this.levelSource = null;    // the source map of the level drawn, for a copy spawned while it is drawn
+    this.levelMaterials = new Map();  // `${n}/${material name}` -> this copy's clone of that level's material
+    this.parts = new Map(); // part name -> { node, q, p, frame, into } once a script turns it alone, or null when there is none
+    this.params = [];       // [{ name, label, value, initial, min, max, step }] — object.param, in the order declared
     this.started = false;
     this.object = this.makeObject();
   }
@@ -629,7 +679,10 @@ export class PropScript {
       sound: (file, opts) => self.playSound(file, opts, null),
       video: (file, opts) => self.playVideo(file, opts, null),
       canvas: (material, opts) => self.canvas(material, opts),
-      turn: (angles) => self.turn(angles),
+      turn: (angles, opts) => self.turn(angles, opts),
+      shade: (how, opts) => self.shade(how, opts),
+      spawn: (part, opts) => self.spawn(part, opts),
+      param: (name, value, opts) => self.param(name, value, opts),
       wait: (seconds) => self.wait(seconds, null),
       on(event, fn) {
         if (event !== 'tick') { self.warn(`on("${event}"): script API ${SCRIPT_API} has only "tick"`); return; }
@@ -1017,21 +1070,12 @@ export class PropScript {
   }
 
   // Put a texture on a material: emitted like a screen (`glow`), or lit like paint.
+  // Recorded as well, so a level drawn later — with materials of its own — wears it too.
   paint(name, texture, glow) {
     if (!this.paintable(name)) return false;
     const owned = this.surface(name);
-    for (const material of new Set(owned.map((o) => o.material))) {
-      if (glow) {
-        material.emissiveMap = texture;
-        material.emissive = new Color(1, 1, 1);
-        material.diffuseMap = null;
-        material.diffuse = new Color(0, 0, 0);
-      } else {
-        material.diffuseMap = texture;
-        material.diffuse = new Color(1, 1, 1);
-      }
-      material.update();
-    }
+    for (const material of new Set(owned.map((o) => o.material))) wear(material, texture, glow);
+    this.painted.set(name, { texture, glow });
     return true;
   }
 
@@ -1281,30 +1325,349 @@ export class PropScript {
   /**
    * Turn the whole object from the way it stands: euler degrees about its own
    * axes, through its origin. Not a step — `[0, 90, 0]` twice is a quarter
-   * turn, and `[0, 0, 0]` is how it was placed.
+   * turn, and `[0, 0, 0]` is how it was placed. `about` is the point it goes
+   * round instead of the origin, in metres in the object's own space — the
+   * middle of an asset whose origin is on the ground under it.
    *
    * The root is the consumer's — where it put this copy — so it is what hangs
    * under the root that turns, each node about the root's origin, from where it
    * stood the first time a script asked: posed, attached, placed. A clip moves
    * bones below these and goes round with them.
+   *
+   * `part` names one node of the object, and the turn is then that node's
+   * alone: the same angles, about the same axes and through the same kind of
+   * point — the object's own space, not the part's — from where the part stood.
+   *
+   * `by` stands it that far from where it stood once turned, [x, y, z] metres
+   * in the object's own space: a float, a bob, a drift. Not a step either —
+   * the same `by` twice is one shift, and none is where it stood.
    */
-  turn(angles) {
+  turn(angles, { about, part, by } = {}) {
     const [x, y, z] = (Array.isArray(angles) ? angles : []).map(Number);
-    if (![x, y, z].every(Number.isFinite)) {
+    const centre = about === undefined ? [0, 0, 0] : (Array.isArray(about) ? about : []).map(Number);
+    const shift = by === undefined ? [0, 0, 0] : (Array.isArray(by) ? by : []).map(Number);
+    if (![x, y, z].every(Number.isFinite) || centre.length !== 3 || !centre.every(Number.isFinite)
+      || shift.length !== 3 || !shift.every(Number.isFinite)) {
       // Said once: a script that turns does it every frame.
-      if (!this.misturned) this.warn(`turn: ${JSON.stringify(angles)} is not [x, y, z] in degrees`);
+      if (!this.misturned) {
+        this.warn(`turn: ${JSON.stringify(angles)}${about === undefined ? '' : ` about ${JSON.stringify(about)}`}${by === undefined ? '' : ` by ${JSON.stringify(by)}`} is not [x, y, z] in degrees, about and by [x, y, z] in metres`);
+      }
       this.misturned = true;
       return;
     }
+    if (part !== undefined) { this.turnPart(part, new Quat().setFromEulerAngles(x, y, z), new Vec3(...centre), new Vec3(...shift)); return; }
     this.turned ??= this.root.children.map((node) => (
       { node, q: node.getLocalRotation().clone(), p: node.getLocalPosition().clone() }));
     const turn = new Quat().setFromEulerAngles(x, y, z);
     const q = new Quat();
     const p = new Vec3();
+    const c = new Vec3(...centre);
+    const to = new Vec3(...shift).add(c);
     for (const stood of this.turned) {
       stood.node.setLocalRotation(q.mul2(turn, stood.q));
-      stood.node.setLocalPosition(turn.transformVector(stood.p, p));
+      stood.node.setLocalPosition(turn.transformVector(p.sub2(stood.p, c), p).add(to));
     }
+  }
+
+  /**
+   * Turn the one node named `part` by `turn` through `centre` and stand it
+   * `shift` from there, all said in the object's own space. The node hangs under parents of its own, so the turn
+   * and the point are carried into its parent's space — as the parents stood,
+   * not as a turn of the whole object has since left them, which is what lets
+   * the whole go round with its parts still turning inside it.
+   */
+  turnPart(part, turn, centre, shift = new Vec3()) {
+    let stood = this.parts.get(part);
+    if (stood === undefined) {
+      const node = typeof part === 'string' && part ? this.root.findByName(part) : null;
+      stood = null;
+      if (!node || node === this.root) {
+        this.warn(`turn: no part named ${JSON.stringify(part)}`);
+      } else {
+        const was = this.stoodAt(node);
+        const frame = this.frameOf(node);
+        stood = { node, q: was.q.clone(), p: was.p.clone(), frame: new Quat().setFromMat4(frame), into: frame.clone().invert() };
+      }
+      this.parts.set(part, stood);
+    }
+    if (!stood) return;
+    const q = new Quat().copy(stood.frame).invert().mul(turn).mul(stood.frame);
+    const c = stood.into.transformPoint(centre, new Vec3());
+    const p = new Vec3();
+    stood.node.setLocalRotation(new Quat().mul2(q, stood.q));
+    stood.node.setLocalPosition(q.transformVector(p.sub2(stood.p, c), p).add(c).add(stood.into.transformVector(shift, new Vec3())));
+  }
+
+  /** How a node stands under its parent — as it stood before a turn of the whole object, if there has been one. */
+  stoodAt(node) {
+    return this.turned?.find((t) => t.node === node) ?? { q: node.getLocalRotation(), p: node.getLocalPosition() };
+  }
+
+  /** The object's space as a node's parent sees it: what carries a point said in the object's space to where the node hangs. */
+  frameOf(node) {
+    const frame = new Mat4();
+    for (let n = node.parent; n && n !== this.root; n = n.parent) {
+      const { p, q } = this.stoodAt(n);
+      frame.mul2(new Mat4().setTRS(p, q, n.getLocalScale()), frame);
+    }
+    return frame;
+  }
+
+  /**
+   * How the object's surfaces are drawn: 'wireframe', the edges of its
+   * triangles in the material each already wears, or 'textured', as it ships.
+   * `part` names one node, and it is then that node's surfaces and those
+   * hung under it alone.
+   *
+   * A way of drawing the mesh the copy already has, so it costs no geometry
+   * and each copy keeps its own.
+   */
+  shade(how, { part } = {}) {
+    const style = { wireframe: pc.RENDERSTYLE_WIREFRAME, textured: pc.RENDERSTYLE_SOLID }[how];
+    const node = part === undefined ? this.root : (typeof part === 'string' && part ? this.root.findByName(part) : null);
+    if (style === undefined || !node) {
+      const what = style === undefined ? `${JSON.stringify(how)} is not 'wireframe' or 'textured'` : `no part named ${JSON.stringify(part)}`;
+      if (!this.misshaded.has(what)) this.warn(`shade: ${what}`);
+      this.misshaded.add(what);
+      return;
+    }
+    for (const mi of node.findComponents('render').flatMap((rc) => rc.meshInstances)) mi.renderStyle = style;
+  }
+
+  /**
+   * Another of the node named `part`, and of what hangs under it: called
+   * `name`, hung where the part hangs and stood `by` — [x, y, z] metres in the
+   * object's own space — from where the part stands. Hands back the name, for
+   * `turn` and `shade` to take as a part; null when there is nothing made.
+   *
+   * The copy draws the mesh the part has, so the file ships it once and the
+   * GPU holds it once; what it costs is the drawing, every frame, of each.
+   * It is made when the script runs — after a consumer has baked collision —
+   * so a copy never collides, whatever it is called.
+   */
+  spawn(part, { name, by } = {}) {
+    const node = typeof part === 'string' && part ? this.root.findByName(part) : null;
+    const shift = by === undefined ? [0, 0, 0] : (Array.isArray(by) ? by : []).map(Number);
+    const why = !node || node === this.root ? `no part named ${JSON.stringify(part)}`
+      : typeof name !== 'string' || !name ? `a copy of ${part} wants a name of its own, not ${JSON.stringify(name)}`
+        : this.root.findByName(name) ? `the object already has a ${name}`
+          : shift.length !== 3 || !shift.every(Number.isFinite) ? `by ${JSON.stringify(by)} is not [x, y, z] in metres`
+            : null;
+    if (why) { this.warn(`spawn: ${why}`); return null; }
+    const was = this.stoodAt(node);
+    const copy = node.clone();
+    copy.name = name;
+    node.parent.addChild(copy);
+    const moved = this.frameOf(node).invert().transformVector(new Vec3(...shift)).add(was.p);
+    copy.setLocalRotation(was.q);
+    copy.setLocalPosition(moved);
+    // A level the part wore came along in the clone, and its own instances
+    // came back drawn: the copy is levelled as itself instead, below.
+    for (const e of copy.find((x) => LEVEL_CHILD.test(x.name))) e.destroy();
+    const walk = (e) => {
+      this.bind.set(e, { q: e.getLocalRotation().clone(), p: e.getLocalPosition().clone() });
+      for (const c of e.children) walk(c);
+    };
+    walk(copy);
+    // The whole object has been turned already: the copy goes round with the rest from now on.
+    if (this.turned && copy.parent === this.root) this.turned.push({ node: copy, q: was.q.clone(), p: moved.clone() });
+    this.spawned.push(name);
+    this.copyOf.set(copy, node.name);
+    if (this.level > 0 && this.levelSource) {
+      for (const rc of copy.findComponents('render')) this.levelOne(rc.entity, this.level, this.levelSource, []);
+      copy.syncHierarchy();
+    }
+    return name;
+  }
+
+  // ---- Levels -----------------------------------------------------------------
+
+  /**
+   * Draw the object at level n (0 = the object as shipped, n = manifest.levels[n-1]) from that
+   * level file's container resource. Parts, turns, spawned copies, shading and painted
+   * materials hold. Returns names the level had no node for.
+   *
+   * The consumer's, not the script's: a script cannot tell, and there is
+   * nothing for it to listen for. A level file has the object's node names,
+   * material names and origin, and nothing else — no collision, no volumes —
+   * so a level is drawn by hanging, under each part, a child of its own
+   * (`${part}~level${n}`) drawing that part's mesh from the level file, and
+   * hiding the part's own instances. No entity is replaced: whatever holds a
+   * part — a turn, a spawn, a clip, the consumer's collider baked from the
+   * object — holds the same one, and the child, at identity under it, goes
+   * where it goes. A level child is built once and enabled again after;
+   * level 0 disables them and gives the part its own instances back.
+   *
+   * Why a child and not the part's `meshInstances` reassigned: PlayCanvas
+   * destroys the instances a render component is given in place of, and the
+   * part's own are what level 0 is.
+   *
+   * A material this copy owns — painted, a canvas, a video (surface()) — is
+   * owned on the level too: the level's own material, cloned once per level
+   * and name for this copy, wearing the last paint, and joined to the surface
+   * so what a script writes later reaches it. How a part is drawn (shade) is
+   * carried over from its own first instance.
+   */
+  relevel(n, resource) {
+    const missing = [];
+    const level = Math.max(0, Math.floor(Number(n) || 0));
+    const source = level > 0 ? this.levelSourceOf(resource) : null;
+    if (level > 0 && !source) {
+      this.warn(`relevel ${n}: no level file was handed over`);
+      return { missing };
+    }
+    for (const rc of this.root.findComponents('render')) {
+      const node = rc.entity;
+      if (node === this.root || LEVEL_CHILD.test(node.name)) continue;
+      this.levelOne(node, level, source, missing);
+    }
+    this.level = level;
+    this.levelSource = source;
+    this.root.syncHierarchy();
+    return { missing: [...new Set(missing)] };
+  }
+
+  /**
+   * name -> { asset, materialAssets, meshes: [{ mesh, material }] } for every
+   * part a level file draws, read off a tree the container builds and then
+   * destroyed. The meshes outlive it: the container's render resource holds
+   * them. Once per container resource.
+   */
+  levelSourceOf(resource) {
+    if (!resource?.instantiateRenderEntity) return null;
+    let source = levelSources.get(resource);
+    if (source) return source;
+    source = new Map();
+    const tree = resource.instantiateRenderEntity();
+    for (const rc of tree.findComponents('render')) {
+      const name = rc.entity.name;
+      if (source.has(name)) continue;
+      const meshes = rc.meshInstances.map((mi) => ({ mesh: mi.mesh, material: mi.material }));
+      const asset = (resource.renders ?? []).find((a) => a.id === rc.asset) ?? null;
+      const materialAssets = meshes.map((m) => (resource.materials ?? []).find((a) => a.resource === m.material) ?? null);
+      source.set(name, { asset, materialAssets: materialAssets.every(Boolean) ? materialAssets : null, meshes });
+    }
+    tree.destroy();
+    levelSources.set(resource, source);
+    return source;
+  }
+
+  /** One part to level n — see relevel(). */
+  levelOne(node, level, source, missing) {
+    const own = node.render.meshInstances;
+    const children = node.children.filter((c) => LEVEL_CHILD.test(c.name));
+    const toBase = () => {
+      for (const c of children) c.enabled = false;
+      const stash = this.levelled.get(node);
+      if (stash) for (const s of stash) { s.mi.visible = s.visible; s.mi.castShadow = s.castShadow; }
+      this.levelled.delete(node);
+    };
+    if (level === 0) { toBase(); return; }
+    if (UNDRAWN.test(node.name) || UNDRAWN.test(node.parent?.name ?? '')) return;
+    const key = this.copyOf.get(node) ?? node.name;
+    const from = source.get(key);
+    if (!from) { missing.push(key); toBase(); return; }
+
+    let child = children.find((c) => Number(LEVEL_CHILD.exec(c.name)[1]) === level);
+    if (!child) child = this.buildLevel(node, level, from);
+    for (const c of children) if (c !== child) c.enabled = false;
+    child.enabled = true;
+    if (!this.levelled.has(node)) {
+      this.levelled.set(node, own.map((mi) => ({ mi, visible: mi.visible, castShadow: mi.castShadow })));
+    }
+    for (const mi of own) { mi.visible = false; mi.castShadow = false; }
+  }
+
+  /**
+   * The child that draws `node` at `level`. From the level's render asset and
+   * material assets, as the container would draw it — checked at once, since
+   * a render asset that is not loaded in this app (another container's,
+   * unloaded) would be loaded again or drawn with the default material; then
+   * from the meshes themselves, which nothing reloads.
+   */
+  buildLevel(node, level, from) {
+    const child = new pc.Entity(`${node.name}~level${level}`, this.app ?? undefined);
+    const options = {
+      castShadows: node.render.castShadows,
+      receiveShadows: node.render.receiveShadows,
+      layers: node.render.layers.slice(),
+    };
+    let built = false;
+    if (from.asset?.resource && from.materialAssets) {
+      child.addComponent('render', { ...options, type: 'asset', asset: from.asset, materialAssets: from.materialAssets });
+      const made = child.render.meshInstances;
+      built = made.length === from.meshes.length
+        && made.every((mi, i) => mi.mesh === from.meshes[i].mesh && mi.material === from.meshes[i].material);
+      if (!built) child.removeComponent('render');
+    }
+    if (!built) {
+      child.addComponent('render', {
+        ...options,
+        meshInstances: from.meshes.map((m) => new pc.MeshInstance(m.mesh, m.material, child)),
+      });
+    }
+    node.addChild(child);
+    // How the part is drawn, and what this copy owns of its materials.
+    const style = node.render.meshInstances[0]?.renderStyle;
+    for (const mi of child.render.meshInstances) {
+      if (style !== undefined) mi.renderStyle = style;
+      const name = mi.material?.name;
+      const owned = name !== undefined ? this.surfaces.get(name) : null;
+      if (!owned) continue;
+      const key = `${level}/${name}`;
+      let material = this.levelMaterials.get(key);
+      if (!material) {
+        material = mi.material.clone();
+        material.name = name;
+        const painted = this.painted.get(name);
+        if (painted) wear(material, painted.texture, painted.glow);
+        this.levelMaterials.set(key, material);
+      }
+      mi.material = material;
+      owned.push({ mi, material });
+    }
+    return child;
+  }
+
+  // ---- Parameters -------------------------------------------------------------
+
+  /**
+   * A number of the script's that somebody else may set: declared with the
+   * value the script would have used, read as `.value` whenever it is needed —
+   * every tick, for one that may change under it.
+   *
+   * Who sets it is the consumer's business: a placement that says so when the
+   * copy is made (`params`), a panel with a slider (the viewer's). `min`, `max`
+   * and `step` are what a slider needs, and what a number set is held to.
+   */
+  param(name, value, { label, min, max, step } = {}) {
+    const initial = Number(value);
+    if (typeof name !== 'string' || !name || !Number.isFinite(initial)) {
+      this.warn(`param ${JSON.stringify(name)}: wants a name and a number — it stays ${JSON.stringify(value)}`);
+      return Object.freeze({ value });
+    }
+    let param = this.params.find((p) => p.name === name);
+    if (param) {
+      this.warn(`param ${name}: declared twice — the second is the first`);
+      return param.handle;
+    }
+    const bound = (n) => (Number.isFinite(Number(n ?? NaN)) ? Number(n) : null);
+    param = { name, label: typeof label === 'string' && label ? label : name, value: initial, initial, min: bound(min), max: bound(max), step: bound(step) };
+    param.handle = Object.freeze({ get value() { return param.value; } });
+    this.params.push(param);
+    if (this.given[name] !== undefined && !this.setParam(name, this.given[name])) {
+      this.warn(`param ${name}: the placement says ${JSON.stringify(this.given[name])}, which is not a number — it stays ${initial}`);
+    }
+    return param.handle;
+  }
+
+  /** Set a parameter the script declared, held to its `min` and `max`. False when there is none by that name, or no number. */
+  setParam(name, value) {
+    const param = this.params.find((p) => p.name === name);
+    const n = Number(value);
+    if (!param || value === null || value === '' || !Number.isFinite(n)) return false;
+    param.value = Math.min(param.max ?? Infinity, Math.max(param.min ?? -Infinity, n));
+    return true;
   }
 
   // ---- Menus ------------------------------------------------------------------
@@ -1408,6 +1771,7 @@ export class PropScript {
     for (const a of this.actions) parts.push(`offers ${a.name} "${a.label}"${a.shared ? ' to the room' : ''}`);
     if (this.ticks.length) parts.push(`${this.ticks.length} tick handler${this.ticks.length > 1 ? 's' : ''}`);
     if (this.surfaces.size) parts.push(`paints ${[...this.surfaces.keys()].join(', ')}`);
+    if (this.spawned.length) parts.push(`spawned ${this.spawned.join(', ')}`);
     if (this.sounds.length) parts.push(`${this.sounds.length} sound${this.sounds.length > 1 ? 's' : ''}`);
     for (const a of this.attached) parts.push(`${a.node} hung off ${a.to}`);
     if (!this.setup && this.manifest.script) parts.push('script failed to load');

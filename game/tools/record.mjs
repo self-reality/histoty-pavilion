@@ -112,17 +112,21 @@ const setup = await page.evaluate(async ({ view, prop, action }) => {
   const g = window.game;
   if (view) await g.switchMode('flyover', view);
   g.clock.hold();
+  // Each leveled prop at the drawing this view wants before anything is drawn
+  // (src/levels.mjs). step() waits for it too; this is a cheap guard.
+  await g.levels?.settle();
   await g.clock.step(0);         // the game puts the camera at the view on its first frame
   g.clock.log.length = 0;        // film time 0 is now, whatever that frame set off
   const t0 = g.clock.time;
-  if (!prop) return { action: null, t0 };
+  const levels = g.levels?.stats() ?? null;
+  if (!prop) return { action: null, t0, levels };
   const s = g.scripted.find((x) => x.label === prop);
   const offered = action ? s.actions.find((a) => a.name === action) : s.actions[0];
   if (!offered) return { error: `"${prop}" offers ${s.actions.map((a) => a.name).join(', ') || 'no actions'}${action ? `, not "${action}"` : ''}` };
   // As the E key does it: the press carries the line of sight (src/actions.mjs).
   const cam = g.camera;
   s.trigger(offered.name, { ray: { origin: cam.getPosition().clone(), direction: cam.forward.clone() } });
-  return { action: offered.name, t0 };
+  return { action: offered.name, t0, levels };
 }, { view, prop: opt.prop, action: opt.action });
 if (setup.error) fail(setup.error);
 
@@ -222,6 +226,11 @@ if (sounds.length) {
   console.log(`  sound: ${sounds.map((v) => `${v.file} at ${v.at.toFixed(2)} s, ${v.length.toFixed(2)} s${v.loop ? ' looped' : ''}, `
     + `gain ${Math.max(v.left, v.right).toFixed(2)}`).join('; ')}`);
 } else if (!opt.silent) console.log('  sound: nothing was heard');
+if (setup.levels?.props) {
+  const l = setup.levels;
+  console.log(`  levels: ${l.props} prop${l.props === 1 ? '' : 's'}, ${l.at.map((n, i) => `${i ? `L${i}` : 'base'} ${n}`).join(' · ')}`
+    + `, ${l.fetchedMB.toFixed(1)} MB fetched, ${l.pending} pending at the first frame`);
+}
 if (errors.length) console.warn(`page errors:\n  ${errors.slice(0, 5).join('\n  ')}`);
 
 /**

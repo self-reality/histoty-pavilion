@@ -142,7 +142,7 @@ export function togglePanel() {
  * exactly what it was before, so nothing here needs a fully-wired scene.
  */
 export class DebugTools {
-  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera, sceneColor = false }) {
+  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera, sceneColor = false, levels = null }) {
     this.app = app;
     this.player = player;
     this.collider = collider;
@@ -154,6 +154,7 @@ export class DebugTools {
     this.camera = camera;         // main camera entity — owns the sky clear colour
     this.sceneColor = sceneColor; // the scene has glass that samples a grab-pass
     this.frame = null;            // pc.CameraFrame while bloom is on, else null
+    this.levels = levels;         // ./levels.mjs: which drawing each leveled prop is at (optional)
 
     this.mode = 0;                // 0 textured, 1 wireframe, 2 normals
     this._frame = 0;
@@ -281,6 +282,7 @@ export class DebugTools {
     this._buildSurface(bodyWrap);
     this._buildLighting(bodyWrap);
     this._buildBloom(bodyWrap);
+    this._buildLevels(bodyWrap);
 
     // Actions.
     section(bodyWrap, 'Actions');
@@ -478,6 +480,27 @@ export class DebugTools {
     slider(parent, 'emissive ×', 1, 10, 0.1, s.emissive, (v) => { s.emissive = v; this._scaleEmissive(v); }, 1);
   }
 
+  // ---- Levels: which drawing of each leveled prop is on screen (./levels.mjs).
+  // One line, read in updateReadout: how many props at the object and at each
+  // finer level, what the finer files have cost to download, and how many
+  // props are still waiting for the level the view wants. `?level=n` in the
+  // address forces one for all; `?levels=off` leaves them all as shipped.
+  _buildLevels(parent) {
+    if (!this.levels) return;
+    section(parent, 'Levels');
+    const row = el('div', 'dbg-stats', parent);
+    this._rLevels = stat(row, 'levels');
+  }
+
+  _levelsLine() {
+    const l = this.levels;
+    if (!l.enabled) return 'off (?levels=off)';
+    const s = l.stats();
+    const at = s.at.map((n, i) => `${i ? `L${i}` : 'base'} ${n}`).join(' · ');
+    return `${s.props} prop${s.props === 1 ? '' : 's'}${at ? ` · ${at}` : ''} · ${s.fetchedMB.toFixed(1)} MB fetched · ${s.pending} pending`
+      + (l.forced !== null ? ` · forced ${l.forced}` : '');
+  }
+
   _scaleEmissive(k) {
     const seen = new Set();
     for (const rc of this.app.root.findComponents('render')) {
@@ -510,6 +533,7 @@ export class DebugTools {
     this._rGround.style.color = p.grounded ? '' : '#ff7676';
     this._rVspd.textContent = p.vel.y.toFixed(1);
     this._rMode.textContent = ['textured', 'wireframe', 'normals'][this.mode];
+    if (this._rLevels) this._rLevels.textContent = this._levelsLine();
   }
 }
 

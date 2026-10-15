@@ -95,6 +95,20 @@ export class Actions {
     return item;
   }
 
+  /**
+   * The prop is drawn from other instances now — a level of it (./levels.mjs)
+   * hangs its own under each part, and hides the part's. Read them again: the
+   * ones in an entity switched off (a level not drawn) are left out, since an
+   * instance there still says it is visible. Its areas stay where they are.
+   */
+  refresh(name) {
+    const item = this.items.find((i) => i.name === name);
+    if (!item) return;
+    item.instances = item.root.findComponents('render')
+      .filter((rc) => rc.entity.enabled)
+      .flatMap((rc) => rc.meshInstances);
+  }
+
   // The areas the asset brought with it, and which action each offers. Placed
   // by the prop's world transform as it stands now — after its pose has settled
   // its seat offset — so the area is where the prop is.

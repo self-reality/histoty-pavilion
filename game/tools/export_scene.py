@@ -148,6 +148,10 @@ def base_names(names):
 MANIFEST_SUFFIX = '.manifest.json'
 
 
+# A level of a leveled asset, beside its object in the package (see asset_glbs).
+LEVEL_FILE = re.compile(r'\.lod\d+\.glb$', re.I)
+
+
 def asset_glbs():
     """Every GLB an anchor may point at, as `./assets/...` paths.
 
@@ -156,6 +160,10 @@ def asset_glbs():
     when it holds a manifest, which is what keeps `assets/source/` (raw downloads,
     untracked) and `assets/sounds/` out of the running. One level down: that
     is the convention, and a deeper search would be guessing.
+
+    A level file (`<stem>.lod<N>.glb`, the kit's ASSET_CONTRACT.md section 2)
+    is a finer drawing of the object beside it, not an object: the game fetches
+    it through the manifest when the view wants it, so no anchor points at one.
     """
     assets_dir = os.path.join(GAME_DIR, 'assets')
     found = []
@@ -171,6 +179,7 @@ def asset_glbs():
                 continue
             found += [f'./assets/{entry}/{f}' for f in inside
                       if not f.startswith('.') and f.lower().endswith('.glb')
+                      and not LEVEL_FILE.search(f)
                       and os.path.isfile(os.path.join(path, f))]
     return found
 
