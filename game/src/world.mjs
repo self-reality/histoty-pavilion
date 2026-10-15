@@ -189,18 +189,27 @@ function hideMeshes(rootEntity, matches) {
 export function unlitIgnoreAmbient(rootEntity) {
   let sealed = 0;
   for (const rc of rootEntity.findComponents('render')) {
-    for (const mi of rc.meshInstances) {
-      const m = mi.material;
-      // Materials are shared between instances of the same container, so a prop
-      // placed twice would otherwise count its materials twice.
-      if (m?.useLighting !== false) continue;
-      if (m.diffuse.r === 0 && m.diffuse.g === 0 && m.diffuse.b === 0) continue;
-      m.diffuse.set(0, 0, 0);
-      m.update();
-      sealed++;
-    }
+    // Materials are shared between instances of the same container, so a prop
+    // placed twice would otherwise count its materials twice.
+    for (const mi of rc.meshInstances) if (sealUnlit(mi.material)) sealed++;
   }
   return sealed;
+}
+
+/**
+ * unlitIgnoreAmbient() for one material, wherever it is drawn: true when it
+ * was sealed now. What a level file's materials are given as the file lands
+ * (./levels.mjs), before any prop draws from them — the order a prop's own
+ * get it in placeProp: sealed first, then whatever its script paints onto a
+ * copy of them. Sealing after the paint would black out a texture painted as
+ * plain colour (not `glow`), which is held in that very diffuse.
+ */
+export function sealUnlit(m) {
+  if (m?.useLighting !== false) return false;
+  if (m.diffuse.r === 0 && m.diffuse.g === 0 && m.diffuse.b === 0) return false;
+  m.diffuse.set(0, 0, 0);
+  m.update();
+  return true;
 }
 
 // ---- Find walkable floor samples + a spawn --------------------------------

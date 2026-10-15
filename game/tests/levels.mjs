@@ -16,7 +16,8 @@
 // 2) Close: level 1 — the `~level1` children on, the parts' own instances
 //    hidden, the collider's triangles for the prop the same as before, the
 //    canvas the script paints on the level's own material, and the script
-//    still painting it.
+//    still painting it; the lid, unlit and painted as plain colour, wears
+//    its paint at the level and back at the object.
 // 3) Far again: the object.
 // 4) `&levels=off`: no level file is requested, however close.
 // 5) `&level=1`: level 1, however far.
@@ -87,6 +88,33 @@ const at = (page, view) => page.evaluate(async ({ view, NAME }) => {
   check(far.level === 0 && far.at === 0, `far, the object is drawn (level ${far.level}, size ${far.size?.toFixed(3)})`);
   check(lod.length === 0, `far, no level file is requested (${lod.length})`);
 
+  // The lid is unlit (KHR_materials_unlit, in both files): sealed from the
+  // ambient as placed, then painted by the script as plain colour — the
+  // texture held in the very diffuse the sealing zeroes. The level has to
+  // wear it the same, and the object's own copy keep it.
+  const lidOf = (page, which) => page.evaluate(({ NAME, which }) => {
+    const s = window.game.scripted.find((x) => x.label === NAME);
+    const mis = s.root.findComponents('render')
+      .filter((rc) => (which === 'level') === /~level\d+$/.test(rc.entity.name))
+      .flatMap((rc) => rc.meshInstances).filter((mi) => mi.material?.name === 'lid');
+    const tex = window.__lidPaint;
+    return mis.map((mi) => ({
+      unlit: mi.material.useLighting === false,
+      diffuse: [mi.material.diffuse.r, mi.material.diffuse.g, mi.material.diffuse.b],
+      painted: !!tex && mi.material.diffuseMap === tex,
+    }));
+  }, { NAME, which });
+  const sealed = await lidOf(page, 'base');
+  await page.evaluate((NAME) => {
+    const s = window.game.scripted.find((x) => x.label === NAME);
+    window.__lidPaint = s.makeTexture('lid paint');
+    s.paint('lid', window.__lidPaint, false);
+  }, NAME);
+  const paintedBase = await lidOf(page, 'base');
+  check(sealed.length > 0 && sealed.every((m) => m.unlit && m.diffuse.every((v) => v === 0)),
+    `the unlit lid is placed sealed from the ambient (${JSON.stringify(sealed)})`);
+  check(paintedBase.every((m) => m.painted && m.diffuse.every((v) => v === 1)), `painted plain, the lid wears it (${JSON.stringify(paintedBase)})`);
+
   const close = await at(page, CLOSE);
   console.log(`  close: ${JSON.stringify(close)}`);
   check(close.level === 1 && close.at === 1, `close, level 1 is drawn (size ${close.size?.toFixed(3)})`);
@@ -94,6 +122,9 @@ const at = (page, view) => page.evaluate(async ({ view, NAME }) => {
   check(close.children > 0 && close.childrenOn, `the ~level1 children are on (${close.children})`);
   check(close.baseShown === 0, `the parts' own instances are hidden (${close.baseShown} shown)`);
   check(close.collides === placed.collides && close.collides > 0, `the collider holds the prop's triangles as before (${close.collides} vs ${placed.collides})`);
+  const lidLevel = await lidOf(page, 'level');
+  check(lidLevel.length > 0 && JSON.stringify(lidLevel) === JSON.stringify(paintedBase),
+    `the level's lid wears the paint as the object's did, not sealed over it (${JSON.stringify(lidLevel)})`);
 
   // The canvas: on the level's own material, and painted still.
   const screen = await page.evaluate(async (NAME) => {
@@ -123,6 +154,8 @@ const at = (page, view) => page.evaluate(async ({ view, NAME }) => {
   const back = await at(page, FAR);
   console.log(`  far again: ${JSON.stringify(back)}`);
   check(back.level === 0 && back.baseShown > 0 && !back.childrenOn, 'far again, the object is drawn and the level children are off');
+  const lidBack = await lidOf(page, 'base');
+  check(JSON.stringify(lidBack) === JSON.stringify(paintedBase), `far again, the object's lid still wears its paint (${JSON.stringify(lidBack)})`);
   check(lod.length === 1, `nothing is fetched again (${lod.length})`);
   await page.close();
 }

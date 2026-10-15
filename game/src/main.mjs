@@ -13,7 +13,7 @@ import { TriangleCollider } from './collision.mjs';
 import { Player } from './player.mjs';
 import { isDebugMode } from './debugmode.mjs';
 import { extractTriangles, findFloors,
-         propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient } from './world.mjs';
+         propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient, sealUnlit } from './world.mjs';
 import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
 import { applyFog, SurfaceLook } from './atmosphere.mjs';
 import { studioEnvAtlas, reflectStudio } from './studio.mjs';
@@ -228,13 +228,19 @@ function boot() {
     // the layout is in (see ./levels.mjs). Built here for the same reason:
     // props register with it as they land. A level drawn is a prop's
     // materials met for the first time, so they get what placeProp gives a
-    // prop's — both are no-ops on a material already done — and the E key
-    // measures the instances now drawn.
+    // prop's, in placeProp's order: unlit ones sealed from the ambient as the
+    // file lands, before the script's paint is put on a copy of one — sealed
+    // after, a texture painted as plain colour would go black, here and on the
+    // object's own painted copy, which the whole root would take in; the
+    // studio's reflection after, a no-op on a material that has it. Then the
+    // E key measures the instances now drawn.
     levels = new Levels({
       app, camera: cameraEntity, loadContainer, propTurn, clock,
       drained: () => layoutPending === 0,
+      prepare: (resource) => {
+        for (const a of resource.materials ?? []) sealUnlit(a.resource);
+      },
       after: (root, name) => {
-        unlitIgnoreAmbient(root);
         reflectStudio(root, studio);
         actions.refresh(name);
       },

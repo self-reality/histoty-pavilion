@@ -50,18 +50,23 @@ export class Levels {
    * container per URL, so two copies of an asset share one download.
    * `propTurn()` is main.mjs's one-a-frame queue: a level drawn for the first
    * time uploads its textures and links its shaders, and that is a prop's
-   * first draw over again. `after(root, name)` is what main.mjs does to a
-   * prop's materials once it is on stage, done again to the level's, and the
-   * E key told the prop's instances changed. `drained()` says the layout has
+   * first draw over again. `prepare(resource)` is what main.mjs does to a
+   * container's materials before a prop is placed from it, done to a level
+   * file's once, before anything draws from it — before relevel() copies a
+   * material a script owns and paints the copy, as placeProp's order has it.
+   * `after(root, name)` is what main.mjs does to a prop's materials once it is
+   * on stage, done again to the level's, and the E key told the prop's
+   * instances changed. `drained()` says the layout has
    * landed: nothing is fetched before, so the levels never queue in front of
    * an object still on its way.
    */
-  constructor({ app, camera, loadContainer, propTurn, clock, after = () => {}, drained = () => true }) {
+  constructor({ app, camera, loadContainer, propTurn, clock, prepare = () => {}, after = () => {}, drained = () => true }) {
     this.app = app;
     this.camera = camera;
     this.loadContainer = loadContainer;
     this.propTurn = propTurn;
     this.clock = clock;
+    this.prepare = prepare;
     this.after = after;
     this.drained = drained;
     const query = new URLSearchParams(location.search);
@@ -220,7 +225,9 @@ export class Levels {
 
   /** Draw one prop at level n — its script's relevel(), then the materials and the E key told. */
   draw(p, n) {
-    const resource = n > 0 ? this.fileOf(p, n)?.asset.resource ?? null : null;
+    const file = n > 0 ? this.fileOf(p, n) : null;
+    const resource = file?.asset.resource ?? null;
+    if (resource && !file.prepared) { file.prepared = true; this.prepare(resource); }
     const { missing } = p.script.relevel(n, resource);
     p.built.add(n);
     p.at = n;

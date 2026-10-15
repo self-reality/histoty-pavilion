@@ -1472,7 +1472,9 @@ export class PropScript {
     // The whole object has been turned already: the copy goes round with the rest from now on.
     if (this.turned && copy.parent === this.root) this.turned.push({ node: copy, q: was.q.clone(), p: moved.clone() });
     this.spawned.push(name);
-    this.copyOf.set(copy, node.name);
+    // What the copy is drawn as at a level is the part the file has: a copy of
+    // a copy is still a copy of the part the first was made from.
+    this.copyOf.set(copy, this.copyOf.get(node) ?? node.name);
     if (this.level > 0 && this.levelSource) {
       for (const rc of copy.findComponents('render')) this.levelOne(rc.entity, this.level, this.levelSource, []);
       copy.syncHierarchy();

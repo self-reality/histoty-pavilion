@@ -4,7 +4,7 @@
   "object": {
     "file": "life.glb",
     "root": "life_root",
-    "sha256": "d540baccbe13c325c0c331158e363fe39738c03df8ca9ab230c2e0f7735ef9a1"
+    "sha256": "fad9f009952b249cd59cd8e588ca403d4536f40119afc5a86fd3ce8afe746d2c"
   },
   "script": "life.script.js",
   "videos": [
@@ -20,8 +20,8 @@
   "levels": [
     {
       "file": "life.lod0.glb",
-      "bytes": 2488,
-      "sha256": "d540baccbe13c325c0c331158e363fe39738c03df8ca9ab230c2e0f7735ef9a1",
+      "bytes": 2568,
+      "sha256": "fad9f009952b249cd59cd8e588ca403d4536f40119afc5a86fd3ce8afe746d2c",
       "triangles": 10,
       "texture": 0,
       "screen": 0.3
