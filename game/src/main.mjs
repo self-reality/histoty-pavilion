@@ -541,7 +541,6 @@ function placeProp(prop, asset, loaded) {
     if (script) {
       for (const w of script.warnings) console.warn(`[script ${prop.name}] ${w}`);
       scripted.push(script);
-      if (script.rig) debug?.addRig(script.rig);
     }
     // Fold the rig before the hierarchy syncs: the pose moves the prop root
     // (its seat offset), and that has to be settled before collision bakes
@@ -552,7 +551,6 @@ function placeProp(prop, asset, loaded) {
         + 'may both drive this prop — a clip rewrites its bones every frame, so the pose only '
         + 'holds on bones the clip leaves alone');
     }
-    if (rig) debug?.addRig(rig);
     root.syncHierarchy();          // world transforms must be final before we
                                    // bake collision triangles out of them
     const solid = addPropCollision(prop, root, rig, script);

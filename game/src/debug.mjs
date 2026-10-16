@@ -158,7 +158,6 @@ export class DebugTools {
 
     this.mode = 0;                // 0 textured, 1 wireframe, 2 normals
     this._frame = 0;
-    this.rigs = [];               // PropRigs, added as their props finish loading
 
     this._mapMeshInstances = [];
     for (const rc of mapRender.findComponents('render')) {
@@ -259,6 +258,7 @@ export class DebugTools {
     // View-mode segmented control.
     section(bodyWrap, 'View');
     const seg = el('div', 'dbg-seg', bodyWrap);
+    seg.dataset.name = 'view';
     this._segBtns = ['Textured', 'Wire', 'Normals'].map((label, i) => {
       const b = el('button', 'dbg-segbtn', seg);
       b.textContent = label;
@@ -298,77 +298,15 @@ export class DebugTools {
       setTimeout(() => { link.textContent = 'Copy link here'; }, 1200);
     });
 
-    // Rig sections are appended here as props land — they can't be built up
-    // front because the GLBs load well after the panel does.
-    this._body = bodyWrap;
-    for (const rig of this.rigs) this._buildRig(rig);
-  }
-
-  /**
-   * Add a placed prop's rig to the panel.
-   *
-   * Called from the prop loader, which finishes long after _buildPanel, so this
-   * appends rather than assuming a build order — and it tolerates being called
-   * before the panel exists, so wiring order stays the caller's business.
-   */
-  addRig(rig) {
-    this.rigs.push(rig);
-    if (this._body) this._buildRig(rig);
-  }
-
-  // ---- One prop's joints, as live sliders (see src/rig.mjs) ----
-  //
-  // A pose is a couple of dozen angles that only mean anything when you look at
-  // them, so this is the authoring tool, not a diagnostic: drag until it reads
-  // right, hit Copy, paste into the manifest's `rigs`. Folded by default because
-  // a rig is 3 sliders per bone and would otherwise bury the rest of the panel.
-  _buildRig(rig) {
-    const parent = this._body;
-    const head = el('div', 'dbg-sec', parent);
-    const group = el('div', '', parent);
-    group.classList.add('dbg-hidden');
-    const label = `Rig — ${rig.label} (${rig.count})`;
-    head.textContent = `▸ ${label}`;
-    head.style.cursor = 'pointer';
-    head.onclick = () => {
-      const hidden = group.classList.toggle('dbg-hidden');
-      head.textContent = `${hidden ? '▸' : '▾'} ${label}`;
-    };
-
-    // Strip the boilerplate the pattern needs but the eye doesn't:
-    // "ValveBiped.Bip01_L_Thigh*" reads as "L_Thigh".
-    const short = (pattern) => pattern.replace(/^ValveBiped\.Bip01_/, '').replace(/\*$/, '');
-
-    // Half-degree steps: solved joint angles land on halves, and a 1° slider
-    // would show -73 for a bone actually sitting at -72.5 — the readout has to
-    // agree with what Copy pose writes back.
-    for (const bone of rig.bones) {
-      for (let axis = 0; axis < 3; axis++) {
-        slider(group, `${short(bone.pattern)} ${'xyz'[axis]}`, -180, 180, 0.5, bone.angles[axis],
-          (v) => rig.set(bone.pattern, axis, v), 1);
-      }
-    }
-    // Carried nodes. Their deltas are in model units, so the range is derived
-    // from the prop's own scale — ±2 m of travel whatever the model was authored
-    // in, instead of a number that means 7 cm on one prop and 70 m on the next.
-    const perMetre = 1 / (rig.root.getLocalScale().x || 1);
-    for (const move of rig.moves) {
-      for (let axis = 0; axis < 3; axis++) {
-        slider(group, `${short(move.pattern)} ${'xyz'[axis]}`, -2 * perMetre, 2 * perMetre, perMetre / 200,
-          move.delta[axis], (v) => rig.setMove(move.pattern, axis, v), 1);
-      }
-    }
-    // Seat height. Sitting drops the hips ~1 m; this is the knob that finds it.
-    for (let axis = 0; axis < 3; axis++) {
-      slider(group, `offset ${'xyz'[axis]} (m)`, -3, 3, 0.01, rig.offset[['x', 'y', 'z'][axis]],
-        (v) => rig.setOffset(axis, v), 2);
-    }
-
-    const row = el('div', 'dbg-row', group);
-    button(row, 'Copy pose', () => {
-      const text = `'${rig.label}': ${JSON.stringify(rig.toSpec(), null, 2)},`;
-      console.log(text);
-      navigator.clipboard?.writeText(text).catch(() => {});   // console copy is the fallback
+    // Every knob above, as one JSON object: read back off the DOM at the time
+    // of the click, so it is what the panel shows and never a separate list
+    // that forgets a slider. Logged as well as copied, like the link.
+    const all = button(el('div', 'dbg-row', bodyWrap), 'Copy all settings', async () => {
+      const text = JSON.stringify(readSettings(bodyWrap), null, 2);
+      console.log(`[debug settings] ${text}`);
+      try { await navigator.clipboard.writeText(text); all.textContent = 'Copied'; }
+      catch { all.textContent = 'In console'; }
+      setTimeout(() => { all.textContent = 'Copy all settings'; }, 1200);
     });
   }
 
@@ -379,7 +317,7 @@ export class DebugTools {
 
     section(parent, 'Atmosphere (fog)');
     segmented(parent, FOG_TYPE_NAMES, FOG_TYPE_NAMES.indexOf(fogTypeName(fog.type)),
-      (name) => { fog.type = FOG_TYPES[name]; });
+      (name) => { fog.type = FOG_TYPES[name]; }, 'type');
     colorPicker(parent, 'color', fog.color, (c) => fog.color.copy(c));
     // start/end drive linear fog, density drives exp/exp2. Both stay live so you
     // can switch type and keep the numbers you already dialled in.
@@ -466,13 +404,13 @@ export class DebugTools {
     this._applyBloom = apply;
 
     section(parent, 'Bloom');
-    segmented(parent, ['off', 'on'], 0, (name) => { s.on = name === 'on'; apply(); });
+    segmented(parent, ['off', 'on'], 0, (name) => { s.on = name === 'on'; apply(); }, 'bloom');
     slider(parent, 'intensity', 0.001, 0.2, 0.001, s.intensity, (v) => { s.intensity = v; apply(); }, 3);
     slider(parent, 'blur level', 1, 16, 1, s.blurLevel, (v) => { s.blurLevel = v; apply(); }, 0);
     // Linear is production's look: white stays white. The others are curves that
     // keep the highlights apart and grey the whites a little.
-    segmented(parent, Object.keys(TONEMAPS), 0, (name) => { s.toneMapping = name; apply(); });
-    segmented(parent, ['MSAA 1', 'MSAA 4'], 1, (name) => { s.samples = name === 'MSAA 4' ? 4 : 1; apply(); });
+    segmented(parent, Object.keys(TONEMAPS), 0, (name) => { s.toneMapping = name; apply(); }, 'tone mapping');
+    segmented(parent, ['MSAA 1', 'MSAA 4'], 1, (name) => { s.samples = name === 'MSAA 4' ? 4 : 1; apply(); }, 'msaa');
     // Only light above white glows, and a neon tube is authored at 1. This
     // scales every lit material that emits (unlit pictures excluded), so a sign
     // can be pushed over white to see it bloom. Props that land after the
@@ -562,8 +500,10 @@ function slider(parent, label, min, max, step, val, onInput, digits = 2) {
 }
 // Generic segmented control. Calls back with the picked label, not its index,
 // so the caller reads as prose ('linear', 'exp2') rather than magic numbers.
-function segmented(parent, labels, current, onPick) {
+// `name` is what Copy all settings files the pick under.
+function segmented(parent, labels, current, onPick, name) {
   const seg = el('div', 'dbg-seg', parent);
+  if (name) seg.dataset.name = name;
   const btns = labels.map((label, i) => {
     const b = el('button', 'dbg-segbtn', seg);
     b.textContent = label;
@@ -592,6 +532,26 @@ function rgb2hex(c) { return `#${hex2(c.r)}${hex2(c.g)}${hex2(c.b)}`; }
 function hex2rgb(hex) {
   const n = parseInt(hex.slice(1), 16);
   return new Color(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255);
+}
+// The panel's current values, { section: { label: value } }, read off the
+// controls themselves: sliders as numbers, segmented picks as their label,
+// colours as hex.
+function readSettings(body) {
+  const out = {};
+  let sec = out;
+  for (const node of body.children) {
+    if (node.classList.contains('dbg-sec')) {
+      sec = out[node.textContent] = {};
+    } else if (node.classList.contains('dbg-slider')) {
+      sec[node.querySelector('.dbg-slabel span').textContent] = +node.querySelector('input').value;
+    } else if (node.classList.contains('dbg-seg')) {
+      sec[node.dataset.name ?? 'pick'] = node.querySelector('.dbg-segbtn.on')?.textContent ?? null;
+    } else if (node.classList.contains('dbg-color')) {
+      sec[node.querySelector('span').textContent] = node.querySelector('input').value;
+    }
+  }
+  for (const k of Object.keys(out)) if (!Object.keys(out[k]).length) delete out[k];
+  return out;
 }
 function button(parent, label, onClick) {
   const b = el('button', 'dbg-btn', parent);
