@@ -78,7 +78,7 @@ app.setCanvasFillMode(pc.FILLMODE_FILL_WINDOW);
 app.setCanvasResolution(pc.RESOLUTION_AUTO);
 window.addEventListener('resize', () => app.resizeCanvas());
 
-app.scene.ambientLight = new Color(0.55, 0.53, 0.5);
+app.scene.ambientLight = new Color(0.68, 0.656, 0.618);
 if ('exposure' in app.scene) app.scene.exposure = 1.0;
 // What a prop's metal reflects: the kit viewer's studio (see ./studio.mjs).
 const studio = studioEnvAtlas(app.graphicsDevice);
@@ -106,7 +106,7 @@ sun.setEulerAngles(52, 28, 0);
 app.root.addChild(sun);
 
 const fill = new Entity('fill');
-fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.6, castShadows: false });
+fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.75, castShadows: false });
 fill.setEulerAngles(120, -140, 0);
 app.root.addChild(fill);
 

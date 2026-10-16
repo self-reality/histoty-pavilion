@@ -174,7 +174,7 @@ function hideMeshes(rootEntity, matches) {
  * still accumulated — and ambient x white diffuse is a flat constant added to
  * every pixel of the surface.
  *
- * With this level's ambient (0.55, 0.53, 0.5) that constant is ~0.24 in linear
+ * With an ambient of (0.55, 0.53, 0.5) that constant is ~0.24 in linear
  * light, measured straight off a ramp rendered through the material: texel 0
  * comes back as 134/255 instead of 0. Blacks lift by half, so contrast and
  * saturation both drop by about half and the surface reads as washed out — the

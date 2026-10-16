@@ -21,20 +21,20 @@ export const manifest = {
   },
 
   // ---- Global look ----
-  sky: [0.957, 0.839, 1], // camera clear colour / sky — warm pink-white
+  sky: [1, 1, 1],         // camera clear colour / sky — white
 
   // ---- Distance fog ----
   // Read by src/atmosphere.mjs into scene.fog; every field is a live slider on
   // the debug URL (/?debug), and these numbers were dialled in there and copied
-  // back. A cool blue-lilac haze under the warm sky, closing in fast: the level
-  // fades out well inside its own ~112 m span, so sight lines read as depth
-  // rather than as a flat wall of geometry. type: off | linear | exp | exp2.
+  // back. A white haze into the white sky, starting at 10 m and only fully
+  // opaque at 350 m — far past the level's ~112 m span, so it softens distance
+  // without ever closing it off. type: off | linear | exp | exp2.
   fog: {
     type: 'linear',
-    color: [0.741, 0.749, 1], // cool blue-lilac, deliberately not the sky hue
-    start: 6,                 // metres where the haze begins (linear only)
-    end: 66,                  // metres where it's fully opaque (linear only)
-    density: 0.012,           // exp/exp2 only; ignored by linear
+    color: [1, 1, 1],         // white, the sky's own colour
+    start: 10,                // metres where the haze begins (linear only)
+    end: 350,                 // metres where it's fully opaque (linear only)
+    density: 0.033,           // exp/exp2 only; ignored by linear
   },
 
   // ---- Icing: small coloured balls scattered over the white ground ----
