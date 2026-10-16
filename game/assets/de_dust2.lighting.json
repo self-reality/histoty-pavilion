@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "glb": "de_dust2.lit.glb",
+  "lightmap": "de_dust2.lightmap.png",
+  "probes": "de_dust2.probes.bin",
+  "lightmapSize": 2048,
+  "encoding": "rgbm",
+  "sky": [
+    0.6,
+    0.62,
+    0.68
+  ],
+  "sun": {
+    "euler": [
+      52,
+      28,
+      0
+    ],
+    "intensity": 2.15,
+    "color": [
+      1,
+      0.96,
+      0.86
+    ]
+  },
+  "samples": 1024,
+  "occluders": [
+    "cisterna_01",
+    "ground_01",
+    "pillars_01",
+    "salt_01",
+    "tent_01"
+  ],
+  "source": {
+    "map": "de_dust2.glb",
+    "md5": "5827f974121182ca11696e4342754e70",
+    "placementsMd5": "97f096dc49319465c22516a8c76b5e9d"
+  },
+  "stats": {
+    "seconds": 612,
+    "clipped": 0,
+    "probesInvalid": 46499,
+    "openFloor": [
+      0.4857,
+      0.4212,
+      0.4146
+    ],
+    "tunnelFloor": [
+      0.0069,
+      0.0028,
+      0.0013
+    ]
+  }
+}

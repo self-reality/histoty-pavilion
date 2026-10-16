@@ -305,6 +305,55 @@ distance are `icing` in `scene.manifest.mjs`, which also names the mesh that
 gets iced (`ground_plane`). The balls are not solid, and Blender does not show
 them.
 
+### Baked lighting
+
+```
+npm run lighting:bake               # tools/bake_light.py -> assets/de_dust2.{lit.glb,lightmap.png,probes.bin,lighting.json}
+npm run lighting:bake -- --quick    # 512², 64 samples, a coarse grid — to try something
+npm run lighting:bake -- --out DIR  # somewhere other than assets/   (also --no-probes, --cpu, --samples N)
+```
+
+The light a tunnel should not have is the sky's: a flat ambient lights the
+floor of a tunnel as brightly as the middle of a square. So Blender bakes it.
+Cycles renders, for every point of the map, the sky that point sees and the
+light that bounces onto it — off the sand, and from the sun — into a lightmap
+on a second UV set; the game lays it over the map instead of the flat ambient
+and its fill. The sun itself is not baked: it stays realtime, with its shadows.
+The units are the game's ambient units — a white face open to the whole sky
+bakes exactly `sky` (`manifest.lighting.bake.sky`).
+
+Props and characters are not lightmapped. The same run fills a grid of light
+probes over the map (one every 2 × 1 × 2 m), each the light arriving at that
+point from every direction, and the game hands each prop the light of the
+probes around where it stands — once for a prop that never moves, again each
+time a moving one does.
+
+Which props are in the bake: every placed one that is static, lit and at least
+a cubic metre — today the ground, the tent, the salt van, the cistern and the
+pillars. They cast the bake's shade and bounce; characters, the disco ball and
+the pictures are left out (they move, or they glow). The carved holes are in
+too: the bake sees the map after the cutters, the same as the game.
+
+**Move a static prop or a cutter, run `lighting:bake` again** — the rule
+`ground:build` has. So does changing the map, `manifest.sun` or the sky. The
+descriptor records the placements it was baked with.
+
+It reads `assets/de_dust2.glb` and never writes it: the lit copy is that file
+plus one `TEXCOORD_1` per primitive (`de_dust2.lit.glb`), next to a 2048²
+RGBM PNG and the probe grid. No `.blend` is opened or saved — the scene is
+assembled in memory, the way scene:import builds it. A full bake takes about 10 minutes
+on an M1's GPU (Metal; 7 cores); `--quick` about 15 s. How the map is unwrapped and
+what is in each file is at the top of the tool.
+
+The game loads the bake `manifest.lighting.file` names, by default.
+**`?lighting=flat`** is the look from before it — the original map, the flat
+ambient and the fill — for comparing, or if a bake is stale. The rest of
+`manifest.lighting` is calibration, not a rebake, and every knob is a live
+slider under *Baked light* on `/?debug`: `strength` scales the lightmap,
+`propStrength` the probes, `contrast` below 1 lifts a deep tunnel from black
+towards the open floor (which stays where it is), `saturation` below 1 greys
+the sand-orange the bounce carries three bounces deep.
+
 ### Assets
 
 Assets are **not built here**. They arrive finished, and `assets/*.glb` is

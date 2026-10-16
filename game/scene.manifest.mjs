@@ -41,7 +41,7 @@ export const manifest = {
   // rebake; all five are live sliders on the debug URL. `bake` is read only
   // by the bake: the sky colour it lights the level with (linear).
   lighting: {
-    file: null,
+    file: './assets/de_dust2.lighting.json',
     strength: 1.0,
     propStrength: 1.0,
     contrast: 0.42,
