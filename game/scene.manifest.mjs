@@ -28,7 +28,7 @@ export const manifest = {
   // light bake (tools/bake_light.py), which bakes the bounce of this very sun:
   // change it here, run `npm run lighting:bake` again. euler is the light's
   // direction in degrees (a directional light shines down its own -Y).
-  sun: { euler: [52, 28, 0], intensity: 2.15, color: [1.0, 0.96, 0.86] },
+  sun: { euler: [24, 28, 0], intensity: 0.9, color: [1.0, 0.96, 0.86] },
 
   // ---- Baked lighting (see src/lighting.mjs) ----
   // The sky and the sun's bounce, baked into a lightmap for the map and a
@@ -95,9 +95,9 @@ export const manifest = {
   // `roughness` is authored as roughness (0 = mirror, 1 = chalk) — NOT as
   // PlayCanvas's `gloss`. See atmosphere.mjs for why that distinction matters.
   surface: {
-    roughness: 0.44,  // half-polished: a broad sheen, not a point highlight
-    specular: 0,      // scales dielectric F0 — 0 kills the sun glint outright
-    metalness: 0.15,  // slight metal lift: darkens albedo, tints what specular remains
+    roughness: 1,     // chalk: dry stone, no sheen
+    specular: 0.29,   // scales dielectric F0 — 0 kills the sun glint outright
+    metalness: 0,     // plain dielectric stone
   },
 
   // ---- Refractive props ----
