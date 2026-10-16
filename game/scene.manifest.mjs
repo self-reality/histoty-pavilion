@@ -23,6 +23,33 @@ export const manifest = {
   // ---- Global look ----
   sky: [1, 1, 1],         // camera clear colour / sky — white
 
+  // ---- The sun ----
+  // The realtime key light, with its shadows. Read by src/main.mjs AND by the
+  // light bake (tools/bake_light.py), which bakes the bounce of this very sun:
+  // change it here, run `npm run lighting:bake` again. euler is the light's
+  // direction in degrees (a directional light shines down its own -Y).
+  sun: { euler: [52, 28, 0], intensity: 2.15, color: [1.0, 0.96, 0.86] },
+
+  // ---- Baked lighting (see src/lighting.mjs) ----
+  // The sky and the sun's bounce, baked into a lightmap for the map and a
+  // probe grid for everything else, so a tunnel is darker than the street.
+  // `file` names the bake's descriptor; null and the game is lit flat, as
+  // before the bake existed (the same as `?lighting=flat`). strength scales
+  // the lightmap, propStrength the probes, tint both; contrast below 1 lifts
+  // the dark (a deep tunnel) towards the open floor, which stays put, and
+  // saturation below 1 greys the bounce's sand colour — calibration, not a
+  // rebake; all five are live sliders on the debug URL. `bake` is read only
+  // by the bake: the sky colour it lights the level with (linear).
+  lighting: {
+    file: null,
+    strength: 1.0,
+    propStrength: 1.0,
+    contrast: 0.42,
+    saturation: 0.5,
+    tint: [1, 1, 1],
+    bake: { sky: [0.60, 0.62, 0.68] },
+  },
+
   // ---- Distance fog ----
   // Read by src/atmosphere.mjs into scene.fog; every field is a live slider on
   // the debug URL (/?debug), and these numbers were dialled in there and copied

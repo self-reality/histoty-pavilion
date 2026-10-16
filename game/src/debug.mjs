@@ -142,7 +142,7 @@ export function togglePanel() {
  * exactly what it was before, so nothing here needs a fully-wired scene.
  */
 export class DebugTools {
-  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera, sceneColor = false, levels = null }) {
+  constructor({ app, player, collider, mapRender, spawn, surface, sun, fill, camera, sceneColor = false, levels = null, lighting = null }) {
     this.app = app;
     this.player = player;
     this.collider = collider;
@@ -155,6 +155,7 @@ export class DebugTools {
     this.sceneColor = sceneColor; // the scene has glass that samples a grab-pass
     this.frame = null;            // pc.CameraFrame while bloom is on, else null
     this.levels = levels;         // ./levels.mjs: which drawing each leveled prop is at (optional)
+    this.lighting = lighting;     // ./lighting.mjs: the bake, when the page booted with one (optional)
 
     this.mode = 0;                // 0 textured, 1 wireframe, 2 normals
     this._frame = 0;
@@ -368,6 +369,24 @@ export class DebugTools {
     if (this.camera?.camera) {
       colorPicker(parent, 'sky', this.camera.camera.clearColor, (c) => this.camera.camera.clearColor = c);
     }
+    this._buildBake(parent);
+  }
+
+  // ---- The baked sky and bounce (./lighting.mjs): only when the page booted
+  // with a bake, since flat has nothing to switch to. Flat here is the switch
+  // `?lighting=flat` is — the fill back on, the lightmap and probes off — and
+  // the three knobs are the manifest's `lighting` calibration, to copy back.
+  _buildBake(parent) {
+    const lighting = this.lighting;
+    if (!lighting?.available) return;
+    const s = lighting.settings;
+    section(parent, 'Baked light');
+    segmented(parent, ['baked', 'flat'], s.mode === 'flat' ? 1 : 0, (mode) => lighting.setMode(mode), 'mode');
+    slider(parent, 'lightmap', 0, 3, 0.01, s.strength, (v) => lighting.set('strength', v));
+    slider(parent, 'prop ambient', 0, 3, 0.01, s.propStrength, (v) => lighting.set('propStrength', v));
+    slider(parent, 'contrast', 0.2, 1.5, 0.01, s.contrast, (v) => lighting.set('contrast', v));
+    slider(parent, 'saturation', 0, 1.5, 0.01, s.saturation, (v) => lighting.set('saturation', v));
+    colorPicker(parent, 'tint', new Color(...s.tint), (c) => lighting.set('tint', c));
   }
 
   // ---- Bloom: a trial, not a setting. Off, the camera renders exactly as in

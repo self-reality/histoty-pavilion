@@ -60,6 +60,10 @@ export class Presence {
     this.app = app;
     this.people = new Map();      // id -> { id, mode, body, entity }
     this.mat = ghostMaterial();
+    // The baked light (../lighting.mjs), set by the world once it is open: a
+    // ghost in a tunnel takes the tunnel's ambient, like any prop. Null, or
+    // flat, and a ghost is lit as before.
+    this.lighting = null;
   }
 
   /** Someone came into the world: `mode` they play, `body` they move as ('walker' | 'flyer'). */
@@ -68,6 +72,8 @@ export class Presence {
     const entity = new Entity(`ghost:${id}`);
     (SHAPES[body] ?? SHAPES.walker)(entity, this.mat);
     this.app.root.addChild(entity);
+    this.lighting?.prepareMaterial(this.mat);
+    this.lighting?.track(entity);
     const person = { id, mode, body, entity };
     this.people.set(id, person);
     return person;
@@ -88,6 +94,7 @@ export class Presence {
   leave(id) {
     const person = this.people.get(id);
     if (!person) return;
+    this.lighting?.untrack(person.entity);
     person.entity.destroy();
     this.people.delete(id);
   }

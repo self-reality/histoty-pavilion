@@ -20,3 +20,6 @@ assets/.assets.cache.json
 # macOS AppleDouble sidecars. This drive is exFAT, so copying an asset in
 # creates a 4 KB `._name.glb` beside it that is not a model.
 ._*
+
+# The lighting test's fixture bake, made by tests/fixtures/lighting/make.mjs.
+tests/fixtures/lighting/out/

@@ -24,6 +24,7 @@ import { Actions } from './actions.mjs';
 import { Levels } from './levels.mjs';
 import { SoundBank } from './audio.mjs';
 import { Presence } from './presence.mjs';
+import { Lighting, lightingMode } from './lighting.mjs';
 import { Icing } from './icing.mjs';
 import { Net, roomsUrl } from './net.mjs';
 
@@ -90,11 +91,13 @@ applyFog(app.scene, manifest.fog);
 const surface = new SurfaceLook(manifest.surface);
 
 // ---- Lights ----
+// The sun is the manifest's, because the light bake reads the same numbers.
+const SUN = { euler: [52, 28, 0], intensity: 2.15, color: [1.0, 0.96, 0.86], ...manifest.sun };
 const sun = new Entity('sun');
 sun.addComponent('light', {
   type: 'directional',
-  color: new Color(1.0, 0.96, 0.86),
-  intensity: 2.15,
+  color: new Color(...SUN.color),
+  intensity: SUN.intensity,
   castShadows: true,
   shadowBias: 0.2,
   normalOffsetBias: 0.06,
@@ -102,13 +105,20 @@ sun.addComponent('light', {
   shadowResolution: 2048,
   shadowType: pc.SHADOW_PCF3 ?? undefined,
 });
-sun.setEulerAngles(52, 28, 0);
+sun.setEulerAngles(SUN.euler[0], SUN.euler[1], SUN.euler[2]);
 app.root.addChild(sun);
 
 const fill = new Entity('fill');
 fill.addComponent('light', { type: 'directional', color: new Color(0.6, 0.7, 0.85), intensity: 0.75, castShadows: false });
 fill.setEulerAngles(120, -140, 0);
 app.root.addChild(fill);
+
+// Flat (the ambient and the fill above, the same everywhere) or baked: the
+// sky and the sand's bounce, out of a lightmap and a probe grid (./lighting.mjs).
+// `?lighting=flat` forces the first; with no bake named in the manifest it is
+// the first anyway. The fill is switched off once a bake is on the map.
+const lightMode = lightingMode();
+let lighting = null;
 
 // ---- Camera rig ----
 // The world's one view. Whichever game is being played drives it: the walker
@@ -156,19 +166,28 @@ let session = null;
 const scripted = [];
 
 // ---- Boot ----
-function boot() {
+async function boot() {
   // The layout fetch is started here rather than after the map lands, because
   // the negatives in it have to be applied before the collider is built. Kicked
   // off alongside the GLB download it costs nothing; awaited afterwards it
   // would put a round trip on the critical path.
   const layout = loadLayout();
 
-  const asset = new Asset('de_dust2', 'container', { url: MAP.glb });
+  // The bake's descriptor, before the map: it says which file the map is read
+  // from (the lit copy carries the lightmap's uvs). The lightmap and probes
+  // then download alongside the map, and are in memory before anything is
+  // built, so a filmed frame never waits on them. Never fails: whatever does,
+  // the game is lit flat.
+  const lit = await Lighting.open({ app, cfg: manifest.lighting, mode: lightMode, fill });
+
+  const asset = new Asset('de_dust2', 'container', { url: lit.mapGlb ?? MAP.glb });
   asset.on('error', (err) => { ui.loading.textContent = 'Failed to load map: ' + err; });
   app.assets.add(asset);
   app.assets.load(asset);
 
-  asset.ready(() => layout.then(async (scene) => {
+  asset.ready(() => Promise.all([layout, lit.lighting]).then(async ([scene, light]) => {
+    lighting = light;
+    presence.lighting = lighting;
     ui.loading.textContent = 'Building collision…';
 
     const renderRoot = asset.resource.instantiateRenderEntity();
@@ -181,6 +200,8 @@ function boot() {
 
     // Both-sided ripped walls + dry-stone PBR response (see atmosphere.mjs).
     surface.adopt(renderRoot);
+    // The lightmap on those same materials, when there is a bake.
+    lighting?.adoptMap(surface.materials);
 
     // Negative spaces, subtracted before anything can hold a reference to the
     // soup — a carved doorway has to be a doorway to the spawn finder and the
@@ -238,10 +259,16 @@ function boot() {
       app, camera: cameraEntity, loadContainer, propTurn, clock,
       drained: () => layoutPending === 0,
       prepare: (resource) => {
-        for (const a of resource.materials ?? []) sealUnlit(a.resource);
+        for (const a of resource.materials ?? []) {
+          sealUnlit(a.resource);
+          lighting?.prepareMaterial(a.resource);
+        }
       },
       after: (root, name) => {
         reflectStudio(root, studio);
+        // The level drawn this frame takes its ambient from where it stands
+        // before the frame is drawn, not one frame after.
+        lighting?.stamp(root);
         actions.refresh(name);
       },
     });
@@ -257,7 +284,7 @@ function boot() {
     if (DebugTools) {
       debug = new DebugTools({
         app, player, collider, mapRender: renderRoot, spawn,
-        surface, sun, fill, camera: cameraEntity, sceneColor: manifest.glass.length > 0, levels,
+        surface, sun, fill, camera: cameraEntity, sceneColor: manifest.glass.length > 0, levels, lighting,
       });
     }
 
@@ -272,7 +299,7 @@ function boot() {
     // Lightweight debug handle (handy for tweaking / automated checks). What
     // belongs to a game is read through `session`, so it is always the game
     // being played now: `game.weapon` is null in the fly-over.
-    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, levels, surface, presence, icing, camera: cameraEntity, root: playerRoot,
+    window.game = { app, player, rescue, collider, debug, audio, negatives, actions, levels, surface, presence, icing, lighting, camera: cameraEntity, root: playerRoot,
                     // Place a prop by hand from the console or a test — the same
                     // entry the layout goes through — and see what is animating.
                     loadProp, scripted, switchMode, clock,
@@ -559,6 +586,8 @@ function placeProp(prop, asset, loaded) {
     const volumes = hideVolumes(root);            // `_neg` / `_act`: read from the manifest long ago
     const unlit = unlitIgnoreAmbient(root);       // an unlit surface takes no ambient
     const mirrored = reflectStudio(root, studio); // a metal needs a room to reflect
+    const probed = lighting?.prepareAll(root);     // the baked ambient where it stands
+    lighting?.track(root);
     // Now the script: on stage, posed, collision baked, so nothing it plays is
     // frozen into the collider. Whatever it offers a player is then in reach
     // of the E key.
@@ -577,6 +606,7 @@ function placeProp(prop, asset, loaded) {
       + (volumes ? ` (${volumes} volume mesh hidden)` : '')
       + (unlit ? ` (${unlit} unlit material sealed from ambient)` : '')
       + (mirrored ? ` (${mirrored} metal material reflecting the studio)` : '')
+      + (probed ? ` (${probed} lit instance${probed > 1 ? 's' : ''} on the light probes)` : '')
       + (iced ? ` (iced: ${iced} faces of ${manifest.icing.on})` : '')
       + (rig ? ` (rig: ${rig.count} bones posed${rig.moveCount ? `, ${rig.moveCount} nodes moved` : ''})` : '')
       + (script ? ` (package: ${script.describe()})` : ''));
@@ -898,6 +928,9 @@ app.on('update', (dt) => {
   // After the clips, so a dancer is reached where this frame's pose put him;
   // the hints come down with the pause overlay and the crosshair.
   actions.update(live);
+
+  // Last, so every instance is stamped where this frame left it.
+  lighting?.update();
 });
 
 app.start();
