@@ -355,16 +355,21 @@ export class DebugTools {
     let pitch = angles.x, yaw = angles.y;
     slider(parent, 'sun pitch', -90, 90, 1, pitch, (v) => { pitch = v; this.sun.setEulerAngles(pitch, yaw, 0); });
     slider(parent, 'sun yaw', -180, 180, 1, yaw, (v) => { yaw = v; this.sun.setEulerAngles(pitch, yaw, 0); });
+    // With a bake the fill is off and the map and props take their ambient
+    // from it, so these two knobs only shape flat (and the viewmodel, which is
+    // never baked): labelled so, and copied under those names.
+    const flatOnly = this.lighting?.available ? ' (flat)' : '';
     if (this.fill) {
-      slider(parent, 'fill', 0, 3, 0.05, this.fill.light.intensity, (v) => this.fill.light.intensity = v);
+      slider(parent, `fill${flatOnly}`, 0, 3, 0.05, this.fill.light.intensity, (v) => this.fill.light.intensity = v);
     }
     // ambientLight is a colour, but the useful knob is its brightness — keep the
     // authored hue and scale it.
     const ambientHue = scene.ambientLight.clone();
     const peak = Math.max(ambientHue.r, ambientHue.g, ambientHue.b) || 1;
     ambientHue.set(ambientHue.r / peak, ambientHue.g / peak, ambientHue.b / peak);
-    slider(parent, 'ambient', 0, 1.5, 0.01, peak, (v) => {
+    slider(parent, `ambient${flatOnly}`, 0, 1.5, 0.01, peak, (v) => {
       scene.ambientLight = new Color(ambientHue.r * v, ambientHue.g * v, ambientHue.b * v);
+      this.lighting?.ambientChanged();
     });
     if (this.camera?.camera) {
       colorPicker(parent, 'sky', this.camera.camera.clearColor, (c) => this.camera.camera.clearColor = c);

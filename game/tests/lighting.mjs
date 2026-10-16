@@ -255,6 +255,25 @@ if (!manifest.lighting?.file) {
 if (real) {
   const r = results.baked.open / results.flat.open;
   check(r > 0.85 && r < 1.15, `balance: baked open within 15% of flat open (${r.toFixed(3)})`);
+
+  // An instance takes one probe sample, at its box's centre. For the ground
+  // (hundreds of metres across) that one point lights it all: if a new layout
+  // or bake puts it in a tunnel or the rock, the whole ground goes dim. Every
+  // instance over 20 m must read at least half the open floor's ambient.
+  const { page, errs } = await open(`&lighting=${encodeURIComponent(BAKE)}`);
+  const big = await page.evaluate(async ({ OPEN }) => {
+    const g = window.game;
+    g.clock.hold();
+    await g.clock.step(0);
+    const l = (a) => 0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2];
+    const open = l(g.lighting.sample(OPEN[0], OPEN[1] + 1, OPEN[2], new Float32Array(27)));
+    return g.app.root.findComponents('render').flatMap((rc) => rc.meshInstances)
+      .filter((mi) => mi.parameters['ambientSH[0]'] && Math.max(mi.aabb.halfExtents.x, mi.aabb.halfExtents.z) > 10)
+      .map((mi) => ({ name: mi.node.name, ratio: +(l(mi.parameters['ambientSH[0]'].data) / open).toFixed(3) }));
+  }, { OPEN });
+  check(big.length > 0 && big.every((b) => b.ratio >= 0.5), `large instances read open air (${JSON.stringify(big)})`);
+  check(errs.length === 0, `large: no page error or failed request (${errs.slice(0, 3)})`);
+  await page.close();
 }
 
 // ---- 7) levels carry the ambient ---------------------------------------------------

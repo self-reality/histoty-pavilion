@@ -1,20 +1,26 @@
 """Bake the map's light: a lightmap for the map, an ambient grid for everything else.
 
-    npm run lighting:bake                    # full: 2048² lightmap, 1024 samples, 2×1×2 m grid
+    npm run lighting:bake                    # full: 1024² lightmap, 1024 samples, 2×1×2 m grid
     npm run lighting:bake -- --quick         # 512², 64 samples, 4×2×4 m grid — about a minute
     npm run lighting:bake -- --out DIR       # write somewhere other than assets/
-    ... --no-probes | --cpu | --samples N | --preview PNG   (a tone-mapped look at the lightmap)
+    ... --no-probes | --cpu | --samples N | --bounces N (diffuse, default 3)
+        | --preview PNG   (a tone-mapped look at the lightmap)
 
 What it bakes is the light the game cannot compute at runtime: the sky seen
 from each point of the map (direct and bounced) and the sun's bounce. The sun's
-direct light stays realtime, with its shadows. Units are PlayCanvas "ambient
-units": a white face that sees the whole sky bakes exactly `sky`, which is what
-scene.ambientLight adds to a face today.
+direct light stays realtime, with its shadows. Units are linear light, what
+the shader adds as ambient: a white face that sees the whole sky bakes exactly
+`sky`. That is NOT the number scene.ambientLight is written as — the engine
+linearises that colour as sRGB, so the flat look's (0.68, 0.656, 0.618) reaches
+the shader as about (0.42, 0.39, 0.34), and the fill adds to it. To compare a
+sky with the flat look, linearise the ambient first. The default sky is
+brighter and cooler than that: the bake has no fill, and much of the open
+street's light is the sun's warm bounce off the sand on top of it.
 
 Outputs (beside each other, in --out, default assets/):
 
     de_dust2.lit.glb        the map GLB unchanged plus a TEXCOORD_1 per primitive
-    de_dust2.lightmap.png   2048² RGBM, (8a·rgb)², top row = v 0, no colour chunks
+    de_dust2.lightmap.png   1024² RGBM, (8a·rgb)², top row = v 0, no colour chunks
     de_dust2.probes.bin     L1 irradiance grid for props and characters (PCLG v1)
     de_dust2.lighting.json  the descriptor naming the three and the bake's facts
 
@@ -25,18 +31,20 @@ Blender vertex index IS the glTF vertex index and UV1 maps back with no
 matching. Static props (no skin, no animation, not unlit, ≥ 1 m³) stay in as
 occluders; everything else is hidden from the bake.
 
-UV1 is a seamless conformal unwrap of every primitive (each connected piece —
-in practice one BSP polygon — becomes one island, so each vertex has one UV),
-then Average Islands Scale and Pack Islands with a 0.003 margin (6 px at 2048).
+UV1 is charts packed by this tool (see `# --- UV1`): the coplanar polygons of
+a floor or a wall are one chart in its own plane, at one density everywhere
+(about 5 texels/m), with 4-texel gutters; each glTF vertex has one UV.
 Cycles bakes a joined copy of the map with the cutters applied, in two passes:
 sky direct + indirect, then sun indirect only. No denoiser — 1024 samples.
+Three diffuse bounces: eight change a deep tunnel's floor by about 5 %.
 
 The probes are L1 irradiance in the engine's own form E(n) = c0 + c·n, from
 fixed Fibonacci rays cast through a BVH of the map and the occluders: a miss
 is sky, a map hit is albedo × (lightmap + sun direct with one shadow ray), an
 occluder hit albedo × (sky/2 + sun direct). A probe whose rays hit back faces
-≥ 20 % of the time is inside something; it is filled from the nearest valid
-cells and flagged invalid so the game weights it out.
+≥ 20 % of the time is inside something (on de_dust2 most of the grid: the
+box around the map is mostly rock); it is filled from the nearest valid cells,
+however far, and flagged invalid so the game weights it out.
 
 Move a static prop or a cutter, run lighting:bake again — the same rule as
 ground:build. The descriptor records the placements' md5, to tell a stale bake by.
@@ -67,7 +75,9 @@ GAME_DIR = build_blend.GAME_DIR
 DEFAULT_SKY = [0.60, 0.62, 0.68]
 DEFAULT_SUN = {'euler': [52, 28, 0], 'intensity': 2.15, 'color': [1.0, 0.96, 0.86]}
 
-FULL = {'size': 2048, 'samples': 1024, 'cell': (2.0, 1.0, 2.0), 'rays': 128}
+DIFFUSE_BOUNCES = 3
+
+FULL = {'size': 1024, 'samples': 1024, 'cell': (2.0, 1.0, 2.0), 'rays': 128}
 QUICK = {'size': 512, 'samples': 64, 'cell': (4.0, 2.0, 4.0), 'rays': 64}
 
 # Test spots (spec §4.1), PlayCanvas world: floors the stats read the lightmap at.
@@ -96,6 +106,7 @@ def parse_args():
     opts['preview'] = None
     if '--preview' in args:
         opts['preview'] = os.path.abspath(args[args.index('--preview') + 1])
+    opts['bounces'] = int(args[args.index('--bounces') + 1]) if '--bounces' in args else DIFFUSE_BOUNCES
     if '--samples' in args:
         opts['samples'] = int(args[args.index('--samples') + 1])
     return opts
@@ -306,8 +317,8 @@ def setup_cycles(scene, opts):
     cyc.use_adaptive_sampling = False
     cyc.use_denoising = False
     cyc.seed = 0
-    cyc.max_bounces = 4
-    cyc.diffuse_bounces = 3
+    cyc.max_bounces = opts['bounces'] + 1
+    cyc.diffuse_bounces = opts['bounces']
     cyc.glossy_bounces = 0
     cyc.transmission_bounces = 0
     cyc.volume_bounces = 0
@@ -344,30 +355,236 @@ def setup_sun(scene, sun_cfg):
 
 
 # --- UV1 ---------------------------------------------------------------------
+#
+# Charts, not islands. Each connected piece of a primitive (in practice one BSP
+# polygon) is planar; coplanar pieces that touch — the polygons of one floor,
+# across primitives too — are one chart, laid flat in its own plane in metres.
+# A chart is light that runs on without a seam, and 4,000 pieces become ~1,600
+# charts, so far less of the atlas goes on gutters. The charts are packed here
+# rather than by Pack Islands: Blender's packer sees islands by UV connectivity,
+# and two polygons of one floor share no vertex, so it would scatter them again.
+# Packing is shelf by shelf, tallest first, each chart turned to its smallest
+# bounding box and snapped to whole texels with GUTTER texels between charts;
+# the scale is the largest that fits. Each glTF vertex is in exactly one piece,
+# so it still has one UV. A piece that is not planar (13 on de_dust2, where
+# obj2gltf merged a vertex two polygons share) is its own chart, projected on
+# its mean plane.
 
-def unwrap(map_objects):
+GUTTER = 4          # texels between charts: bilinear plus the bake's margin, no mips
+
+
+def _components(nv, tris):
+    """Connected pieces of a triangle list: a root vertex per vertex."""
+    parent = np.arange(nv)
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for t in tris:
+        r = [find(int(v)) for v in t]
+        m = min(r)
+        for x in r:
+            parent[x] = m
+    return np.array([find(i) for i in range(nv)])
+
+
+def _hull(p):
+    pts = sorted(set(map(tuple, np.round(p, 6))))
+    if len(pts) < 3:
+        return np.array(pts)
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lo, hi = [], []
+    for q in pts:
+        while len(lo) >= 2 and cross(lo[-2], lo[-1], q) <= 0:
+            lo.pop()
+        lo.append(q)
+    for q in reversed(pts):
+        while len(hi) >= 2 and cross(hi[-2], hi[-1], q) <= 0:
+            hi.pop()
+        hi.append(q)
+    return np.array(lo[:-1] + hi[:-1])
+
+
+def _min_rect(p):
+    """The rotation taking 2D points to their smallest bounding box, wider than tall."""
+    h = _hull(p)
+    angles = [0.0]
+    if len(h) >= 3:
+        e = np.roll(h, -1, axis=0) - h
+        angles = list(np.arctan2(e[:, 1], e[:, 0]))
+    best = None
+    for a in angles:
+        c, s = math.cos(-a), math.sin(-a)
+        rot = np.array([[c, -s], [s, c]])
+        q = p @ rot.T
+        ext = q.max(0) - q.min(0)
+        if best is None or ext[0] * ext[1] < best[0] - 1e-9:
+            best = (ext[0] * ext[1], rot, ext)
+    _, rot, ext = best
+    return np.array([[0, 1], [-1, 0]]) @ rot if ext[1] > ext[0] else rot
+
+
+def _touching(va, pa, vb, pb, eps):
+    """Does a vertex of either piece lie within eps of an edge of the other (T-junctions too)?"""
+    for (v1, p1), (v2, p2) in (((va, pa), (vb, pb)), ((vb, pb), (va, pa))):
+        e = p2['tris'][:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2)
+        a, b = v2[e[:, 0]], v2[e[:, 1]]
+        ab = b - a
+        ll = np.maximum((ab * ab).sum(1), 1e-20)
+        pts = v1[p1['vid']]
+        t = np.clip(((pts[:, None, :] - a[None]) * ab[None]).sum(2) / ll[None], 0, 1)
+        d = np.linalg.norm(pts[:, None, :] - (a[None] + t[..., None] * ab[None]), axis=2)
+        if d.min() < eps:
+            return True
+    return False
+
+
+def build_charts(meshes, plane_eps=0.005, cos_eps=0.9999, touch=0.01):
+    """meshes: [(world vertices (n,3), triangles (m,3))]. -> charts, piece count, non-planar count.
+
+    A chart is {'members': [(mesh index, vertex indices)], 'pts': [their 2D points, metres]}.
+    """
+    pieces = []
+    for mi, (verts, tris) in enumerate(meshes):
+        if not len(tris):
+            continue
+        roots = _components(len(verts), tris)
+        troot = roots[tris[:, 0]]
+        for r in np.unique(troot):
+            tt = tris[troot == r]
+            vid = np.unique(tt)
+            p = verts[tt]
+            cr = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+            tl = np.linalg.norm(cr, axis=1)
+            n = cr.sum(0)
+            planar = False
+            if np.linalg.norm(n) > 1e-12:
+                n = n / np.linalg.norm(n)
+                ok = tl > 1e-10
+                dev = np.abs((verts[vid] - verts[vid].mean(0)) @ n).max()
+                planar = dev < 1e-3 and (not ok.any() or ((cr[ok] / tl[ok, None]) @ n).min() > cos_eps)
+            else:
+                n = np.array([0.0, 0.0, 1.0])
+            pieces.append({'mesh': mi, 'vid': vid, 'tris': tt, 'area': tl.sum() / 2, 'n': n,
+                           'd': float(n @ verts[vid].mean(0)), 'planar': planar,
+                           'lo': verts[vid].min(0) - touch, 'hi': verts[vid].max(0) + touch})
+    parent = list(range(len(pieces)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    buckets = {}
+    for i, p in enumerate(pieces):
+        if p['planar']:
+            buckets.setdefault(tuple(np.round(p['n'] * 50).astype(int)), []).append(i)
+    for idx in buckets.values():
+        for ia, a in enumerate(idx):
+            pa = pieces[a]
+            for b in idx[ia + 1:]:
+                pb = pieces[b]
+                if (pa['n'] @ pb['n'] < cos_eps or abs(pa['d'] - pb['d']) > plane_eps
+                        or np.any(pa['lo'] > pb['hi']) or np.any(pb['lo'] > pa['hi'])):
+                    continue
+                if find(a) != find(b) and _touching(meshes[pa['mesh']][0], pa, meshes[pb['mesh']][0], pb, touch):
+                    ra, rb = find(a), find(b)
+                    parent[max(ra, rb)] = min(ra, rb)
+    groups = {}
+    for i in range(len(pieces)):
+        groups.setdefault(find(i), []).append(pieces[i])
+    charts = []
+    for ps in groups.values():
+        n = sum(p['n'] * p['area'] for p in ps)
+        n = n / (np.linalg.norm(n) or 1.0)
+        e1 = np.cross(n, [1.0, 0, 0] if abs(n[0]) < 0.9 else [0, 1.0, 0])
+        e1 /= np.linalg.norm(e1)
+        e2 = np.cross(n, e1)
+        members, pts = [], []
+        for p in ps:
+            v = meshes[p['mesh']][0][p['vid']]
+            members.append((p['mesh'], p['vid']))
+            pts.append(np.stack([v @ e1, v @ e2], 1))
+        charts.append({'members': members, 'pts': pts})
+    return charts, len(pieces), sum(not p['planar'] for p in pieces)
+
+
+def pack_charts(charts, size, gutter):
+    """Shelf-pack the charts into a size² atlas; sets chart['uv']. -> texels per metre."""
+    for ch in charts:
+        rot = _min_rect(np.concatenate(ch['pts']))
+        q = [p @ rot.T for p in ch['pts']]
+        lo = np.concatenate(q).min(0)
+        ch['q'] = [x - lo for x in q]
+        ch['ext'] = np.concatenate(ch['q']).max(0)
+    order = sorted(range(len(charts)), key=lambda i: (-charts[i]['ext'][1], i))
+
+    def place(scale):
+        x = y = row = 0
+        pos = {}
+        for i in order:
+            w = int(math.ceil(charts[i]['ext'][0] * scale)) + gutter
+            h = int(math.ceil(charts[i]['ext'][1] * scale)) + gutter
+            if x + w > size:
+                x, y, row = 0, y + row, 0
+            if w > size or y + h > size:
+                return None
+            pos[i] = (x, y)
+            x += w
+            row = max(row, h)
+        return pos
+
+    lo, hi = 0.01, 1000.0
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if place(mid) else (lo, mid)
+    pos = place(lo)
+    for i, ch in enumerate(charts):
+        off = np.array(pos[i], np.float64) + gutter / 2
+        ch['uv'] = [(q * lo + off) / size for q in ch['q']]
+    return lo
+
+
+def unwrap(map_objects, size):
     t0 = time.time()
+    meshes = []
     for obj in map_objects:
+        me = obj.data
+        v = np.empty(len(me.vertices) * 3)
+        me.vertices.foreach_get('co', v)
+        m = np.array(obj.matrix_world)
+        v = v.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+        t = np.empty(len(me.polygons) * 3, np.int64)     # from_pydata made triangles
+        me.polygons.foreach_get('vertices', t)
+        meshes.append((v, t.reshape(-1, 3)))
+    charts, n_pieces, n_bent = build_charts(meshes)
+    density = pack_charts(charts, size, GUTTER)
+    per = [np.full((len(v), 2), np.nan) for v, _ in meshes]
+    for ch in charts:
+        for (mi, vid), uv in zip(ch['members'], ch['uv']):
+            per[mi][vid] = uv
+    area = 0.0
+    for obj, (_, tris), uv in zip(map_objects, meshes, per):
+        uv = np.nan_to_num(uv)                      # a vertex no triangle uses
+        t = uv[tris]
+        a, b = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
+        area += np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]).sum() / 2
         layer = obj.data.uv_layers.new(name='lightmap')
+        loops = np.empty(len(obj.data.loops), np.int64)
+        obj.data.loops.foreach_get('vertex_index', loops)
+        layer.data.foreach_set('uv', uv[loops].astype(np.float32).ravel())
         obj.data.uv_layers.active = layer
         obj.data.uv_layers['UVMap'].active_render = True
-    bpy.ops.object.select_all(action='DESELECT')
-    for obj in map_objects:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = map_objects[0]
-    bpy.ops.object.mode_set(mode='EDIT')
-    bpy.ops.mesh.select_all(action='SELECT')
-    bpy.ops.uv.select_all(action='SELECT')
-    # Not Smart UV Project: obj2gltf merged a few vertices that two non-coplanar
-    # polygons share, and Smart UV splits such a vertex into two islands — UV1
-    # could then not be one value per glTF vertex. A seamless conformal unwrap
-    # keeps each connected piece one island (a planar piece maps exactly, up to
-    # scale and rotation), so every vertex has exactly one UV.
-    bpy.ops.uv.unwrap(method='CONFORMAL', fill_holes=False, correct_aspect=True, margin=0.0)
-    bpy.ops.uv.average_islands_scale()
-    bpy.ops.uv.pack_islands(rotate=True, margin_method='FRACTION', margin=0.003)
-    bpy.ops.object.mode_set(mode='OBJECT')
-    log(f'unwrap {time.time() - t0:.1f} s')
+    log(f'unwrap {n_pieces} pieces ({n_bent} not planar) -> {len(charts)} charts, '
+        f'{density:.2f} texels/m, {area:.1%} of the atlas, {time.time() - t0:.1f} s')
+    return {'charts': len(charts), 'texelsPerMetre': round(density, 2), 'coverage': round(area, 3)}
 
 
 def vertex_uv1(obj):
@@ -730,37 +947,47 @@ def bake_probes(sc, origin, cell, dims, n_rays):
         if i and i % 5000 == 0:
             log(f'probes {i}/{count}  {time.time() - t0:.0f} s')
 
-    # Fill each invalid cell from the nearest ring of valid ones, up to 3 steps out.
-    filled = coeffs.copy()
+    filled, steps = fill_invalid(coeffs, valid, dims, sc.sky)
     invalid = np.nonzero(valid == 0)[0]
-    for i in invalid:
-        x, rem = i % nx, i // nx
-        y, z = rem % ny, rem // ny
-        seen = {(x, y, z)}
-        ring = [(x, y, z)]
-        found = []
-        for _ in range(3):
-            nxt = []
-            for (a, b, c) in ring:
-                for da, db, dc in ((1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)):
-                    q = (a + da, b + db, c + dc)
-                    if q in seen or not (0 <= q[0] < nx and 0 <= q[1] < ny and 0 <= q[2] < nz):
-                        continue
-                    seen.add(q)
-                    nxt.append(q)
-                    j = q[0] + nx * (q[1] + ny * q[2])
-                    if valid[j]:
-                        found.append(j)
-            if found:
-                break
-            ring = nxt
-        if found:
-            filled[i] = coeffs[found].mean(axis=0)
-        else:
-            filled[i] = 0.0
-            filled[i, 0] = sc.sky
-    log(f'probes {count} in {time.time() - t0:.0f} s, {len(invalid)} invalid filled')
+    log(f'probes {count} in {time.time() - t0:.0f} s, {len(invalid)} invalid '
+        f'({len(invalid) / count:.0%}: inside the rock, under the floor, in a prop) filled '
+        f'from the nearest valid, {steps} cells out at most')
     return filled, valid, len(invalid)
+
+
+def fill_invalid(coeffs, valid, dims, sky):
+    """Every invalid cell takes the mean of its filled face neighbours, ring by ring
+    outward from the valid ones, until none is left: a cell deep in the rock gets
+    the light of the nearest open air, never a made-up value. The game weights
+    invalid corners out, but a point with all eight invalid (a prop's centre
+    under the floor or in a wall) reads the filled value as it is.
+    """
+    nx, ny, nz = dims
+    have = valid.reshape(nz, ny, nx).astype(bool)
+    out = coeffs.reshape(nz, ny, nx, 12).copy()
+    if not have.any():
+        out[:] = 0.0
+        out[..., :3] = sky
+        return out.reshape(coeffs.shape), 0
+    out[~have] = 0.0
+    steps = 0
+    while not have.all():
+        acc = np.zeros_like(out)
+        cnt = np.zeros(have.shape)
+        for axis in range(3):
+            for d in (1, -1):
+                src = [slice(None)] * 3
+                dst = [slice(None)] * 3
+                src[axis] = slice(None, -1) if d == 1 else slice(1, None)
+                dst[axis] = slice(1, None) if d == 1 else slice(None, -1)
+                h = have[tuple(src)]
+                acc[tuple(dst)] += out[tuple(src)] * h[..., None]
+                cnt[tuple(dst)] += h
+        new = ~have & (cnt > 0)
+        out[new] = acc[new] / cnt[new][:, None]
+        have |= new
+        steps += 1
+    return out.reshape(coeffs.shape), steps
 
 
 def write_probes(path, origin, cell, dims, coeffs, valid):
@@ -835,7 +1062,7 @@ def main():
     log(f'assemble {time.time() - t0:.1f} s')
 
     scene = bpy.context.scene
-    unwrap(map_objects)
+    uv_stats = unwrap(map_objects, opts['size'])
     uv1 = [vertex_uv1(obj) for obj in map_objects]
     uv_all = np.concatenate(uv1)
     log(f'uv1    {len(uv_all)} vertices, range u {uv_all[:, 0].min():.4f}..{uv_all[:, 0].max():.4f} '
@@ -893,7 +1120,8 @@ def main():
         'lightmapSize': opts['size'], 'encoding': 'rgbm',
         'sky': sky,
         'sun': {'euler': sun_cfg['euler'], 'intensity': sun_cfg['intensity'], 'color': sun_cfg['color']},
-        'samples': opts['samples'], 'occluders': occluders,
+        'samples': opts['samples'], 'diffuseBounces': opts['bounces'], 'uv1': uv_stats,
+        'occluders': occluders,
         'source': {'map': os.path.basename(map_cfg['glb']), 'md5': md5(map_path),
                    'placementsMd5': md5(placements_path) if os.path.isfile(placements_path) else None},
         'stats': stats,

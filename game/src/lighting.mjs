@@ -166,10 +166,17 @@ export class Lighting {
     this.roots = new Set();          // entities whose instances are stamped
     this.stamps = new WeakMap();     // MeshInstance -> { x, y, z, arr }
     // What an instance looks like before its first stamp: today's ambient, as
-    // the shader receives it (the engine linearises scene.ambientLight).
-    const a = new Color().linear(app.scene.ambientLight);
+    // the shader receives it (the engine linearises scene.ambientLight). Kept
+    // in step with the ambient by ambientChanged().
     this.defaultSH = new Float32Array(27);
+    this.ambientChanged();
+  }
+
+  /** scene.ambientLight was changed (the debug panel): the not-yet-stamped default follows it. */
+  ambientChanged() {
+    const a = new Color().linear(this.app.scene.ambientLight);
     this.defaultSH.set([a.r, a.g, a.b]);
+    for (const m of this.prepared ?? []) if (m.ambientSH === this.defaultSH) m.update();
   }
 
   /** A bake is applied right now. */
@@ -364,9 +371,13 @@ export class Lighting {
 
 function loadLightmap(app, url) {
   return new Promise((resolve, reject) => {
+    // No mipmaps. A mip of RGBM averages the encoded bytes, which is not the
+    // average of the light, and past the first levels it reaches across the
+    // 4-texel gutters into the next chart — a far floor would turn patchy. The
+    // light is soft enough that plain bilinear at a distance does not shimmer.
     const asset = new Asset('de_dust2.lightmap', 'texture', { url }, {
-      type: 'rgbm', rgbm: true, mipmaps: true,
-      minfilter: 'linear_mip_linear', magfilter: 'linear', addressu: 'clamp', addressv: 'clamp',
+      type: 'rgbm', rgbm: true, mipmaps: false,
+      minfilter: 'linear', magfilter: 'linear', addressu: 'clamp', addressv: 'clamp',
     });
     asset.once('error', (err) => reject(new Error(`lightmap: ${err}`)));
     asset.ready(() => {

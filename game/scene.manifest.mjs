@@ -39,7 +39,8 @@ export const manifest = {
   // the dark (a deep tunnel) towards the open floor, which stays put, and
   // saturation below 1 greys the bounce's sand colour — calibration, not a
   // rebake; all five are live sliders on the debug URL. `bake` is read only
-  // by the bake: the sky colour it lights the level with (linear).
+  // by the bake: the sky colour it lights the level with, in linear light —
+  // not sRGB like scene.ambientLight in src/main.mjs (see README).
   lighting: {
     file: './assets/de_dust2.lighting.json',
     strength: 1.0,

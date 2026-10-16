@@ -3,7 +3,7 @@
   "glb": "de_dust2.lit.glb",
   "lightmap": "de_dust2.lightmap.png",
   "probes": "de_dust2.probes.bin",
-  "lightmapSize": 2048,
+  "lightmapSize": 1024,
   "encoding": "rgbm",
   "sky": [
     0.6,
@@ -24,6 +24,12 @@
     ]
   },
   "samples": 1024,
+  "diffuseBounces": 3,
+  "uv1": {
+    "charts": 1564,
+    "texelsPerMetre": 4.8,
+    "coverage": 0.391
+  },
   "occluders": [
     "cisterna_01",
     "ground_01",
@@ -37,18 +43,18 @@
     "placementsMd5": "97f096dc49319465c22516a8c76b5e9d"
   },
   "stats": {
-    "seconds": 612,
+    "seconds": 200,
     "clipped": 0,
     "probesInvalid": 46499,
     "openFloor": [
-      0.4857,
-      0.4212,
-      0.4146
+      0.4943,
+      0.4287,
+      0.4201
     ],
     "tunnelFloor": [
-      0.0069,
-      0.0028,
-      0.0013
+      0.0067,
+      0.0026,
+      0.0011
     ]
   }
 }
