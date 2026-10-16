@@ -281,6 +281,15 @@ The map GLB is never touched. Nothing is baked and nothing is re-exported —
 `assets/de_dust2.glb` is the pristine rip it always was, and what ships is the
 cutter's transform, seven lines of `scene.placements.json` beside the props.
 
+The baked light is derived from it the same way `assets/ground.glb` is:
+`npm run lighting:bake` reads the pristine map, the placements and the cutters,
+and writes a lit copy (`de_dust2.lit.glb`, the map plus a lightmap UV set)
+beside a lightmap and a probe grid. So moving a static prop or a cutter here
+means running `lighting:bake` again, as it means running `ground:build` — the
+bake still sees the old layout until you do. A full bake takes about 10 minutes on the
+GPU; `--quick` (about 15 s) is for trying a change. The `.blend` is not opened
+by it, so unexported work here is not in the bake.
+
 **A negative only removes.** Cut a box out of the ground and you get a
 rectangular hole with no walls and no floor, looking straight through into the
 sky. So a well is two things: `neg_well_01` opens the floor and a `well_01` prop

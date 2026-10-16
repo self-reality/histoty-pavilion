@@ -221,13 +221,12 @@ def build_negatives(entries, collection, ref, carried=()):
     return cutters
 
 
-def build(manifest, placements, out_path):
-    reset_scene()
-    ref = make_collection(REF_COLLECTION)
-    scene = make_collection(SCENE_COLLECTION)
-    neg = make_collection(negatives.NEG_COLLECTION)
+def import_map(map_cfg, ref):
+    """The default map builder: the GLB through the importer, under a `map_ref` anchor.
 
-    map_cfg = manifest['map']
+    Returns the map's mesh objects. tools/bake_light.py passes its own builder
+    instead (one object per glTF primitive, so UV1 maps back by vertex index).
+    """
     map_path = os.path.join(GAME_DIR, map_cfg['glb'])
     print(f'[build] map    {map_cfg["glb"]}')
     added, roots = import_glb(map_path, ref)
@@ -241,6 +240,25 @@ def build(manifest, placements, out_path):
     for obj in added:
         obj.hide_select = True
     map_anchor.hide_select = True
+    return [o for o in added if o.type == 'MESH']
+
+
+def assemble(manifest, placements, map_builder=None):
+    """Build the whole scene in memory — map, props, markers, cutters — and save nothing.
+
+    `map_builder(ref)` puts the map into the REF collection and returns its mesh
+    objects; the default is import_map. build() saves the result as the .blend,
+    tools/bake_light.py bakes it.
+    """
+    reset_scene()
+    ref = make_collection(REF_COLLECTION)
+    scene = make_collection(SCENE_COLLECTION)
+    neg = make_collection(negatives.NEG_COLLECTION)
+
+    if map_builder is None:
+        map_objects = import_map(manifest['map'], ref)
+    else:
+        map_objects = map_builder(ref)
 
     for prop in merged_props(manifest, placements):
         prop_path = os.path.join(GAME_DIR, prop['glb'])
@@ -261,7 +279,11 @@ def build(manifest, placements, out_path):
 
     # Last, so the booleans are wired against a map that is fully imported.
     build_negatives(placements.get('negatives', []), neg, ref, negatives.payload_cutters(scene))
+    return {'ref': ref, 'scene': scene, 'neg': neg, 'map_objects': map_objects}
 
+
+def build(manifest, placements, out_path):
+    assemble(manifest, placements)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=out_path)
     print(f'[build] wrote {os.path.relpath(out_path, GAME_DIR)}')
@@ -287,4 +309,6 @@ def main():
     build(manifest, read_placements(manifest, placements), out_path)
 
 
-main()
+# Blender's -P runs this file as __main__; tools/bake_light.py imports it.
+if __name__ == '__main__':
+    main()
