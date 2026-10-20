@@ -342,7 +342,12 @@ descriptor records the placements it was baked with.
 
 It reads `assets/de_dust2.glb` and never writes it: the lit copy is that file
 plus one `TEXCOORD_1` per primitive (`de_dust2.lit.glb`), next to a 1024²
-RGBM PNG (about 5 texels a metre; no mipmaps) and the probe grid. No `.blend` is opened or saved — the scene is
+RGBM PNG (about 5 texels a metre; no mipmaps) and the probe grid. Cycles' bake
+has no denoiser, and a tunnel floor — 1 % of the street's light — comes out a
+third noise texel by texel, which the contrast lifts twentyfold into soot over
+the bricks; so the lightmap is blurred before it is written, a Gaussian of
+2 texels inside each chart and never across to the next (`--smooth S`, 0 for
+none). No `.blend` is opened or saved — the scene is
 assembled in memory, the way scene:import builds it. A full bake takes about 10 minutes
 on an M1's GPU (Metal; 7 cores); `--quick` about 15 s. How the map is unwrapped and
 what is in each file is at the top of the tool.

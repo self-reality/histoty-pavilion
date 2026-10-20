@@ -4,6 +4,7 @@
     npm run lighting:bake -- --quick         # 512², 64 samples, 4×2×4 m grid — about a minute
     npm run lighting:bake -- --out DIR       # write somewhere other than assets/
     ... --no-probes | --cpu | --samples N | --bounces N (diffuse, default 3)
+        | --smooth S      (the lightmap's blur, texels; default 2, 0 for none)
         | --preview PNG   (a tone-mapped look at the lightmap)
 
 What it bakes is the light the game cannot compute at runtime: the sky seen
@@ -20,7 +21,7 @@ street's light is the sun's warm bounce off the sand on top of it.
 Outputs (beside each other, in --out, default assets/):
 
     de_dust2.lit.glb        the map GLB unchanged plus a TEXCOORD_1 per primitive
-    de_dust2.lightmap.png   1024² RGBM, (8a·rgb)², top row = v 0, no colour chunks
+    de_dust2.lightmap.png   1024² RGBM, (8a·rgb)², top row = v 0, no colour chunks, smoothed
     de_dust2.probes.bin     L1 irradiance grid for props and characters (PCLG v1)
     de_dust2.lighting.json  the descriptor naming the three and the bake's facts
 
@@ -35,8 +36,17 @@ UV1 is charts packed by this tool (see `# --- UV1`): the coplanar polygons of
 a floor or a wall are one chart in its own plane, at one density everywhere
 (about 5 texels/m), with 4-texel gutters; each glTF vertex has one UV.
 Cycles bakes a joined copy of the map with the cutters applied, in two passes:
-sky direct + indirect, then sun indirect only. No denoiser — 1024 samples.
-Three diffuse bounces: eight change a deep tunnel's floor by about 5 %.
+sky direct + indirect, then sun indirect only. Three diffuse bounces: eight
+change a deep tunnel's floor by about 5 %.
+
+Cycles' bake has no denoiser, and at 1024 samples a tunnel floor — 1 % of the
+open street's light — comes out a third noise, texel by texel; the game's
+contrast lifts that tunnel twentyfold and the noise with it, and the bricks
+read as covered in soot. So the lightmap is smoothed here (`# --- smoothing`):
+a Gaussian of SMOOTH texels inside each chart, never across the gutter to the
+chart beside it, and the blur itself spreads a chart's edge values over its
+own gutter. Light this soft — sky through a doorway, bounce off sand — has
+nothing finer in it than the blur removes; the sun's shadows are realtime.
 
 The probes are L1 irradiance in the engine's own form E(n) = c0 + c·n, from
 fixed Fibonacci rays cast through a BVH of the map and the occluders: a miss
@@ -76,6 +86,7 @@ DEFAULT_SKY = [0.60, 0.62, 0.68]
 DEFAULT_SUN = {'euler': [52, 28, 0], 'intensity': 2.15, 'color': [1.0, 0.96, 0.86]}
 
 DIFFUSE_BOUNCES = 3
+SMOOTH = 2.0        # the lightmap's Gaussian, in texels (σ), within each chart; 0: none
 
 FULL = {'size': 1024, 'samples': 1024, 'cell': (2.0, 1.0, 2.0), 'rays': 128}
 QUICK = {'size': 512, 'samples': 64, 'cell': (4.0, 2.0, 4.0), 'rays': 64}
@@ -109,6 +120,7 @@ def parse_args():
     opts['bounces'] = int(args[args.index('--bounces') + 1]) if '--bounces' in args else DIFFUSE_BOUNCES
     if '--samples' in args:
         opts['samples'] = int(args[args.index('--samples') + 1])
+    opts['smooth'] = float(args[args.index('--smooth') + 1]) if '--smooth' in args else SMOOTH
     return opts
 
 
@@ -549,7 +561,26 @@ def pack_charts(charts, size, gutter):
     for i, ch in enumerate(charts):
         off = np.array(pos[i], np.float64) + gutter / 2
         ch['uv'] = [(q * lo + off) / size for q in ch['q']]
+        # The chart's texels, gutter included: (column, row from the bottom, w, h).
+        ch['rect'] = (pos[i][0], pos[i][1], int(math.ceil(ch['ext'][0] * lo)) + gutter,
+                      int(math.ceil(ch['ext'][1] * lo)) + gutter)
     return lo
+
+
+def rasterise(tri_uv, size, into):
+    """Mark the texels whose centres lie in the triangles (rows = v, bottom first)."""
+    for a, b, c in tri_uv * size:
+        x0, y0 = np.maximum(np.floor(np.minimum.reduce([a, b, c])), 0).astype(int)
+        x1, y1 = np.minimum(np.ceil(np.maximum.reduce([a, b, c])), size).astype(int)
+        area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        if x1 <= x0 or y1 <= y0 or area == 0:
+            continue
+        X, Y = np.meshgrid(np.arange(x0, x1) + 0.5, np.arange(y0, y1) + 0.5)
+        s = 1.0 if area > 0 else -1.0
+        inside = np.ones(X.shape, bool)
+        for p, q in ((a, b), (b, c), (c, a)):
+            inside &= s * ((q[0] - p[0]) * (Y - p[1]) - (q[1] - p[1]) * (X - p[0])) >= 0
+        into[y0:y1, x0:x1] |= inside
 
 
 def unwrap(map_objects, size):
@@ -571,11 +602,13 @@ def unwrap(map_objects, size):
         for (mi, vid), uv in zip(ch['members'], ch['uv']):
             per[mi][vid] = uv
     area = 0.0
+    coverage = np.zeros((size, size), bool)
     for obj, (_, tris), uv in zip(map_objects, meshes, per):
         uv = np.nan_to_num(uv)                      # a vertex no triangle uses
         t = uv[tris]
         a, b = t[:, 1] - t[:, 0], t[:, 2] - t[:, 0]
         area += np.abs(a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]).sum() / 2
+        rasterise(t, size, coverage)
         layer = obj.data.uv_layers.new(name='lightmap')
         loops = np.empty(len(obj.data.loops), np.int64)
         obj.data.loops.foreach_get('vertex_index', loops)
@@ -584,7 +617,8 @@ def unwrap(map_objects, size):
         obj.data.uv_layers['UVMap'].active_render = True
     log(f'unwrap {n_pieces} pieces ({n_bent} not planar) -> {len(charts)} charts, '
         f'{density:.2f} texels/m, {area:.1%} of the atlas, {time.time() - t0:.1f} s')
-    return {'charts': len(charts), 'texelsPerMetre': round(density, 2), 'coverage': round(area, 3)}
+    stats = {'charts': len(charts), 'texelsPerMetre': round(density, 2), 'coverage': round(area, 3)}
+    return stats, {'rects': [ch['rect'] for ch in charts], 'coverage': coverage}
 
 
 def vertex_uv1(obj):
@@ -656,6 +690,68 @@ def bake_pass(name, map_objects, mats, size, filters):
     img.pixels.foreach_get(px)
     log(f'pass   {name} {sorted(filters)}  {time.time() - t0:.1f} s')
     return px.reshape(size, size, 4)[:, :, :3].astype(np.float64)
+
+
+# --- smoothing ---------------------------------------------------------------
+
+LUMA = np.array([0.2126, 0.7152, 0.0722])
+
+
+def _blur(a, k, r):
+    """Separable convolution of (h, w, c) with the 1D kernel k of radius r, zero padded."""
+    h, w, c = a.shape
+    pad = np.zeros((h + 2 * r, w, c))
+    pad[r:r + h] = a
+    t = sum(k[i] * pad[i:i + h] for i in range(2 * r + 1))
+    pad = np.zeros((h, w + 2 * r, c))
+    pad[:, r:r + w] = t
+    return sum(k[i] * pad[:, i:i + w] for i in range(2 * r + 1))
+
+
+def noise(lm, coverage):
+    """How noisy the dark texels are: the median 3×3 relative deviation over covered
+    texels below 5 % of the open floor's light (the open floor itself is fine)."""
+    lum = lm @ LUMA
+    win = np.stack([lum[1 + dy:lum.shape[0] - 1 + dy, 1 + dx:lum.shape[1] - 1 + dx]
+                    for dy in (-1, 0, 1) for dx in (-1, 0, 1)], axis=2)
+    cov = np.stack([coverage[1 + dy:lum.shape[0] - 1 + dy, 1 + dx:lum.shape[1] - 1 + dx]
+                    for dy in (-1, 0, 1) for dx in (-1, 0, 1)], axis=2).all(axis=2)
+    mean = win.mean(axis=2)
+    dark = cov & (mean > 1e-5) & (mean < 0.05 * max(np.percentile(lum[coverage], 90), 1e-3))
+    if not dark.any():
+        return 0.0
+    return float(np.median(win.std(axis=2)[dark] / mean[dark]))
+
+
+def smooth_charts(lm, atlas, sigma):
+    """The lightmap blurred by a Gaussian of sigma texels, chart by chart.
+
+    Within a chart's rectangle the blur is normalised over the chart's own
+    texels (the coverage), so an edge texel is averaged with its neighbours
+    inward, not with the black gutter — and every texel of the rectangle within
+    the kernel's reach of the chart takes that average: the chart's values run
+    out over its gutter, as the bake's margin did, for bilinear to read. Nothing
+    is read from outside the rectangle, so the chart beside it never bleeds in.
+    A chart too small to cover a texel's centre keeps what Cycles wrote.
+    """
+    if sigma <= 0:
+        return lm
+    r = int(math.ceil(3 * sigma))
+    k = np.exp(-0.5 * (np.arange(-r, r + 1) / sigma) ** 2)
+    k /= k.sum()
+    cov = atlas['coverage'].astype(np.float64)
+    out = lm.copy()
+    for x, y, w, h in atlas['rects']:
+        m = cov[y:y + h, x:x + w]
+        if not m.any():
+            continue
+        vb = _blur(lm[y:y + h, x:x + w] * m[:, :, None], k, r)
+        mb = _blur(m[:, :, None], k, r)[:, :, 0]
+        ok = mb > 1e-4
+        res = np.zeros_like(vb)
+        res[ok] = vb[ok] / mb[ok, None]
+        out[y:y + h, x:x + w] = res
+    return out
 
 
 # --- outputs -----------------------------------------------------------------
@@ -1062,7 +1158,7 @@ def main():
     log(f'assemble {time.time() - t0:.1f} s')
 
     scene = bpy.context.scene
-    uv_stats = unwrap(map_objects, opts['size'])
+    uv_stats, atlas = unwrap(map_objects, opts['size'])
     uv1 = [vertex_uv1(obj) for obj in map_objects]
     uv_all = np.concatenate(uv1)
     log(f'uv1    {len(uv_all)} vertices, range u {uv_all[:, 0].min():.4f}..{uv_all[:, 0].max():.4f} '
@@ -1081,7 +1177,12 @@ def main():
     lm_b = bake_pass('LM_B', [baked], mats, opts['size'], {'INDIRECT'})
     bg.inputs['Strength'].default_value = 1.0
     lm = lm_a + lm_b
-    lum = lm @ np.array([0.2126, 0.7152, 0.0722])
+    t0 = time.time()
+    before = noise(lm, atlas['coverage'])
+    lm = smooth_charts(lm, atlas, opts['smooth'])
+    log(f'smooth σ {opts["smooth"]:g} texels: the dark texels\' noise {before:.0%} -> '
+        f'{noise(lm, atlas["coverage"]):.0%}  {time.time() - t0:.1f} s')
+    lum = lm @ LUMA
     log(f'lightmap mean {lum.mean():.3f}  p50 {np.percentile(lum, 50):.3f}  '
         f'p99 {np.percentile(lum, 99):.3f}  max {lum.max():.3f}')
 
@@ -1120,7 +1221,8 @@ def main():
         'lightmapSize': opts['size'], 'encoding': 'rgbm',
         'sky': sky,
         'sun': {'euler': sun_cfg['euler'], 'intensity': sun_cfg['intensity'], 'color': sun_cfg['color']},
-        'samples': opts['samples'], 'diffuseBounces': opts['bounces'], 'uv1': uv_stats,
+        'samples': opts['samples'], 'diffuseBounces': opts['bounces'], 'smooth': opts['smooth'],
+        'uv1': uv_stats,
         'occluders': occluders,
         'source': {'map': os.path.basename(map_cfg['glb']), 'md5': md5(map_path),
                    'placementsMd5': md5(placements_path) if os.path.isfile(placements_path) else None},
