@@ -50,7 +50,7 @@ const SKY = new Color(...manifest.sky);   // camera clear / sky colour
 // fetched the first time someone picks it; the first is the one a bare URL
 // opens, `?mode=<id>` opens another. None of them is the game and the rest
 // extras: the first is only the one a link without `?mode=` lands in.
-const MODE_NAMES = { shooter: 'Shooter', flyover: 'Fly-over' };
+const MODE_NAMES = { shooter: 'Walk', flyover: 'Fly-over' };
 const MODES = Object.keys(MODE_NAMES);
 
 // ---- UI handles ----
@@ -708,7 +708,7 @@ function switchMode(id, view = null) {
 // every game shares, which are the world's.
 function showMode() {
   ui.title.textContent = mode.title;
-  ui.sub.textContent = `PlayCanvas · ${mode.sub}`;
+  ui.sub.textContent = mode.sub;
   ui.controls.replaceChildren();
   for (const [k, d] of [...mode.controls, ['E', 'Use what the E is on'], ['Esc', 'Release mouse']]) {
     const key = document.createElement('span'); key.className = 'k'; key.textContent = k;

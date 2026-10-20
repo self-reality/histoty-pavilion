@@ -14,8 +14,8 @@ const { Color, Entity } = pc;
 
 export default {
   id: 'shooter',
-  title: 'DE_DUST2',
-  sub: 'First-Person Shooter',
+  title: 'Singularity Museum',
+  sub: 'History of the future',
   body: 'walker',
   controls: [
     ['W A S D', 'Move'],
