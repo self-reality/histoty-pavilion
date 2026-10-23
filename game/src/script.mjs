@@ -23,7 +23,7 @@
 // script can do is a member of that — Script API 1:
 //
 //   object.play(clip, opts)             a manifest clip on the rig, at rest
-//   object.sound(file, opts)            an audio file of the folder, from where it stands
+//   object.sound(file, opts)            an audio file of the folder, from where it stands — as far as its `reach`
 //   object.video(file, { material })    a video on one of its materials
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
 //   object.turn([x, y, z], { about, part, by })   the whole object turned from the way it stands — or one part of it — and shifted
@@ -424,6 +424,10 @@ export const DEFAULT_ACTION_RADIUS = 2;
 // asset cannot know how big the room it stands in is.
 const SOUND_REF = 2;
 const SOUND_MAX = 40;
+// Unless the asset says how far it carries: a sound given a `reach` is at full
+// volume within this much of it, fades in a straight line, and is gone at the
+// reach — a screen heard only by those who come up to it.
+const REACH_FULL = 0.1;
 
 // A played video is kept on its game time by its rate, up to this much faster
 // or slower; further off than VIDEO_SEEK seconds it is seeked (a seek stalls).
@@ -966,10 +970,10 @@ export class PropScript {
   /** A file of the asset's folder, as a URL. */
   fileUrl(file) { return new URL(file, this.url).href; }
 
-  playSound(file, { loop = false, volume = 1 } = {}, run) {
+  playSound(file, { loop = false, volume = 1, reach = null } = {}, run) {
     if (!this.app) { this.warn(`sound ${file}: no app to play it through`); return makePlayback(); }
     this.sounds.push(file);
-    return this.voice(file, { loop, volume });
+    return this.voice(file, { loop, volume, reach });
   }
 
   /**
@@ -981,12 +985,16 @@ export class PropScript {
    * heard is the engine's; when it ends is this. A sound whose length is
    * never learned ends when the engine says.
    *
+   * `reach`, metres, is how far it carries when the asset says so: silent
+   * past it, rather than the consumer's falloff (SOUND_REF, SOUND_MAX).
+   *
    * `report`, when the consumer gave one, is told `{ kind: 'sound', id,
-   * object, file, url, loop, volume, pos }` as it starts, and `{ kind:
-   * 'stop', id }` if it is cut short: what a recorder needs to mix the
+   * object, file, url, loop, volume, pos, falloff }` as it starts — `falloff`
+   * the `{ model, ref, max }` of a sound with a reach, null otherwise — and
+   * `{ kind: 'stop', id }` if it is cut short: what a recorder needs to mix the
    * sound track afterwards. The consumer stamps its own time on each.
    */
-  voice(file, { loop = false, volume = 1 } = {}) {
+  voice(file, { loop = false, volume = 1, reach = null } = {}) {
     const url = this.fileUrl(file);
     let known = soundAssets.get(url);
     if (!known) {
@@ -1010,6 +1018,7 @@ export class PropScript {
     });
     if (!sound.slot(url)) sound.addSlot(url, { asset, overlap: true, autoPlay: false, loop: false });
     volume = Math.max(0, Math.min(1, volume));
+    const falloff = reach > 0 ? { model: 'linear', ref: reach * REACH_FULL, max: reach } : null;
     const id = ++this.voiceCount;
     const voice = { start: this.time, duration: null, loop: !!loop, done: false, playback: null };
     let instance = null;
@@ -1022,7 +1031,7 @@ export class PropScript {
     });
     voice.playback = playback;
     const p = this.root.getPosition();
-    this.report?.({ kind: 'sound', id, object: this.label, file, url, loop: !!loop, volume, pos: [p.x, p.y, p.z] });
+    this.report?.({ kind: 'sound', id, object: this.label, file, url, loop: !!loop, volume, pos: [p.x, p.y, p.z], falloff });
     this.voices.add(voice);
     const loading = landed.then((ok) => {
       if (playback.settled) return;
@@ -1031,6 +1040,12 @@ export class PropScript {
       instance = sound.slot(url).play();
       if (!instance) { voice.done = true; playback.end(); return; }
       instance.loop = !!loop;
+      if (falloff) {
+        instance.distanceModel = falloff.model;
+        instance.refDistance = falloff.ref;
+        instance.maxDistance = falloff.max;
+        instance.rollOffFactor = 1;
+      }
       instance.volume = volume;
       if (voice.duration === null) instance.on('end', () => { voice.done = true; playback.end(); });
     });
@@ -1112,7 +1127,7 @@ export class PropScript {
    * element's flat track. A video the index does not list plays as it is,
    * its own track and all.
    */
-  playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true } = {}, run) {
+  playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true, reach = null } = {}, run) {
     if (!this.app) { this.warn(`video ${file}: no app to play it through`); return makePlayback(); }
     const listed = (Array.isArray(this.manifest.videos) ? this.manifest.videos : []).find((v) => v?.file === file) ?? null;
     const element = document.createElement('video');
@@ -1133,6 +1148,7 @@ export class PropScript {
       duration: listed?.duration > 0 ? listed.duration : null,
       fps: listed?.fps > 0 ? listed.fps : null,
       audio: listed?.audio && muted === false ? listed.audio : null,
+      reach,                // how far its sound carries — see voice()
       begun: false,         // has it a picture yet — see begin()
       shown: new Promise((res) => { shownAs = res; }),
       playing: false, fresh: true, watched: false, done: false, voice: null, playback: null,
@@ -1175,7 +1191,7 @@ export class PropScript {
     video.texture.upload();
     video.fresh = false;
     this.paint(video.material, video.texture, video.glow);
-    if (video.audio) video.voice = this.voice(video.audio, { loop: video.loop });
+    if (video.audio) video.voice = this.voice(video.audio, { loop: video.loop, reach: video.reach });
     video.show(true);
   }
 

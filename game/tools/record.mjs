@@ -238,7 +238,8 @@ if (errors.length) console.warn(`page errors:\n  ${errors.slice(0, 5).join('\n  
  * starts, how long it sounds (to its end, its cut, or the film's end), and
  * its left and right gains where the camera stood — the engine's own
  * inverse falloff and an equal-power pan, the same model the positional
- * sound component plays through.
+ * sound component plays through. A sound with a `reach` says its own falloff
+ * in the log: linear, silent past `max`.
  */
 function soundTrack(heard, t0, length) {
   if (!heard) return [];
@@ -252,9 +253,11 @@ function soundTrack(heard, t0, length) {
     const until = Math.min(length, cut.get(e.id) ?? Infinity, at + full);
     if (!(until > at)) continue;
     const d = Math.hypot(e.pos[0] - heard.cam[0], e.pos[1] - heard.cam[1], e.pos[2] - heard.cam[2]);
-    const { ref = 2, max = 40, rolloff = 1 } = heard.falloff[e.object] ?? {};
+    const { model = 'inverse', ref = 2, max = 40, rolloff = 1 } = e.falloff ?? heard.falloff[e.object] ?? {};
     const clamped = Math.min(Math.max(d, ref), max);
-    const gain = e.volume * ref / (ref + rolloff * (clamped - ref));
+    const gain = e.volume * (model === 'linear'
+      ? 1 - rolloff * (clamped - ref) / (max - ref)
+      : ref / (ref + rolloff * (clamped - ref)));
     // Equal power across the camera's right: dead ahead is 0.707 a side.
     const side = d > 1e-6
       ? ((e.pos[0] - heard.cam[0]) * heard.right[0] + (e.pos[1] - heard.cam[1]) * heard.right[1] + (e.pos[2] - heard.cam[2]) * heard.right[2]) / d
