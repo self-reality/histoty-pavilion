@@ -32,9 +32,9 @@
     },
     {
       "name": "g-man-dance_01",
-      "pos": [-43.46228, 0.0, -5.81613],
-      "rot": [0.0, 0.70711, 0.0, 0.70711],
-      "euler": [0.0, 90.0, 0.0],
+      "pos": [-42.17696, 0.27961, 2.91035],
+      "rot": [0.0, -0.99838, 0.0, 0.05683],
+      "euler": [0.0, -173.4846, 0.0],
       "scale": [0.02461, 0.02461, 0.02461],
       "glb": "./assets/g-man-dance/g-man-dance.glb",
       "manifest": "./assets/g-man-dance/g-man-dance.manifest.json"
