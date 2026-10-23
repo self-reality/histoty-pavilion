@@ -130,10 +130,10 @@
     }
     #modes button:hover { border-color: var(--accent); color: var(--accent); }
     #modes button.picked { color: #1a140a; background: var(--accent); border-color: var(--accent); }
-    /* What shows while playing: the dot (where E and the view point) in every
-       game, the crosshair and the HUD in the shooter only. main.mjs sets the
+    /* What shows while playing: the dot (where E and the view point), the
+       crosshair and the HUD, all in the shooter only. main.mjs sets the
        classes and data-mode; no game touches these elements' display itself. */
-    body.playing #dot { display: block; }
+    body.playing[data-mode="shooter"] #dot { display: block; }
     body.playing[data-mode="shooter"] #crosshair { display: block; }
     body.started[data-mode="shooter"] #hud { display: block; }
     /* A question an object's script puts to the player (object.menu — see

@@ -826,7 +826,7 @@ if (togglePanel) {
 document.addEventListener('pointerlockchange', () => {
   const locked = isLocked();
   // What shows while playing is CSS, keyed on these and on data-mode (see
-  // index.html): the dot for every game, the crosshair and HUD for one.
+  // index.html): the dot, the crosshair and the HUD, for the shooter only.
   document.body.classList.toggle('playing', locked);
   if (locked) {
     started = true;
