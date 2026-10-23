@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "generator": "singularity-development-kit",
+  "object": {
+    "file": "box-9x16.glb",
+    "root": "box-9x16",
+    "sha256": "e7ca95106eb13dbf060405add4205b27dc59f829bde06266f50bc4600c67f94a"
+  },
+  "script": "box-9x16.script.js",
+  "videos": [
+    {
+      "file": "izhevsk-bridge.webm",
+      "alt": [
+        "izhevsk-bridge.mp4"
+      ],
+      "audio": "izhevsk-bridge.audio.mp3",
+      "fps": 30,
+      "duration": 102.266,
+      "width": 720,
+      "height": 1280,
+      "sha256": "771cecb2d2b9c451f065dbbe837c7b1db72e708ed8f6af1454302775ad221222"
+    }
+  ]
+}

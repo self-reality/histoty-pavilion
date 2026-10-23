@@ -6,10 +6,11 @@
     {
       "name": "box-9x16_01",
       "pos": [-42.83479, 4.0, 3.599],
-      "rot": [0.0, 0.0, 0.0, 1.0],
-      "euler": [0.0, 0.0, 0.0],
+      "rot": [0.0, 1.0, 0.0, 0.0],
+      "euler": [0.0, 180.0, 0.0],
       "scale": [1.89926, 1.90028, 0.37315],
-      "glb": "./assets/box-9x16.glb"
+      "glb": "./assets/box-9x16/box-9x16.glb",
+      "manifest": "./assets/box-9x16/box-9x16.manifest.json"
     },
     {
       "name": "cisterna_01",

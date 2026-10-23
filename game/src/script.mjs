@@ -24,7 +24,7 @@
 //
 //   object.play(clip, opts)             a manifest clip on the rig, at rest
 //   object.sound(file, opts)            an audio file of the folder, from where it stands — as far as its `reach`
-//   object.video(file, { material })    a video on one of its materials
+//   object.video(file, { material })    a video on one of its materials; its playback's `muted` switches its sound
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
 //   object.turn([x, y, z], { about, part, by })   the whole object turned from the way it stands — or one part of it — and shifted
 //   object.shade(how, { part })         how its surfaces are drawn: 'wireframe', or 'textured' as it ships
@@ -993,6 +993,10 @@ export class PropScript {
    * the `{ model, ref, max }` of a sound with a reach, null otherwise — and
    * `{ kind: 'stop', id }` if it is cut short: what a recorder needs to mix the
    * sound track afterwards. The consumer stamps its own time on each.
+   *
+   * Its `volume` may be set while it plays — how a video is muted and
+   * unmuted without losing its place — and is reported as `{ kind:
+   * 'volume', id, volume }`.
    */
   voice(file, { loop = false, volume = 1, reach = null } = {}) {
     const url = this.fileUrl(file);
@@ -1030,6 +1034,16 @@ export class PropScript {
       this.report?.({ kind: 'stop', id });
     });
     voice.playback = playback;
+    Object.defineProperty(playback, 'volume', {
+      get: () => volume,
+      set: (v) => {
+        v = Math.max(0, Math.min(1, Number(v) || 0));
+        if (v === volume || playback.settled) return;
+        volume = v;
+        if (instance) instance.volume = volume;
+        this.report?.({ kind: 'volume', id, volume });
+      },
+    });
     const p = this.root.getPosition();
     this.report?.({ kind: 'sound', id, object: this.label, file, url, loop: !!loop, volume, pos: [p.x, p.y, p.z], falloff });
     this.voices.add(voice);
@@ -1126,6 +1140,10 @@ export class PropScript {
    * from where the object stands, in game time, reported — rather than the
    * element's flat track. A video the index does not list plays as it is,
    * its own track and all.
+   *
+   * `muted` on the playback switches its sound while it plays. A listed
+   * video's sound therefore runs from its first frame even when muted, at no
+   * volume, so unmuted it is where the picture is.
    */
   playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true, reach = null } = {}, run) {
     if (!this.app) { this.warn(`video ${file}: no app to play it through`); return makePlayback(); }
@@ -1147,7 +1165,8 @@ export class PropScript {
       file, element, texture, material, glow, t: 0, loop: !!loop,
       duration: listed?.duration > 0 ? listed.duration : null,
       fps: listed?.fps > 0 ? listed.fps : null,
-      audio: listed?.audio && muted === false ? listed.audio : null,
+      audio: listed?.audio ?? null,
+      muted: muted !== false,
       reach,                // how far its sound carries — see voice()
       begun: false,         // has it a picture yet — see begin()
       shown: new Promise((res) => { shownAs = res; }),
@@ -1168,6 +1187,14 @@ export class PropScript {
     video.playback = playback;
     Object.defineProperty(playback, 'shown', { value: video.shown });
     Object.defineProperty(playback, 'progress', { get: () => this.videoProgress(video) });
+    Object.defineProperty(playback, 'muted', {
+      get: () => video.muted,
+      set: (on) => {
+        video.muted = !!on;
+        if (!listed) element.muted = video.muted;
+        if (video.voice) video.voice.volume = video.muted ? 0 : 1;
+      },
+    });
     if (!this.paintable(material)) { playback.end(); return playback; }
     element.addEventListener('loadedmetadata', () => {
       if (video.duration === null && Number.isFinite(element.duration)) video.duration = element.duration;
@@ -1191,7 +1218,7 @@ export class PropScript {
     video.texture.upload();
     video.fresh = false;
     this.paint(video.material, video.texture, video.glow);
-    if (video.audio) video.voice = this.voice(video.audio, { loop: video.loop, reach: video.reach });
+    if (video.audio) video.voice = this.voice(video.audio, { loop: video.loop, volume: video.muted ? 0 : 1, reach: video.reach });
     video.show(true);
   }
 
