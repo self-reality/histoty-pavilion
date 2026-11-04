@@ -24,7 +24,7 @@
 //
 //   object.play(clip, opts)             a manifest clip on the rig, at rest
 //   object.sound(file, opts)            an audio file of the folder, from where it stands — as far as its `reach`
-//   object.video(file, { material })    a video on one of its materials; its playback's `muted` switches its sound
+//   object.video(file, { material, emitters })    a video on one of its materials, drawn as a real panel shows it if `emitters` say; its playback's `muted` switches its sound
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
 //   object.turn([x, y, z], { about, part, by })   the whole object turned from the way it stands — or one part of it — and shifted
 //   object.shade(how, { part })         how its surfaces are drawn: 'wireframe', 'textured' as it ships, or 'hidden'
@@ -202,8 +202,126 @@ export function loadPackage(url) {
   return pending;
 }
 
-/** Put a texture on one material: emitted like a screen (`glow`), or lit like paint. */
-function wear(material, texture, glow) {
+/**
+ * The looks a video's `emitters` may name, and what each is drawn at when the
+ * script leaves a key out — ASSET_CONTRACT.md, "Screens"; the same table as
+ * EMITTER_LOOKS in src/contract.mjs (test/video.mjs holds them together).
+ */
+export const EMITTER_LOOKS = {
+  lcd: { cols: 240, mask: 1, drive: 2.6, glow: 0.12, black: 0.035 },
+  oled: { cols: 250, mask: 0.76, drive: 3.2, glow: 0.36, black: 0.125 },
+  led: { cols: 144, mask: 1, drive: 2.2, glow: 0.3, black: 0.02 },
+  crt: { cols: 240, mask: 0.85, drive: 2, glow: 0.35, black: 0.05 },
+};
+const SCREEN_INDEX = { lcd: 1, oled: 2, led: 3, crt: 4 };
+
+/** `emitters` as drawn: the look's own numbers under what the script gave — or null, for none or a look nobody knows. */
+export function emittersOf(screen) {
+  if (!screen || typeof screen !== 'object' || !Object.hasOwn(EMITTER_LOOKS, screen.look)) return null;
+  const own = EMITTER_LOOKS[screen.look];
+  const pick = (key, ok) => (ok(screen[key]) ? screen[key] : own[key]);
+  const num = (v) => typeof v === 'number' && Number.isFinite(v);
+  return {
+    look: screen.look,
+    cols: pick('cols', (v) => Number.isInteger(v) && v > 0),
+    mask: pick('mask', (v) => num(v) && v >= 0 && v <= 1),
+    drive: pick('drive', (v) => num(v) && v >= 1),
+    glow: pick('glow', (v) => num(v) && v >= 0 && v <= 1),
+    black: pick('black', (v) => num(v) && v >= 0 && v <= 1),
+  };
+}
+
+/**
+ * The emitted picture drawn as a panel: the standard material's emission,
+ * its texture read through the screen's pixels and emitters. Steps as in the
+ * contract — pixels, emitters, glow and black — and its emitters faded into
+ * their average as one screen pixel shrinks below three of the view's, gone
+ * below one and a half: a grid drawn smaller than the view's pixels beats
+ * against them into crawling bands, which no eye sees on a real panel.
+ */
+const SCREEN_EMISSIVE_GLSL = `
+uniform vec3 material_emissive;
+uniform float material_emissiveIntensity;
+#ifdef STD_EMISSIVE_TEXTURE
+uniform vec4 screen_grid;   // cols, rows, look, mask
+uniform vec4 screen_drive;  // drive, glow, black, -
+vec3 screenTap(vec2 uv) { return texture2DBias({STD_EMISSIVE_TEXTURE_NAME}, uv, textureBias).rgb; }
+float screenBand(float x, float a, float b, float aa) { return smoothstep(a - aa, a + aa, x) * (1.0 - smoothstep(b - aa, b + aa, x)); }
+float screenDot(vec2 l, vec2 at, float r, float aa) { return 1.0 - smoothstep(r - aa, r + aa, length(l - at)); }
+vec3 screenRGB(float k) { return k < 0.5 ? vec3(1.0, 0.0, 0.0) : k < 1.5 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0); }
+vec3 screenMask(vec2 l, vec2 c, float look, float bright, float aa) {
+  if (look < 1.5) {
+    float s = l.x * 3.0;
+    return screenRGB(floor(s)) * screenBand(fract(s), 0.1, 0.9, aa * 3.0) * screenBand(l.y, 0.08, 0.92, aa);
+  }
+  if (look < 2.5) {
+    float flip = mod(c.x + c.y, 2.0) < 1.0 ? 0.0 : 1.0;
+    vec2 m = vec2(l.x, mix(l.y, 1.0 - l.y, flip));
+    return vec3(screenDot(m, vec2(0.27, 0.3), 0.2, aa), screenDot(m, vec2(0.73, 0.3), 0.17, aa), screenDot(m, vec2(0.5, 0.74), 0.23, aa));
+  }
+  if (look < 3.5) {
+    float d = screenDot(l, vec2(0.5), 0.36, aa);
+    vec3 chips = vec3(screenDot(l, vec2(0.36, 0.42), 0.1, aa), screenDot(l, vec2(0.64, 0.42), 0.1, aa), screenDot(l, vec2(0.5, 0.64), 0.1, aa));
+    return vec3(d) * 0.9 + chips * 0.1 * d;
+  }
+  float s = l.x * 3.0;
+  float line = exp(-pow((l.y - 0.5) / mix(0.22, 0.42, bright), 2.0));
+  return screenRGB(floor(s)) * screenBand(fract(s), 0.06, 0.94, aa * 3.0) * line;
+}
+#endif
+void getEmission() {
+	dEmission = material_emissive * material_emissiveIntensity;
+	#ifdef STD_EMISSIVE_TEXTURE
+	vec2 uv = {STD_EMISSIVE_TEXTURE_UV};
+	vec2 grid = screen_grid.xy;
+	float look = screen_grid.z;
+	vec2 g = uv * grid;
+	vec2 c = floor(g);
+	vec2 l = fract(g);
+	vec2 fw = fwidth(g);
+	float across = 1.0 / max(max(fw.x, fw.y), 1e-5);   // the view's pixels across one screen pixel
+	float aa = min(0.7 / across, 0.5);
+	vec3 src;
+	if (look > 3.5) {
+		vec2 at = vec2(uv.x, (c.y + 0.5) / grid.y);
+		float dx = 0.5 / grid.x;
+		src = 0.25 * (screenTap(at - vec2(dx, 0.0)) + 2.0 * screenTap(at) + screenTap(at + vec2(dx, 0.0)));
+	} else {
+		vec2 q = 0.25 / grid;
+		vec2 m = (c + 0.5) / grid;
+		src = 0.25 * (screenTap(m + vec2(-q.x, -q.y)) + screenTap(m + vec2(q.x, -q.y)) + screenTap(m + vec2(-q.x, q.y)) + screenTap(m + vec2(q.x, q.y)));
+	}
+	float bright = max(src.r, max(src.g, src.b));
+	vec3 w = screenMask(l, c, look, bright, aa);
+	float near = smoothstep(1.5, 3.0, across);
+	if (near < 1.0) {
+		vec3 avg = vec3(0.0);
+		for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) avg += screenMask((vec2(i, j) + 0.5) / 4.0, c, look, bright, 0.25);
+		w = mix(avg / 16.0, w, near);
+	}
+	vec3 lit = src * mix(vec3(1.0), w * screen_drive.x, screen_grid.w);
+	vec2 r = 1.0 / grid;
+	vec3 halo = screenTap(uv) * 0.2;
+	for (int i = 0; i < 8; i++) {
+		float a = float(i) * 0.7853982;
+		halo += screenTap(uv + vec2(cos(a), sin(a)) * r) * 0.1;
+	}
+	lit += halo * screen_drive.y;
+	lit += vec3(0.85, 0.9, 1.0) * screen_drive.z * mix(1.0, max(w.r, max(w.g, w.b)), screen_grid.w);
+	dEmission *= {STD_EMISSIVE_TEXTURE_DECODE}(vec4(clamp(lit, 0.0, 1.0), 1.0)).rgb;
+	#endif
+	#ifdef STD_EMISSIVE_VERTEX
+	dEmission *= saturate(vVertexColor.{STD_EMISSIVE_VERTEX_CHANNEL});
+	#endif
+}
+`;
+
+/**
+ * Put a texture on one material: emitted like a screen (`glow`), or lit like
+ * paint. `emitters` (as emittersOf gives them, with the picture's `aspect`, height
+ * over width) draw the emitted picture as that panel; none, as it came.
+ */
+function wear(material, texture, glow, screen = null) {
   if (glow) {
     material.emissiveMap = texture;
     material.emissive = new Color(1, 1, 1);
@@ -212,6 +330,17 @@ function wear(material, texture, glow) {
   } else {
     material.diffuseMap = texture;
     material.diffuse = new Color(1, 1, 1);
+  }
+  const chunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
+  if (glow && screen) {
+    if (chunks.get('emissivePS') !== SCREEN_EMISSIVE_GLSL) chunks.set('emissivePS', SCREEN_EMISSIVE_GLSL);
+    const rows = Math.max(1, Math.round(screen.cols * (screen.aspect || 1)));
+    material.setParameter('screen_grid', [screen.cols, rows, SCREEN_INDEX[screen.look], screen.mask]);
+    material.setParameter('screen_drive', [screen.drive, screen.glow, screen.black, 0]);
+  } else if (chunks.has('emissivePS')) {
+    chunks.delete('emissivePS');
+    material.deleteParameter('screen_grid');
+    material.deleteParameter('screen_drive');
   }
   material.update();
 }
@@ -460,6 +589,11 @@ const REACH_FULL = 0.1;
 // or slower; further off than VIDEO_SEEK seconds it is seeked (a seek stalls).
 const VIDEO_NUDGE = 0.1;
 const VIDEO_SEEK = 0.3;
+// A video's sound is a voice on the audio clock, which keeps its own time; it
+// is put back on the picture's frame when further off than this - beyond
+// what an ear and an eye take for the same moment, and rarely enough that the
+// restart is not heard as a stutter.
+const VOICE_SLACK = 0.06;
 // How far past its time a held video of unknown fps is seeked, and how near
 // its end at most — see showFrame().
 const FRAME_EPSILON = 0.002;
@@ -610,6 +744,7 @@ export class PropScript {
     this.ticks = [];        // object.on('tick') handlers
     this.timers = [];       // [{ at, playback }] for wait()
     this.videos = new Set();  // { element, texture, t, … } — each playing video, in game time
+    this.voiceOf = new WeakMap(); // a voice's playback -> its record, for a video to keep its sound on its picture
     this.voices = new Set();  // { start, duration, loop, … } — each sound playing, in game time
     this.pending = new Set(); // sound loads a stepped frame waits for
     this.voiceCount = 0;    // ids for report()
@@ -621,7 +756,7 @@ export class PropScript {
     this.hiddenRenders = new Set(); // render components a shade of 'hidden' turned off, and only those, for another shade to turn on
     this.spawned = [];      // the names of the copies a script made of its parts — object.spawn
     this.copyOf = new Map();  // spawned copy entity -> the name of the part it was made from — what relevel draws it as
-    this.painted = new Map(); // material name -> { texture, glow }: the last paint, replayed on a level's own material
+    this.painted = new Map(); // material name -> { texture, glow, screen }: the last paint, replayed on a level's own material
     this.level = 0;         // the level drawn — 0 the object as shipped, n the manifest's levels[n - 1]; see relevel()
     this.levelled = new Map();  // base entity -> [{ mi, visible, castShadow }]: its own instances, as they were before a level hid them
     this.levelSource = null;    // the source map of the level drawn, for a copy spawned while it is drawn
@@ -1052,7 +1187,7 @@ export class PropScript {
     volume = Math.max(0, Math.min(1, volume));
     const falloff = reach > 0 ? { model: 'linear', ref: reach * REACH_FULL, max: reach } : null;
     const id = ++this.voiceCount;
-    const voice = { start: this.time, duration: null, loop: !!loop, done: false, playback: null };
+    const voice = { start: this.time, duration: null, loop: !!loop, done: false, playback: null, instance: null };
     let instance = null;
     const playback = makePlayback(() => {
       this.voices.delete(voice);
@@ -1062,6 +1197,7 @@ export class PropScript {
       this.report?.({ kind: 'stop', id });
     });
     voice.playback = playback;
+    this.voiceOf.set(playback, voice);
     Object.defineProperty(playback, 'volume', {
       get: () => volume,
       set: (v) => {
@@ -1081,6 +1217,7 @@ export class PropScript {
       voice.duration = asset.resource?.duration > 0 ? asset.resource.duration : null;
       instance = sound.slot(url).play();
       if (!instance) { voice.done = true; playback.end(); return; }
+      voice.instance = instance;
       instance.loop = !!loop;
       if (falloff) {
         instance.distanceModel = falloff.model;
@@ -1128,11 +1265,11 @@ export class PropScript {
 
   // Put a texture on a material: emitted like a screen (`glow`), or lit like paint.
   // Recorded as well, so a level drawn later — with materials of its own — wears it too.
-  paint(name, texture, glow) {
+  paint(name, texture, glow, screen = null) {
     if (!this.paintable(name)) return false;
     const owned = this.surface(name);
-    for (const material of new Set(owned.map((o) => o.material))) wear(material, texture, glow);
-    this.painted.set(name, { texture, glow });
+    for (const material of new Set(owned.map((o) => o.material))) wear(material, texture, glow, screen);
+    this.painted.set(name, { texture, glow, screen });
     return true;
   }
 
@@ -1173,7 +1310,7 @@ export class PropScript {
    * video's sound therefore runs from its first frame even when muted, at no
    * volume, so unmuted it is where the picture is.
    */
-  playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true, reach = null } = {}, run) {
+  playVideo(file, { material, loop = false, muted = true, glow = true, smooth = true, reach = null, emitters = null } = {}, run) {
     if (!this.app) { this.warn(`video ${file}: no app to play it through`); return makePlayback(); }
     const listed = (Array.isArray(this.manifest.videos) ? this.manifest.videos : []).find((v) => v?.file === file) ?? null;
     const element = document.createElement('video');
@@ -1187,10 +1324,13 @@ export class PropScript {
     if (!playable) this.warn(`video ${file}: this browser can play none of ${sources.join(', ')} — trying ${file}`);
     element.src = this.fileUrl(playable ?? file);
     const texture = this.makeTexture(`${this.label}/${file}`, { smooth });
+    const panel = emittersOf(emitters);
+    if (emitters != null && !panel) this.warn(`video ${file}: emitters ${JSON.stringify(emitters)} name no look this runtime knows (${Object.keys(EMITTER_LOOKS).join(', ')}) — drawn plain`);
     texture.setSource(element);
     let shownAs;
     const video = {
       file, element, texture, material, glow, t: 0, loop: !!loop,
+      emitters: panel,      // the panel it is drawn as — see emittersOf(); null, plain
       duration: listed?.duration > 0 ? listed.duration : null,
       fps: listed?.fps > 0 ? listed.fps : null,
       audio: listed?.audio ?? null,
@@ -1239,15 +1379,62 @@ export class PropScript {
     return playback;
   }
 
+  /**
+   * How a video's texture is filtered: a screen's as it shrinks — trilinear,
+   * and anisotropic for the slant — so far off it is the picture, not its
+   * texels beating against the view's pixels (its emitters fade in the
+   * shader; this is the rest). Only once a frame is in: mipmaps are made
+   * from the picture, and with none yet there is nothing to make them of.
+   */
+  filterVideo(video) {
+    const t = video.texture;
+    const on = !!video.emitters;
+    t.mipmaps = on;
+    t.minFilter = on ? pc.FILTER_LINEAR_MIPMAP_LINEAR : pc.FILTER_LINEAR;
+    t.anisotropy = on ? 8 : 1;
+  }
+
   /** Its first frame is in: it takes its material, and its time and its sound start. */
   begin(video) {
     video.begun = true;
     video.t = 0;
+    // Its size, now that it has one: the texture took the element's 0 × 0
+    // before any frame, and leaves no room for mipmaps at that.
+    video.texture.setSource(video.element);
+    this.filterVideo(video);
     video.texture.upload();
     video.fresh = false;
-    this.paint(video.material, video.texture, video.glow);
+    this.paint(video.material, video.texture, video.glow, this.panelOf(video));
     if (video.audio) video.voice = this.voice(video.audio, { loop: video.loop, volume: video.muted ? 0 : 1, reach: video.reach });
     video.show(true);
+  }
+
+  /** A video's screen as wear() draws it: its panel and the picture's shape. */
+  panelOf(video) {
+    if (!video.emitters) return null;
+    const el = video.element;
+    return { ...video.emitters, aspect: el.videoWidth > 0 ? el.videoHeight / el.videoWidth : 1 };
+  }
+
+  /**
+   * Draw a playing video as another panel, or plain (null) — for a preview
+   * trying looks on (the viewer). A script says its emitters once, in
+   * object.video; this is not a member of the Script API.
+   */
+  setEmitters(file, emitters) {
+    const panel = emitters == null ? null : emittersOf(emitters);
+    let any = false;
+    for (const video of this.videos) {
+      if (video.file !== file) continue;
+      any = true;
+      video.emitters = panel;
+      if (video.begun) {
+        this.filterVideo(video);
+        this.paint(video.material, video.texture, video.glow, this.panelOf(video));
+        video.texture.upload();
+      }
+    }
+    return any;
   }
 
   /** How much of a video's file is in, 0 to 1. */
@@ -1310,7 +1497,33 @@ export class PropScript {
         video.texture.upload();
         video.fresh = false;
       }
+      this.keepVoice(video);
     }
+  }
+
+  /**
+   * A video's sound kept on the frame it shows. The voice runs on the audio
+   * clock and the picture on game time; they part when a frame is long (game
+   * time held back, the audio not), when the sound came in after the first
+   * frame, and at each loop when the two files are not quite one length. So
+   * it is set back to the element's own time, where the picture is, whenever
+   * it is more than VOICE_SLACK off - muted too, so unmuting finds it there.
+   */
+  keepVoice(video) {
+    const el = video.element;
+    const voice = video.voice && this.voiceOf.get(video.voice);
+    const instance = voice?.instance;
+    if (!instance || voice.done || video.voice.settled || !video.playing || el.readyState < 2 || el.seeking) return;
+    // A suspended audio clock stands still; seeking it every frame would not move it.
+    if (this.app.soundManager?.context?.state !== 'running') return;
+    const length = instance.sound?.duration ?? voice.duration;
+    let at = el.currentTime;
+    if (length > 0) {
+      if (at >= length) { if (!video.loop) return; at %= length; }
+    }
+    let off = instance.currentTime - at;
+    if (video.loop && length > 0 && Math.abs(off) > length / 2) off -= Math.sign(off) * length;
+    if (Math.abs(off) > VOICE_SLACK) instance.currentTime = at;
   }
 
   /** Held: the element seeked to the frame of its game time, and that frame uploaded. */
@@ -1709,7 +1922,7 @@ export class PropScript {
         material = mi.material.clone();
         material.name = name;
         const painted = this.painted.get(name);
-        if (painted) wear(material, painted.texture, painted.glow);
+        if (painted) wear(material, painted.texture, painted.glow, painted.screen);
         this.levelMaterials.set(key, material);
       }
       mi.material = material;
