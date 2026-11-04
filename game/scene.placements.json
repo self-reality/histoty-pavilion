@@ -214,8 +214,8 @@
       "rot": [0.0, 0.0, 0.0, 1.0],
       "euler": [0.0, 0.0, 0.0],
       "scale": [1.0, 1.0, 1.0],
-      "glb": "./assets/pillars/pillars.glb",
-      "manifest": "./assets/pillars/pillars.manifest.json"
+      "glb": "./assets/pillars_pulsar/pillars_pulsar.glb",
+      "manifest": "./assets/pillars_pulsar/pillars_pulsar.manifest.json"
     },
     {
       "name": "salt_01",

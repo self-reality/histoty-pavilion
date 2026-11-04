@@ -27,9 +27,9 @@
 //   object.video(file, { material })    a video on one of its materials; its playback's `muted` switches its sound
 //   object.canvas(material, opts)       a 2D canvas painted onto one of its materials
 //   object.turn([x, y, z], { about, part, by })   the whole object turned from the way it stands — or one part of it — and shifted
-//   object.shade(how, { part })         how its surfaces are drawn: 'wireframe', or 'textured' as it ships
+//   object.shade(how, { part })         how its surfaces are drawn: 'wireframe', 'textured' as it ships, or 'hidden'
 //   object.spawn(part, { name, by })    another of one of its parts, the same mesh drawn again somewhere else
-//   object.param(name, value, opts)     a number of the script's a consumer may set
+//   object.param(name, value, opts)     a value of the script's a consumer may set: a number, true/false, or text — one of `options`, if given
 //   object.on('tick', fn)               fn(dt) every frame, in game time
 //   object.wait(seconds)                a promise, in game time
 //   object.action(options, { start, stop })   what a player standing by it can set off
@@ -214,6 +214,33 @@ function wear(material, texture, glow) {
     material.diffuse = new Color(1, 1, 1);
   }
   material.update();
+}
+
+/** A parameter's kind, by the `typeof` of the value it is declared with. */
+const PARAM_KINDS = { number: 'number', boolean: 'boolean', string: 'string' };
+
+/** What a parameter takes, said in a warning. */
+function paramWants(param) {
+  if (param.kind === 'boolean') return 'true or false';
+  if (param.kind === 'string') return param.options ? `one of ${param.options.join(', ')}` : 'text';
+  return 'a number';
+}
+
+/** `value` as `param` takes it, or undefined when it reads as nothing it takes. */
+function readParam(param, value) {
+  if (param.kind === 'number') {
+    const n = Number(value);
+    if (value === null || value === '' || typeof value === 'boolean' || !Number.isFinite(n)) return undefined;
+    return Math.min(param.max ?? Infinity, Math.max(param.min ?? -Infinity, n));
+  }
+  if (param.kind === 'boolean') {
+    if (value === true || value === 'true' || value === 1 || value === '1') return true;
+    if (value === false || value === 'false' || value === 0 || value === '0') return false;
+    return undefined;
+  }
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const text = String(value);
+  return param.options && !param.options.includes(text) ? undefined : text;
 }
 
 /** A level's own child under a part: `${part}~level${n}`. Never a part itself. */
@@ -552,7 +579,7 @@ export class PropScript {
     this.held = typeof held === 'function' ? held : () => false;
     // Told of every sound this object starts, and of any cut short — see voice().
     this.report = typeof report === 'function' ? report : null;
-    // What this placement says a parameter of the script's is — { name: number }.
+    // What this placement says a parameter of the script's is — { name: number | boolean | string }.
     this.given = params && typeof params === 'object' ? params : {};
     this.warnings = [];
     this.attached = [];   // [{ node, to }] as actually done
@@ -591,6 +618,7 @@ export class PropScript {
     this.turned = null;     // [{ node, q, p }] once a script turns it: the object as it stood
     this.misturned = false; // a turn that was not three numbers has been warned of
     this.misshaded = new Set(); // shades and parts a script asked for that there are none of, each warned of once
+    this.hiddenRenders = new Set(); // render components a shade of 'hidden' turned off, and only those, for another shade to turn on
     this.spawned = [];      // the names of the copies a script made of its parts — object.spawn
     this.copyOf = new Map();  // spawned copy entity -> the name of the part it was made from — what relevel draws it as
     this.painted = new Map(); // material name -> { texture, glow }: the last paint, replayed on a level's own material
@@ -599,7 +627,7 @@ export class PropScript {
     this.levelSource = null;    // the source map of the level drawn, for a copy spawned while it is drawn
     this.levelMaterials = new Map();  // `${n}/${material name}` -> this copy's clone of that level's material
     this.parts = new Map(); // part name -> { node, q, p, frame, into } once a script turns it alone, or null when there is none
-    this.params = [];       // [{ name, label, value, initial, min, max, step }] — object.param, in the order declared
+    this.params = [];       // [{ name, label, kind, value, initial, min, max, step, options }] — object.param, in the order declared
     this.started = false;
     this.object = this.makeObject();
   }
@@ -1458,23 +1486,34 @@ export class PropScript {
 
   /**
    * How the object's surfaces are drawn: 'wireframe', the edges of its
-   * triangles in the material each already wears, or 'textured', as it ships.
-   * `part` names one node, and it is then that node's surfaces and those
-   * hung under it alone.
+   * triangles in the material each already wears; 'textured', as it ships;
+   * or 'hidden', not drawn at all. `part` names one node, and it is then that
+   * node's surfaces and those hung under it alone.
    *
    * A way of drawing the mesh the copy already has, so it costs no geometry
-   * and each copy keeps its own.
+   * and each copy keeps its own. Hidden is the part's render components off —
+   * not its mesh instances' `visible`, which is the consumer's (the viewer's
+   * modes) and the levels' — and only the ones this turned off are turned on
+   * again by another shade. It hides nothing from the collider, which was
+   * baked before the script ran.
    */
   shade(how, { part } = {}) {
-    const style = { wireframe: pc.RENDERSTYLE_WIREFRAME, textured: pc.RENDERSTYLE_SOLID }[how];
+    const style = { wireframe: pc.RENDERSTYLE_WIREFRAME, textured: pc.RENDERSTYLE_SOLID, hidden: null }[how];
     const node = part === undefined ? this.root : (typeof part === 'string' && part ? this.root.findByName(part) : null);
     if (style === undefined || !node) {
-      const what = style === undefined ? `${JSON.stringify(how)} is not 'wireframe' or 'textured'` : `no part named ${JSON.stringify(part)}`;
+      const what = style === undefined ? `${JSON.stringify(how)} is not 'wireframe', 'textured' or 'hidden'` : `no part named ${JSON.stringify(part)}`;
       if (!this.misshaded.has(what)) this.warn(`shade: ${what}`);
       this.misshaded.add(what);
       return;
     }
-    for (const mi of node.findComponents('render').flatMap((rc) => rc.meshInstances)) mi.renderStyle = style;
+    for (const rc of node.findComponents('render')) {
+      if (style === null) {
+        if (rc.enabled) { rc.enabled = false; this.hiddenRenders.add(rc); }
+        continue;
+      }
+      if (this.hiddenRenders.delete(rc)) rc.enabled = true;
+      for (const mi of rc.meshInstances) mi.renderStyle = style;
+    }
   }
 
   /**
@@ -1507,11 +1546,14 @@ export class PropScript {
     // A level the part wore came along in the clone, and its own instances
     // came back drawn: the copy is levelled as itself instead, below.
     for (const e of copy.find((x) => LEVEL_CHILD.test(x.name))) e.destroy();
-    const walk = (e) => {
+    // Beside the part's own, so a render the part has hidden is the copy's hidden too, for a shade of the copy to show.
+    const walk = (e, from) => {
       this.bind.set(e, { q: e.getLocalRotation().clone(), p: e.getLocalPosition().clone() });
-      for (const c of e.children) walk(c);
+      if (e.render && from?.render && this.hiddenRenders.has(from.render)) this.hiddenRenders.add(e.render);
+      const own = from ? from.children.filter((c) => !LEVEL_CHILD.test(c.name)) : [];
+      e.children.forEach((c, i) => walk(c, own[i]));
     };
-    walk(copy);
+    walk(copy, node);
     // The whole object has been turned already: the copy goes round with the rest from now on.
     if (this.turned && copy.parent === this.root) this.turned.push({ node: copy, q: was.q.clone(), p: moved.clone() });
     this.spawned.push(name);
@@ -1652,6 +1694,8 @@ export class PropScript {
       });
     }
     node.addChild(child);
+    // Hidden, if the part is: a level comes in as the part was shaded.
+    if (this.hiddenRenders.has(node.render)) { child.render.enabled = false; this.hiddenRenders.add(child.render); }
     // How the part is drawn, and what this copy owns of its materials.
     const style = node.render.meshInstances[0]?.renderStyle;
     for (const mi of child.render.meshInstances) {
@@ -1677,18 +1721,22 @@ export class PropScript {
   // ---- Parameters -------------------------------------------------------------
 
   /**
-   * A number of the script's that somebody else may set: declared with the
+   * A value of the script's that somebody else may set: declared with the
    * value the script would have used, read as `.value` whenever it is needed —
    * every tick, for one that may change under it.
    *
+   * Its KIND is the kind of that value, and never changes: a number (`min`,
+   * `max` and `step` are what a slider needs, and what a number set is held
+   * to), true or false (a switch), or a string — any text, or with `options`,
+   * a list of strings, one of those and nothing else (a choice).
+   *
    * Who sets it is the consumer's business: a placement that says so when the
-   * copy is made (`params`), a panel with a slider (the viewer's). `min`, `max`
-   * and `step` are what a slider needs, and what a number set is held to.
+   * copy is made (`params`), a panel (the viewer's).
    */
-  param(name, value, { label, min, max, step } = {}) {
-    const initial = Number(value);
-    if (typeof name !== 'string' || !name || !Number.isFinite(initial)) {
-      this.warn(`param ${JSON.stringify(name)}: wants a name and a number — it stays ${JSON.stringify(value)}`);
+  param(name, value, { label, min, max, step, options } = {}) {
+    const kind = PARAM_KINDS[typeof value];
+    if (typeof name !== 'string' || !name || !kind || (kind === 'number' && !Number.isFinite(value))) {
+      this.warn(`param ${JSON.stringify(name)}: wants a name and a number, true or false, or a string — it stays ${JSON.stringify(value)}`);
       return Object.freeze({ value });
     }
     let param = this.params.find((p) => p.name === name);
@@ -1696,22 +1744,44 @@ export class PropScript {
       this.warn(`param ${name}: declared twice — the second is the first`);
       return param.handle;
     }
-    const bound = (n) => (Number.isFinite(Number(n ?? NaN)) ? Number(n) : null);
-    param = { name, label: typeof label === 'string' && label ? label : name, value: initial, initial, min: bound(min), max: bound(max), step: bound(step) };
+    const bound = (n) => (kind === 'number' && Number.isFinite(Number(n ?? NaN)) ? Number(n) : null);
+    let choices = null;
+    if (options !== undefined) {
+      choices = kind === 'string' && Array.isArray(options) ? [...new Set(options.filter((o) => typeof o === 'string' && o))] : [];
+      if (!choices.length) {
+        this.warn(`param ${name}: options ${JSON.stringify(options)} are not a list of strings for a string param — it takes any ${kind === 'string' ? 'text' : kind}`);
+        choices = null;
+      }
+    }
+    let initial = value;
+    if (choices && !choices.includes(initial)) {
+      this.warn(`param ${name}: ${JSON.stringify(value)} is none of its options — it starts at ${JSON.stringify(choices[0])}`);
+      initial = choices[0];
+    }
+    param = {
+      name, label: typeof label === 'string' && label ? label : name, kind,
+      value: initial, initial, min: bound(min), max: bound(max), step: bound(step), options: choices,
+    };
     param.handle = Object.freeze({ get value() { return param.value; } });
     this.params.push(param);
     if (this.given[name] !== undefined && !this.setParam(name, this.given[name])) {
-      this.warn(`param ${name}: the placement says ${JSON.stringify(this.given[name])}, which is not a number — it stays ${initial}`);
+      this.warn(`param ${name}: the placement says ${JSON.stringify(this.given[name])}, which is not ${paramWants(param)} — it stays ${JSON.stringify(param.value)}`);
     }
     return param.handle;
   }
 
-  /** Set a parameter the script declared, held to its `min` and `max`. False when there is none by that name, or no number. */
+  /**
+   * Set a parameter the script declared, as its kind reads what it is given:
+   * a number held to its `min` and `max`; true or false (or 'true'/'false',
+   * 1/0, as a form or an address would say them); text, one of its `options`
+   * if it has them. False when there is none by that name, or it reads as none.
+   */
   setParam(name, value) {
     const param = this.params.find((p) => p.name === name);
-    const n = Number(value);
-    if (!param || value === null || value === '' || !Number.isFinite(n)) return false;
-    param.value = Math.min(param.max ?? Infinity, Math.max(param.min ?? -Infinity, n));
+    if (!param) return false;
+    const read = readParam(param, value);
+    if (read === undefined) return false;
+    param.value = read;
     return true;
   }
 

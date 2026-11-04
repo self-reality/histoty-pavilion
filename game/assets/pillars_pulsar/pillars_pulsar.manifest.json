@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "generator": "singularity-development-kit",
+  "object": {
+    "file": "pillars_pulsar.glb",
+    "root": "pillars_pulsar_root",
+    "sha256": "cb38f0218709333825e0aff30a46575275b3f2c269c2bd3238b931806780c1d8"
+  },
+  "script": "pillars_pulsar.script.js"
+}
