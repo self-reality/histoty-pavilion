@@ -34,8 +34,30 @@
 // is somewhere inside the tent. "Within two metres of it" should mean of IT.
 // The bounds are read live, so a dancer who has walked off his spot is reached
 // where he is.
+//
+// Of IT, and not of what its script made of it: the copies a script spawns
+// (object.spawn) are left out of the bounds. The pillars' pulsar sends ships
+// of spawned cubes 100 m out, and a reach measured round them put the E over
+// half the level - and a copy hidden far out still counted, its render off
+// but its instances saying visible. The prop as it shipped is what is near.
 import { Mat4, Vec3 } from 'playcanvas';
 import { areaFromAsset } from './areas.mjs';
+
+/**
+ * The mesh instances a prop draws of its own: every render under `root` but
+ * those in a copy its script spawned. `enabledOnly` leaves out an entity
+ * switched off too - a level not drawn (refresh()).
+ */
+function ownInstances(root, script, enabledOnly = false) {
+  const copies = new Set(script?.copyOf?.keys() ?? []);
+  const inCopy = (e) => {
+    for (let n = e; n && n !== root; n = n.parent) if (copies.has(n)) return true;
+    return false;
+  };
+  return root.findComponents('render')
+    .filter((rc) => (!enabledOnly || rc.entity.enabled) && !inCopy(rc.entity))
+    .flatMap((rc) => rc.meshInstances);
+}
 
 // How far in from the edge of the screen a hint stops when the thing it
 // belongs to is off to one side or behind you, in CSS pixels. A hint you cannot
@@ -83,7 +105,7 @@ export class Actions {
       name, root, script, areas: [], hint: null, shown: null,
       // Every mesh the prop draws; which of them are visible is asked each
       // frame, since a pose may hide one after this runs.
-      instances: root.findComponents('render').flatMap((rc) => rc.meshInstances),
+      instances: ownInstances(root, script),
       min: new Vec3(), max: new Vec3(), anchor: new Vec3(),
     };
     this.items.push(item);
@@ -104,9 +126,7 @@ export class Actions {
   refresh(name) {
     const item = this.items.find((i) => i.name === name);
     if (!item) return;
-    item.instances = item.root.findComponents('render')
-      .filter((rc) => rc.entity.enabled)
-      .flatMap((rc) => rc.meshInstances);
+    item.instances = ownInstances(item.root, item.script, true);
   }
 
   // The areas the asset brought with it, and which action each offers. Placed
