@@ -587,13 +587,10 @@ const REACH_FULL = 0.1;
 
 // A played video is kept on its game time by its rate, up to this much faster
 // or slower; further off than VIDEO_SEEK seconds it is seeked (a seek stalls).
+// While its sound is heard it plays at its own rate, as its sound does, and
+// only the seek keeps it on game time - see alignVoice().
 const VIDEO_NUDGE = 0.1;
 const VIDEO_SEEK = 0.3;
-// A video's sound is a voice on the audio clock, which keeps its own time; it
-// is put back on the picture's frame when further off than this - beyond
-// what an ear and an eye take for the same moment, and rarely enough that the
-// restart is not heard as a stutter.
-const VOICE_SLACK = 0.06;
 // How far past its time a held video of unknown fps is seeked, and how near
 // its end at most — see showFrame().
 const FRAME_EPSILON = 0.002;
@@ -1339,6 +1336,7 @@ export class PropScript {
       begun: false,         // has it a picture yet — see begin()
       shown: new Promise((res) => { shownAs = res; }),
       playing: false, fresh: true, watched: false, done: false, voice: null, playback: null,
+      align: false, at: 0,  // its sound due to be put on its picture, and where the picture was - see alignVoice()
       whole: null,          // the file fetched into memory, when it had to be — see seekable()
       wholeIn: false,
     };
@@ -1360,6 +1358,7 @@ export class PropScript {
       set: (on) => {
         video.muted = !!on;
         if (!listed) element.muted = video.muted;
+        if (!video.muted) video.align = true;
         if (video.voice) video.voice.volume = video.muted ? 0 : 1;
       },
     });
@@ -1398,6 +1397,8 @@ export class PropScript {
   begin(video) {
     video.begun = true;
     video.t = 0;
+    video.align = true;
+    video.at = 0;
     // Its size, now that it has one: the texture took the element's 0 × 0
     // before any frame, and leaves no room for mipmaps at that.
     video.texture.setSource(video.element);
@@ -1486,44 +1487,47 @@ export class PropScript {
       if (!video.playing) {
         if (el.readyState >= 1) el.currentTime = this.videoTime(video);
         this.playElement(video);
+        video.align = true;
       }
       if (el.readyState >= 1 && d > 0) {
         let drift = this.videoTime(video) - el.currentTime;
         if (video.loop && Math.abs(drift) > d / 2) drift -= Math.sign(drift) * d;
-        if (Math.abs(drift) > VIDEO_SEEK) el.currentTime = this.videoTime(video);
-        else el.playbackRate = 1 + Math.max(-VIDEO_NUDGE, Math.min(VIDEO_NUDGE, drift));
+        if (Math.abs(drift) > VIDEO_SEEK) { el.currentTime = this.videoTime(video); video.align = true; }
+        else el.playbackRate = video.voice && !video.muted ? 1 : 1 + Math.max(-VIDEO_NUDGE, Math.min(VIDEO_NUDGE, drift));
       }
       if (el.readyState >= 2 && (video.fresh || !video.watched)) {
         video.texture.upload();
         video.fresh = false;
       }
-      this.keepVoice(video);
+      this.alignVoice(video);
     }
   }
 
   /**
-   * A video's sound kept on the frame it shows. The voice runs on the audio
-   * clock and the picture on game time; they part when a frame is long (game
-   * time held back, the audio not), when the sound came in after the first
-   * frame, and at each loop when the two files are not quite one length. So
-   * it is set back to the element's own time, where the picture is, whenever
-   * it is more than VOICE_SLACK off - muted too, so unmuting finds it there.
+   * A video's sound put on the frame it shows - only when the picture itself
+   * jumps: unmuted, looped back to its start, seeked, or played again after
+   * a hold. In between the two run side by side, each at its own rate, and
+   * the sound is never restarted mid-clip, where a restart is heard. It is
+   * the loop that takes up the sound and picture files not being quite one
+   * length: the sound starts again with the picture. Muted, it is left alone
+   * - unmuting puts it where the picture is, at no volume yet.
    */
-  keepVoice(video) {
+  alignVoice(video) {
     const el = video.element;
+    const now = el.currentTime;
+    if (now < video.at) video.align = true;         // looped, or seeked back
+    video.at = now;
+    if (!video.align || video.muted) return;
     const voice = video.voice && this.voiceOf.get(video.voice);
     const instance = voice?.instance;
     if (!instance || voice.done || video.voice.settled || !video.playing || el.readyState < 2 || el.seeking) return;
-    // A suspended audio clock stands still; seeking it every frame would not move it.
+    // A suspended audio clock stands still; it is put there once it runs.
     if (this.app.soundManager?.context?.state !== 'running') return;
+    video.align = false;
     const length = instance.sound?.duration ?? voice.duration;
-    let at = el.currentTime;
-    if (length > 0) {
-      if (at >= length) { if (!video.loop) return; at %= length; }
-    }
-    let off = instance.currentTime - at;
-    if (video.loop && length > 0 && Math.abs(off) > length / 2) off -= Math.sign(off) * length;
-    if (Math.abs(off) > VOICE_SLACK) instance.currentTime = at;
+    let at = now;
+    if (length > 0 && at >= length) { if (!video.loop) return; at %= length; }
+    instance.currentTime = at;
   }
 
   /** Held: the element seeked to the frame of its game time, and that frame uploaded. */
