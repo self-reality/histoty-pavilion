@@ -9,16 +9,16 @@
   "script": "box-9x16.script.js",
   "videos": [
     {
-      "file": "izhevsk-bridge.webm",
+      "file": "vandals.webm",
       "alt": [
-        "izhevsk-bridge.mp4"
+        "vandals.mp4"
       ],
-      "audio": "izhevsk-bridge.audio.mp3",
-      "fps": 30,
-      "duration": 102.266,
+      "audio": "vandals.audio.mp3",
+      "fps": 24,
+      "duration": 111,
       "width": 720,
       "height": 1280,
-      "sha256": "771cecb2d2b9c451f065dbbe837c7b1db72e708ed8f6af1454302775ad221222"
+      "sha256": "38c4073465e098ff3dab70b70dd949f0f43329c705c6bafad2e8d4be655fb3ca"
     }
   ]
 }
