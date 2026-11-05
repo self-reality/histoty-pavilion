@@ -94,14 +94,14 @@ down as a timeline — where the eye is, what is pressed and when, when filming
 starts and stops:
 
 ```json
-// shots/izhevsk-bridge.json
+// shots/vandals.json
 { "view": "http://localhost:5173/?mode=flyover&at=-42.24,0.00,0.75&look=154.4,7.1",
   "size": "1080x1920", "fps": 30, "start": 0, "stop": 102.266,
   "press": [{ "at": 0, "prop": "box-9x16_01", "action": "unmute" }] }
 ```
 
 ```bash
-npm run record -- --shot shots/izhevsk-bridge.json --gpu   # -> recordings/izhevsk-bridge.mp4
+npm run record -- --shot shots/vandals.json --gpu   # -> recordings/vandals.mp4
 npm run record -- --view '<link>' --press g-man-dance_01:dance@0 --stop 6 --out gman.mp4
 ```
 

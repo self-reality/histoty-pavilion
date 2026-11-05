@@ -1,0 +1,14 @@
+{
+  "about": "The 9:16 box's Izhevsk bridge film Vandals, once through, unmuted from its first frame, the camera turning slowly from the centre to the right and down, over to the left and up, and back to the centre: one smooth move over the whole film. stop is the film's length (ffprobe: 111.000 s; the manifest's 111).",
+  "size": "1080x1920",
+  "fps": 30,
+  "start": 0,
+  "stop": 111,
+  "press": [{ "at": 0, "prop": "box-9x16_01", "action": "unmute" }],
+  "camera": [
+    { "view": "http://localhost:5173/?mode=flyover&at=-42.26,-0.00,0.86&look=151.7,5.9" },
+    { "view": "http://localhost:5173/?mode=flyover&at=-42.26,-0.00,0.86&look=159.5,0.4" },
+    { "view": "http://localhost:5173/?mode=flyover&at=-42.26,-0.00,0.86&look=148.7,9.1" },
+    { "view": "http://localhost:5173/?mode=flyover&at=-42.26,-0.00,0.86&look=151.7,5.9" }
+  ]
+}
