@@ -15,6 +15,7 @@ import { isDebugMode } from './debugmode.mjs';
 import { extractTriangles, findFloors,
          propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient, sealUnlit } from './world.mjs';
 import { resolveSpawn, placeAtSpawn, FallRescue, viewUrl, viewText } from './spawn.mjs';
+import { parseShot, atEye, cameraAt } from './shot.mjs';
 import { applyFog, SurfaceLook } from './atmosphere.mjs';
 import { studioEnvAtlas, reflectStudio } from './studio.mjs';
 import { rigForProp } from './rig.mjs';
@@ -68,6 +69,9 @@ const ui = {
   askButtons: document.getElementById('askButtons'),
   hints: document.getElementById('hintsToggle'),
   igFrame: document.getElementById('igToggle'),
+  igFrameBox: document.getElementById('igFrame'),
+  shotText: document.getElementById('shotText'),
+  shotPlay: document.getElementById('shotPlay'),
   viewText: document.getElementById('viewText'),
   viewCopy: document.getElementById('viewCopy'),
 };
@@ -313,10 +317,15 @@ async function boot() {
                     get weapon() { return session?.weapon ?? null; },
                     get targets() { return session?.targets ?? null; } };
 
+    // A shot (?shot=) is played on a world held from here, before any prop is
+    // placed, as tools/record.mjs holds it: every film starts on its frame 0.
+    if (SHOT) clock.hold();
+
     await switchMode(initialMode());
 
     // Other people, now that there is a game on stage to tell them about.
-    const rooms = roomsUrl(manifest.rooms);
+    // A shot is a preview for one: nobody else is told of it, or sees its camera.
+    const rooms = SHOT ? null : roomsUrl(manifest.rooms);
     if (rooms) {
       net = new Net({
         url: rooms,
@@ -340,6 +349,7 @@ async function boot() {
     // Authored props (tent, etc.) are cosmetic, so load them after the map is
     // playable rather than gating "Ready" on a 10 MB GLB.
     scene.props.forEach(loadProp);
+    if (SHOT) playShot(SHOT).catch((err) => { ui.shotText.textContent = `Shot ${SHOT}: ${err.message}`; console.error('[shot]', err); });
   }).catch((err) => {
     // Boot used to run straight inside asset.ready(), where a throw was an
     // uncaught error the console and tests/smoke.mjs both see. Inside a promise
@@ -668,6 +678,7 @@ function addPropCollision(prop, root, rig, script) {
 // ---- Modes ----
 // Which game a bare page opens: the address bar's, if it names one we have.
 function initialMode() {
+  if (SHOT) return 'flyover';
   const asked = new URLSearchParams(location.search).get('mode');
   if (!asked) return MODES[0];
   if (MODES.includes(asked)) return asked;
@@ -782,6 +793,93 @@ ui.viewCopy.addEventListener('click', async () => {
   ui.viewCopy.textContent = ok ? 'Copied' : 'See console';
   setTimeout(() => { ui.viewCopy.textContent = 'Copy link'; }, 1400);
 });
+
+// ---- A shot, played live (?shot=shots/<name>.json) ----
+// The same timeline tools/record.mjs films (src/shot.mjs), played in the
+// browser as a preview: the world held from boot so every film is at its
+// frame 0, the first frame drawn, then a click (sound needs one) lets the
+// clock go. From there the camera is put on the shot's curve each frame and
+// its presses are made on time, as the E key would; nothing of the page is
+// on screen but the picture, the frame the shot keeps, and the card. At
+// `stop` the world is held again on the last frame, silent.
+const SHOT = new URLSearchParams(location.search).get('shot');
+if (SHOT) {
+  document.body.classList.add('shot');
+  ui.shotText.textContent = 'Loading the shot…';
+}
+let shotFrame = null;
+
+async function playShot(path) {
+  const res = await fetch(new URL(path, location.href), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const shot = parseShot(await res.json());
+  const keys = atEye(shot.keys, world.walker.eyeHeight);
+  ui.igFrameBox.style.aspectRatio = `${shot.width} / ${shot.height}`;
+  const flyer = session.flyer;
+  const place = (t) => {
+    const eye = cameraAt(keys, t);
+    if (!eye) return;
+    flyer.pos.set(eye.x, eye.y, eye.z);
+    flyer.yaw = eye.yaw;
+    flyer.pitch = eye.pitch;
+    flyer.vel.set(0, 0, 0);
+  };
+  for (const p of shot.presses) {
+    if (!(await until(() => scripted.some((s) => s.label === p.prop), 60000))) throw new Error(`no prop "${p.prop}" with a script`);
+    const s = scripted.find((x) => x.label === p.prop);
+    if (!s.actions.some((a) => a.name === p.action)) throw new Error(`"${p.prop}" offers ${s.actions.map((a) => a.name).join(', ') || 'no actions'}, not "${p.action}"`);
+  }
+  // Every prop of the layout placed, and drawn as this view wants it.
+  await until(() => layoutPending === 0, 120000);
+  place(0);
+  await levels?.settle();
+  await clock.step(0);
+  const length = shot.stop;
+  ui.shotText.textContent = `${path.split('/').pop()} · ${Math.floor(length / 60)}:${String(Math.round(length % 60)).padStart(2, '0')}`;
+  ui.shotPlay.textContent = 'Play shot';
+  ui.shotPlay.disabled = false;
+  await new Promise((res) => ui.shotPlay.addEventListener('click', res, { once: true }));
+
+  let pending = [...shot.presses];
+  const t0 = clock.time;
+  const press = (t) => {
+    while (pending.length && pending[0].at <= t + 1e-6) {
+      const p = pending.shift();
+      const s = scripted.find((x) => x.label === p.prop);
+      s.trigger(p.action, { ray: { origin: cameraEntity.getPosition().clone(), direction: cameraEntity.forward.clone() } });
+      console.log(`[shot] ${p.prop} ${p.action} pressed at ${t.toFixed(2)} s`);
+    }
+  };
+  press(0);
+  app.systems.sound.volume = 1;
+  document.body.classList.add('shot-playing');
+  shotFrame = {
+    before: (time) => place(time - t0),
+    after: (time) => {
+      const t = time - t0;
+      press(t);
+      if (t < length) return;
+      // The end: held on this frame, silent, the card back up.
+      shotFrame = null;
+      clock.hold();
+      app.systems.sound.volume = 0;
+      document.body.classList.remove('shot-playing');
+      ui.shotText.textContent = `${path.split('/').pop()} · over at ${t.toFixed(2)} s`;
+      ui.shotPlay.textContent = 'Play again';
+      ui.shotPlay.addEventListener('click', () => location.reload(), { once: true });
+    },
+  };
+  ui.shotPlay.blur();
+  clock.release();
+}
+
+function until(test, ms) {
+  return new Promise((res) => {
+    const begun = performance.now();
+    const look = () => (test() ? res(true) : performance.now() - begun > ms ? res(false) : setTimeout(look, 50));
+    look();
+  });
+}
 
 // ---- Input ----
 // The world's keys are E (and V / backtick on the debug URL); everything else
@@ -949,8 +1047,14 @@ app.on('update', (dt) => {
   clock.time += d;
   const live = started && isLocked();
 
+  // A shot being played puts the camera where its timeline has it, and the
+  // game moves the rig there; its presses come after, from that camera.
+  shotFrame?.before(clock.time);
+
   // The game first: it moves the view everything below is measured from.
   session.update(d, live);
+
+  shotFrame?.after(clock.time);
 
   // From where the game has just put the camera: which drawing of each
   // leveled prop it wants, and fetching it.

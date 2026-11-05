@@ -1,5 +1,12 @@
 # Recording gameplay to video — the plan
 
+Status (2026-11-05, later): **shots have camera keys and play live.** A
+shot's `camera` is a list of views the camera passes through, one smooth
+curve. `src/shot.mjs` reads shots and computes the curve for both players:
+`tools/record.mjs` (stepped, filmed) and the page on `?shot=<file>` (live, a
+preview: held from boot, a Play click, camera and presses by game time,
+held again at `stop`; no UI, no rooms).
+
 Status (2026-11-05): **a shot is a timeline.** `tools/record.mjs` takes a
 shot (`shots/*.json`, or flags): the view as a pause-screen Copy link, the
 size, fps, `start` and `stop` in game time, and presses (`prop`, `action`,

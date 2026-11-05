@@ -105,6 +105,13 @@ npm run record -- --shot shots/vandals.json --gpu   # -> recordings/vandals.mp4
 npm run record -- --view '<link>' --press g-man-dance_01:dance@0 --stop 6 --out gman.mp4
 ```
 
+To watch a shot before filming it, open it in the browser:
+`http://localhost:5173/?shot=shots/vandals.json`. The world is held until
+everything has landed (every film at its frame 0), then **Play shot** runs
+the same timeline live — the camera on the same curve (`src/shot.mjs`, which
+the recorder reads too), the presses on time, nothing on screen but the
+picture inside the shot's frame — and holds on the last frame at `stop`.
+
 Nothing is followed in the world: a film's length is measured beforehand
 (ffprobe) and written as `stop`. The clock is held from the moment the page
 loads, so every prop lands on a stopped world and its films and clips start on

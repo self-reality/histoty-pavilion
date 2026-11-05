@@ -76,6 +76,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { parseShot, atEye, cameraAt } from '../src/shot.mjs';
 
 const { values: flags } = parseArgs({
   options: {
@@ -99,87 +100,32 @@ let file = {};
 if (flags.shot) {
   try { file = JSON.parse(readFileSync(flags.shot, 'utf8')); } catch (err) { fail(`--shot ${flags.shot}: ${err.message}`); }
 }
-const pick = (key, fallback) => flags[key] ?? file[key] ?? fallback;
-const fps = Number(pick('fps', 30));
-const start = Number(pick('start', 0));
-const stop = Number(pick('stop', NaN));
-const [width, height] = String(pick('size', '1280x720')).split('x').map(Number);
-const gpu = !!pick('gpu', false);
-const silent = !!pick('silent', false);
-const base = pick('url', 'http://localhost:5173/');
-const out = pick('out', flags.shot ? join('recordings', basename(flags.shot, extname(flags.shot)) + '.mp4') : 'recording.mp4');
+// The flags over the file, then read as every shot is (src/shot.mjs).
+function pressFlag(p) {
+  const m = /^([^:@]+):([^@]+)(?:@([\d.]+))?$/.exec(p);
+  if (!m) fail(`--press ${p} is not prop:action@seconds`);
+  return { prop: m[1], action: m[2], at: m[3] === undefined ? 0 : Number(m[3]) };
+}
+const raw = { ...file };
+for (const k of ['fps', 'start', 'stop', 'size']) if (flags[k] !== undefined) raw[k] = flags[k];
+if (flags.press) raw.press = flags.press.map(pressFlag);
+if (flags.view) { raw.view = flags.view; delete raw.camera; }
+let shot;
+try { shot = parseShot(raw); } catch (err) { fail(err.message); }
+const { fps, start, stop, width, height, presses } = shot;
+let keys = shot.keys;
+const gpu = !!(flags.gpu ?? file.gpu);
+const silent = !!(flags.silent ?? file.silent);
+const base = flags.url ?? file.url ?? 'http://localhost:5173/';
+const out = flags.out ?? file.out ?? (flags.shot ? join('recordings', basename(flags.shot, extname(flags.shot)) + '.mp4') : 'recording.mp4');
 mkdirSync(dirname(out), { recursive: true });
-if (!(fps > 0)) fail(`fps ${fps} is not a rate`);
-if (!(width > 0 && height > 0)) fail(`size ${pick('size')} is not WxH`);
-if (!(start >= 0)) fail(`start ${start} is not a time`);
-if (!(stop > start)) fail(Number.isFinite(stop) ? `stop ${stop} is not after start ${start}` : 'no stop: say when filming stops (--stop seconds)');
 
-function parsePress(p) {
-  if (typeof p === 'string') {
-    const m = /^([^:@]+):([^@]+)(?:@([\d.]+))?$/.exec(p);
-    if (!m) fail(`--press ${p} is not prop:action@seconds`);
-    return { prop: m[1], action: m[2], at: m[3] === undefined ? 0 : Number(m[3]) };
-  }
-  if (!p || typeof p.prop !== 'string' || typeof p.action !== 'string') fail(`press ${JSON.stringify(p)} needs a prop and an action`);
-  return { prop: p.prop, action: p.action, at: Number(p.at ?? 0) };
-}
-const presses = (flags.press ?? file.press ?? []).map(parsePress);
-for (const p of presses) if (!(p.at >= 0)) fail(`press ${p.prop}:${p.action} at ${p.at} is not a time`);
-presses.sort((a, b) => a.at - b.at);
-
-// A view: a pause-screen link (its `at` is the feet, `feet` says so — the
-// eye is a walker's eye height up), {x,y,z,yaw,pitch} or x,y,z,yaw,pitch.
-function parseView(v) {
-  if (v && typeof v === 'object') return check({ ...v, feet: false });
-  if (typeof v === 'string' && /^https?:/.test(v)) {
-    const link = new URL(v);
-    const at = (link.searchParams.get('at') ?? '').split(',').map(Number);
-    const look = (link.searchParams.get('look') ?? '').split(',').map(Number);
-    if (at.length !== 3 || look.length !== 2) fail(`view ${v} has no at=x,y,z and look=yaw,pitch — copy it from the pause screen`);
-    return check({ x: at[0], y: at[1], z: at[2], yaw: look[0], pitch: look[1], feet: true, link });
-  }
-  if (typeof v === 'string') {
-    try { return check({ ...JSON.parse(v), feet: false }); } catch {
-      const n = v.split(',').map(Number);
-      return check({ x: n[0], y: n[1], z: n[2], yaw: n[3], pitch: n[4], feet: false });
-    }
-  }
-  fail(`view ${JSON.stringify(v)} is neither a link, {x,y,z,yaw,pitch} nor x,y,z,yaw,pitch`);
-  function check(w) {
-    if (!['x', 'y', 'z', 'yaw', 'pitch'].every((k) => Number.isFinite(w[k]))) {
-      fail(`view ${JSON.stringify(v)} is neither a link, {x,y,z,yaw,pitch} nor x,y,z,yaw,pitch`);
-    }
-    return w;
-  }
-}
-
-// The camera's keys, each with its time: spread evenly where none is said.
-const keys = (Array.isArray(file.camera) ? file.camera : []).map((k) => ({ at: k.at === undefined ? null : Number(k.at), ...parseView(k.view) }));
-if (keys.length) {
-  if (keys[0].at === null) keys[0].at = start;
-  if (keys.length > 1 && keys[keys.length - 1].at === null) keys[keys.length - 1].at = stop;
-  for (let i = 1; i < keys.length; i++) {
-    if (keys[i].at !== null) continue;
-    let j = i;
-    while (keys[j].at === null) j++;
-    const a = keys[i - 1].at, b = keys[j].at;
-    for (let k = i; k < j; k++) keys[k].at = a + (b - a) * (k - i + 1) / (j - i + 1);
-  }
-  for (let i = 0; i < keys.length; i++) {
-    if (!(keys[i].at >= 0) || (i && !(keys[i].at > keys[i - 1].at))) fail(`camera key ${i} at ${keys[i].at}: keys go forward in time`);
-    // Each yaw the nearest turn to the one before: 350 then 10 is 20° right, not 340° left.
-    if (i) keys[i].yaw = keys[i - 1].yaw + ((((keys[i].yaw - keys[i - 1].yaw) % 360) + 540) % 360 - 180);
-  }
-}
-
-// The eye. A link opens the page on it; a bare view is handed to switchMode.
+// The page opens on the first key, as a link to it would (`at` is the feet).
+// The camera is then put on the curve every frame, the first included.
 const page0 = new URL(base);
-const asked = flags.view ?? (keys.length ? null : file.view) ?? null;
-const first = keys[0] ?? (asked === null ? null : parseView(asked));
-const view = first && !first.feet ? first : null;
-if (first?.feet) {
-  page0.searchParams.set('at', first.link.searchParams.get('at'));
-  page0.searchParams.set('look', first.link.searchParams.get('look'));
+if (keys[0]?.feet) {
+  page0.searchParams.set('at', [keys[0].x, keys[0].y, keys[0].z].join(','));
+  page0.searchParams.set('look', [keys[0].yaw, keys[0].pitch].join(','));
 }
 page0.searchParams.set('mode', 'flyover');
 
@@ -214,9 +160,8 @@ for (const name of new Set(presses.map((p) => p.prop))) {
 // Every layout prop, texture and sound requested at boot has landed.
 await page.waitForLoadState('networkidle');
 
-const setup = await page.evaluate(async ({ view, presses }) => {
+const setup = await page.evaluate(async ({ presses }) => {
   const g = window.game;
-  if (view) await g.switchMode('flyover', view);
   // Each leveled prop at the drawing this view wants before anything is drawn
   // (src/levels.mjs). step() waits for it too; this is a cheap guard.
   await g.levels?.settle();
@@ -227,9 +172,9 @@ const setup = await page.evaluate(async ({ view, presses }) => {
     }
   }
   return { t0: g.clock.time, levels: g.levels?.stats() ?? null, eyeHeight: g.player.eyeHeight };
-}, { view, presses });
+}, { presses });
 if (setup.error) fail(setup.error);
-for (const k of keys) if (k.feet) { k.y += setup.eyeHeight; k.feet = false; }
+keys = atEye(keys, setup.eyeHeight);
 
 const work = mkdtempSync(join(tmpdir(), 'record-'));
 const pictures = join(work, 'pictures.mp4');
@@ -284,7 +229,7 @@ for (let n = 0; n <= last; n++) {
   const due = pending.filter((p) => p.at <= t + eps);
   pending = pending.slice(due.length);
   const film = n >= firstFrame;
-  const f = await frame(n === 0 ? 0 : dt, due, film, keys.length ? cameraAt(t) : null);
+  const f = await frame(n === 0 ? 0 : dt, due, film, cameraAt(keys, t));
   for (const s of f.said) pressed.push(`${s} at ${t.toFixed(2)} s`);
   if (n === firstFrame) filmT0 = f.time;
   if (film && !ffmpeg.stdin.write(Buffer.from(f.png.slice(f.png.indexOf(',') + 1), 'base64'))) {
@@ -365,28 +310,6 @@ if (setup.levels?.props) {
     + `, ${l.fetchedMB.toFixed(1)} MB fetched, ${l.pending} pending at the first frame`);
 }
 if (errors.length) console.warn(`page errors:\n  ${errors.slice(0, 5).join('\n  ')}`);
-
-/**
- * The camera at time t: a Catmull-Rom curve through the keys, each component
- * on its own (x, y, z, yaw, pitch). Its slope at a key is the line between
- * the keys either side — taken over their times, so unevenly spaced keys
- * still pass at an even pace — and nought at the first and the last, so the
- * move starts and ends at rest. Hermite between each two keys.
- */
-function cameraAt(t) {
-  const n = keys.length;
-  const parts = ['x', 'y', 'z', 'yaw', 'pitch'];
-  if (n === 1 || t <= keys[0].at) return Object.fromEntries(parts.map((p) => [p, keys[0][p]]));
-  if (t >= keys[n - 1].at) return Object.fromEntries(parts.map((p) => [p, keys[n - 1][p]]));
-  let i = 0;
-  while (t > keys[i + 1].at) i++;
-  const a = keys[i], b = keys[i + 1];
-  const h = b.at - a.at;
-  const s = (t - a.at) / h;
-  const slope = (k, p) => (k === 0 || k === n - 1 ? 0 : (keys[k + 1][p] - keys[k - 1][p]) / (keys[k + 1].at - keys[k - 1].at));
-  const h00 = 2 * s ** 3 - 3 * s ** 2 + 1, h10 = s ** 3 - 2 * s ** 2 + s, h01 = -2 * s ** 3 + 3 * s ** 2, h11 = s ** 3 - s ** 2;
-  return Object.fromEntries(parts.map((p) => [p, h00 * a[p] + h10 * h * slope(i, p) + h01 * b[p] + h11 * h * slope(i + 1, p)]));
-}
 
 /**
  * The log as the mixer needs it: each sound's file, when in the film it
