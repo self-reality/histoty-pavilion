@@ -14,7 +14,7 @@ import { Player } from './player.mjs';
 import { isDebugMode } from './debugmode.mjs';
 import { extractTriangles, findFloors,
          propCollisionTriangles, hideCollisionProxies, hideVolumes, unlitIgnoreAmbient, sealUnlit } from './world.mjs';
-import { resolveSpawn, placeAtSpawn, FallRescue } from './spawn.mjs';
+import { resolveSpawn, placeAtSpawn, FallRescue, viewUrl, viewText } from './spawn.mjs';
 import { applyFog, SurfaceLook } from './atmosphere.mjs';
 import { studioEnvAtlas, reflectStudio } from './studio.mjs';
 import { rigForProp } from './rig.mjs';
@@ -66,6 +66,9 @@ const ui = {
   people: document.getElementById('people'),
   askText: document.getElementById('askText'),
   askButtons: document.getElementById('askButtons'),
+  hints: document.getElementById('hintsToggle'),
+  viewText: document.getElementById('viewText'),
+  viewCopy: document.getElementById('viewCopy'),
 };
 
 // ---- Engine ----
@@ -738,6 +741,37 @@ for (const [id, name] of Object.entries(MODE_NAMES)) {
   });
 }
 
+// ---- The pause screen's settings, and the view as it stands ----
+// Whether the E hints are drawn: a viewer's own preference, remembered in
+// this browser only (and the page works the same when storage is refused).
+// Off hides the hints; E itself still acts on what it is pointed at.
+try { ui.hints.checked = localStorage.getItem('pavilion.hints') !== 'off'; } catch {}
+ui.hints.addEventListener('change', () => {
+  try { localStorage.setItem('pavilion.hints', ui.hints.checked ? 'on' : 'off'); } catch {}
+});
+
+// Where the eye is and where it looks, as text and as a link that opens on it
+// (?at=…&look=…, plus ?mode= already in the address — see ./spawn.mjs).
+// Refreshed by the loop while paused; the text only changes when the view did.
+function showView() {
+  const v = session?.view();
+  if (!v) return;
+  const text = viewText(v);
+  if (ui.viewText.textContent !== text) ui.viewText.textContent = text;
+}
+function currentViewUrl() {
+  return viewUrl(session.view(), world.walker.eyeHeight);
+}
+ui.viewCopy.addEventListener('click', async () => {
+  if (!session) return;
+  const url = currentViewUrl();
+  console.log(`[view] ${url}`);
+  let ok = false;
+  try { await navigator.clipboard.writeText(url); ok = true; } catch {}
+  ui.viewCopy.textContent = ok ? 'Copied' : 'See console';
+  setTimeout(() => { ui.viewCopy.textContent = 'Copy link'; }, 1400);
+});
+
 // ---- Input ----
 // The world's keys are E (and V / backtick on the debug URL); everything else
 // is handed to the game being played.
@@ -927,7 +961,8 @@ app.on('update', (dt) => {
 
   // After the clips, so a dancer is reached where this frame's pose put him;
   // the hints come down with the pause overlay and the crosshair.
-  actions.update(live);
+  actions.update(live && ui.hints.checked);
+  if (!live) showView();
 
   // Last, so every instance is stamped where this frame left it.
   lighting?.update();

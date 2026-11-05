@@ -116,14 +116,31 @@ export class FallRescue {
  * way they look. Every other parameter (`debug`, `placements`) is kept.
  */
 export function spawnUrl(player, href = location.href) {
+  return viewUrl({ ...player.pos, y: player.pos.y + player.eyeHeight, yaw: player.yaw, pitch: player.pitch },
+    player.eyeHeight, href);
+}
+
+/**
+ * The same, from a game's view ({ x, y, z, yaw, pitch } with y at the eye, as
+ * session.view() gives it): `at` is feet, so the eye comes down by the
+ * walker's eye height. The fly-over takes off from the walker's eye, so a
+ * `?mode=flyover` link put back this way opens on the very lens it was.
+ */
+export function viewUrl(view, eyeHeight, href = location.href) {
   const url = new URL(href);
   const params = new URLSearchParams(url.search);
-  params.set('at', [player.pos.x, player.pos.y, player.pos.z].map((v) => v.toFixed(2)).join(','));
-  params.set('look', [player.yaw, player.pitch].map((v) => wrap(v).toFixed(1)).join(','));
+  params.set('at', [view.x, view.y - eyeHeight, view.z].map((v) => v.toFixed(2)).join(','));
+  params.set('look', [view.yaw, view.pitch].map((v) => wrap(v).toFixed(1)).join(','));
   // Written by hand rather than by URLSearchParams, which would turn `debug`
   // into `debug=` and every comma into %2C. Both still parse; neither reads.
   url.search = '?' + [...params].map(([k, v]) => v === '' ? k : `${k}=${v}`).join('&');
   return url.toString();
+}
+
+/** The view as one line to read: where the eye is and where it looks. */
+export function viewText(view) {
+  const f = (v) => v.toFixed(2);
+  return `${f(view.x)}, ${f(view.y)}, ${f(view.z)}  ·  ${wrap(view.yaw).toFixed(1)}°, ${view.pitch.toFixed(1)}°`;
 }
 
 // "1.5,-2,3" -> [1.5, -2, 3]; anything that is not all finite numbers -> [].

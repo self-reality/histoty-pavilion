@@ -152,6 +152,22 @@
     #loading { margin-top: 28px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
     #people { margin-top: 8px; font-size: 13px; letter-spacing: 2px; opacity: 0.6; }
     #people:empty { display: none; }
+    /* The pause screen's own settings, and the view as it stands: one line of
+       where the eye is and where it looks, and a link that opens on it. */
+    #prefs { margin-top: 26px; display: flex; flex-direction: column; align-items: center; gap: 12px; font-size: 13px; }
+    #prefs label { pointer-events: auto; cursor: pointer; display: flex; align-items: center; gap: 8px; opacity: 0.85; }
+    #prefs input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+    #view { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+    #viewText {
+      font-family: ui-monospace, monospace; font-size: 12px; opacity: 0.8; user-select: text; pointer-events: auto;
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 5px; padding: 4px 10px;
+    }
+    #viewCopy {
+      pointer-events: auto; cursor: pointer; border-radius: 5px; padding: 4px 12px;
+      font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+      color: #eee; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.2);
+    }
+    #viewCopy:hover { border-color: var(--accent); color: var(--accent); }
     .hidden { display: none !important; }
 
     /* Debug mode (?debug): pausing is something you do to reach the tweak panel,
@@ -165,6 +181,7 @@
     body.debug #overlay h1,
     body.debug #overlay .sub,
     body.debug #overlay .controls,
+    body.debug #prefs,
     body.debug #people { display: none; }
     body.debug #overlay .play {
       margin: 12px; padding: 8px 22px; font-size: 9px; border-radius: 4px;
@@ -207,6 +224,13 @@
     <div id="modes"></div>
     <button class="play" id="playBtn" disabled>Loading…</button>
     <div class="controls" id="controls"></div>
+    <div id="prefs">
+      <label><input type="checkbox" id="hintsToggle" checked> Show E hints</label>
+      <div id="view">
+        <span id="viewText" title="Eye position x, y, z · look yaw, pitch"></span>
+        <button type="button" id="viewCopy" title="Copy a link that opens on this view">Copy link</button>
+      </div>
+    </div>
     <div id="loading">Preparing map…</div>
     <div id="people"></div>
     <div id="ask">
