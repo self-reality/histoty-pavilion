@@ -104,8 +104,8 @@ await browser.close();
 const dir = mkdtempSync(join(tmpdir(), 'record-'));
 const out = join(dir, 'dance.mp4');
 try {
-  execFileSync('node', ['tools/record.mjs', `--view=${Object.values(VIEW).join(',')}`, '--prop', PROP, '--action', 'dance',
-    '--seconds', '0.5', '--fps', String(FPS), '--size', '320x180', '--out', out], { stdio: 'inherit' });
+  execFileSync('node', ['tools/record.mjs', `--view=${Object.values(VIEW).join(',')}`, '--press', `${PROP}:dance@0`,
+    '--stop', '0.5', '--fps', String(FPS), '--size', '320x180', '--out', out], { stdio: 'inherit' });
   const probe = execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0',
     '-show_entries', 'stream=nb_read_frames,width,height,r_frame_rate', '-of', 'json', out], { encoding: 'utf8' });
   r.tool = JSON.parse(probe).streams[0];
@@ -114,7 +114,7 @@ try {
   const beep = join(dir, 'beep.mp4');
   const silent = join(dir, 'silent.mp4');
   const life = ['tools/record.mjs', '--url', 'http://localhost:5173/?placements=./tests/fixtures/record.placements.json',
-    '--view=-43.46,1.8,-1.8,0,-25', '--prop', 'life_rec', '--action', 'show', '--seconds', '0.5', '--fps', String(FPS), '--size', '320x180'];
+    '--view=-43.46,1.8,-1.8,0,-25', '--press', 'life_rec:show@0', '--stop', '0.5', '--fps', String(FPS), '--size', '320x180'];
   const said = execFileSync('node', [...life, '--out', beep], { encoding: 'utf8' });
   process.stdout.write(said);
   execFileSync('node', [...life, '--silent', '--out', silent], { stdio: 'inherit' });

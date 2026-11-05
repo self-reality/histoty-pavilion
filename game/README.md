@@ -88,23 +88,36 @@ before it makes a key. Nothing depends on it.
 
 ### Filming it
 
-Frame a shot in the fly-over, run `copy(game.session.view())` in the console,
-and hand the view to the recorder:
+Frame a shot in the fly-over (the pause screen's **Instagram frame** tick dims
+the screen to what a 9:16 shot keeps), press **Copy link**, and write the shot
+down as a timeline — where the eye is, what is pressed and when, when filming
+starts and stops:
 
-```bash
-npm run record -- --view '<the view>' --prop g-man-dance_01 --action dance --out gman.mp4
+```json
+// shots/izhevsk-bridge.json
+{ "view": "http://localhost:5173/?mode=flyover&at=-42.24,0.00,0.75&look=154.4,7.1",
+  "size": "1080x1920", "fps": 30, "start": 0, "stop": 102.266,
+  "press": [{ "at": 0, "prop": "box-9x16_01", "action": "unmute" }] }
 ```
 
-It opens the page headlessly, puts the camera there, sets the action off as
-the E key would, and films it frame by frame until the run ends. The world's
-clock is held and stepped 1/fps at a time (`game.clock` in `src/main.mjs`), so
-the video is smooth and the same every time however slowly the frames are
-drawn. What the placed objects sounded (their scripts' sounds, a screen's
-film) is logged in game time and mixed under the pictures, as loud and on the
-side it was where the camera stood; `--silent` leaves it out. `--gpu` renders
-on the machine's GPU, several times faster than the default software
-renderer. The options are at the top of `tools/record.mjs`, and the design,
-videos included, is `RECORDING.md`.
+```bash
+npm run record -- --shot shots/izhevsk-bridge.json --gpu   # -> recordings/izhevsk-bridge.mp4
+npm run record -- --view '<link>' --press g-man-dance_01:dance@0 --stop 6 --out gman.mp4
+```
+
+Nothing is followed in the world: a film's length is measured beforehand
+(ffprobe) and written as `stop`. The clock is held from the moment the page
+loads, so every prop lands on a stopped world and its films and clips start on
+frame 0; then the world is stepped 1/fps at a time (`game.clock` in
+`src/main.mjs`), so the video is smooth and the same every time however slowly
+the frames are drawn. Only the canvas is filmed — no pointer, E hints or
+menus. What the placed objects sounded (their scripts' sounds, a screen's
+film, muted and unmuted) is logged in game time and mixed under the pictures,
+as loud and on the side it was where the camera stood; `--silent` leaves it
+out. `--gpu` renders on the machine's GPU, several times faster than the
+default software renderer (a 1080x1920 frame: about a quarter of a second).
+The options are at the top of `tools/record.mjs`, and the design, videos
+included, is `RECORDING.md`.
 
 ### Starting somewhere else
 

@@ -67,6 +67,7 @@ const ui = {
   askText: document.getElementById('askText'),
   askButtons: document.getElementById('askButtons'),
   hints: document.getElementById('hintsToggle'),
+  igFrame: document.getElementById('igToggle'),
   viewText: document.getElementById('viewText'),
   viewCopy: document.getElementById('viewCopy'),
 };
@@ -748,6 +749,16 @@ for (const [id, name] of Object.entries(MODE_NAMES)) {
 try { ui.hints.checked = localStorage.getItem('pavilion.hints') !== 'off'; } catch {}
 ui.hints.addEventListener('change', () => {
   try { localStorage.setItem('pavilion.hints', ui.hints.checked ? 'on' : 'off'); } catch {}
+});
+
+// The Instagram frame: the sides of the screen dimmed to what a 9:16 shot
+// keeps, for framing one before it is filmed (tools/record.mjs). Drawn over
+// the page, never on the canvas, so no recording ever has it.
+try { ui.igFrame.checked = localStorage.getItem('pavilion.igframe') === 'on'; } catch {}
+document.body.classList.toggle('igframe', ui.igFrame.checked);
+ui.igFrame.addEventListener('change', () => {
+  document.body.classList.toggle('igframe', ui.igFrame.checked);
+  try { localStorage.setItem('pavilion.igframe', ui.igFrame.checked ? 'on' : 'off'); } catch {}
 });
 
 // Where the eye is and where it looks, as text and as a link that opens on it

@@ -168,6 +168,16 @@
       color: #eee; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.2);
     }
     #viewCopy:hover { border-color: var(--accent); color: var(--accent); }
+    /* What an Instagram shot (9:16, full height) keeps of this screen: the
+       middle, with the sides dimmed. The game's field of view is vertical, so
+       a 1080x1920 recording from here (tools/record.mjs) shows exactly the
+       bright part. Above the hints, below the pause screen. */
+    #igFrame {
+      position: fixed; top: 0; left: 50%; height: 100vh; aspect-ratio: 9 / 16; transform: translateX(-50%);
+      box-shadow: 0 0 0 100vmax rgba(0,0,0,0.6); outline: 1px solid rgba(255,255,255,0.25);
+      pointer-events: none; z-index: 15; display: none;
+    }
+    body.igframe #igFrame { display: block; }
     .hidden { display: none !important; }
 
     /* Debug mode (?debug): pausing is something you do to reach the tweak panel,
@@ -182,6 +192,7 @@
     body.debug #overlay .sub,
     body.debug #overlay .controls,
     body.debug #prefs,
+    body.debug #igFrame,
     body.debug #people { display: none; }
     body.debug #overlay .play {
       margin: 12px; padding: 8px 22px; font-size: 9px; border-radius: 4px;
@@ -209,6 +220,7 @@
   <div id="dot"></div>
   <div id="hitmarker"></div>
   <div id="actions"></div>
+  <div id="igFrame"></div>
 
   <div id="hud">
     <div id="score">SCORE <b id="scoreVal">0</b></div>
@@ -226,6 +238,7 @@
     <div class="controls" id="controls"></div>
     <div id="prefs">
       <label><input type="checkbox" id="hintsToggle" checked> Show E hints</label>
+      <label><input type="checkbox" id="igToggle"> Instagram frame (9:16)</label>
       <div id="view">
         <span id="viewText" title="Eye position x, y, z · look yaw, pitch"></span>
         <button type="button" id="viewCopy" title="Copy a link that opens on this view">Copy link</button>

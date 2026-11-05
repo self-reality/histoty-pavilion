@@ -1,93 +1,150 @@
 /**
  * Record what happens in the world to a video, frame-exact, headlessly.
  *
- *     node tools/record.mjs --view '<copy(game.session.view()) from the fly-over>' \
- *         --prop g-man-dance_01 --action dance --out gman.mp4
+ *     node tools/record.mjs --shot shots/izhevsk-bridge.json
+ *     node tools/record.mjs --view '<a Copy link from the pause screen>' \
+ *         --press g-man-dance_01:dance@0 --stop 6 --out gman.mp4
  *
- * Frame the shot in the fly-over, copy the view from the console, and hand it
- * over. The recorder opens the page in headless Chromium, puts the fly-over's
- * camera at that view, holds the world's clock (src/main.mjs) and sets the
- * prop's action off the way the E key would — with the camera's line of sight
- * as the press's ray. Then it steps the world 1/fps at a time and reads each
- * frame off the canvas into ffmpeg, until the run ends (plus a tail for the
- * clip to ease out) or `--seconds` is up. However slow a frame is to draw,
- * the video plays at `--fps`: the world only moves when it is stepped.
+ * A shot is a timeline in game time, and everything on it is said, not
+ * followed: where the eye is, what is pressed and when, when filming starts
+ * and when it stops. Nothing is read off the world to decide when to stop — a
+ * film's length, say, is measured beforehand (ffprobe) and written as `stop`.
+ *
+ * Time 0 is the first frame of a world that has been standing still since the
+ * page loaded: the clock (src/main.mjs) is held before anything is placed, so
+ * every prop lands on a stopped world and starts its clips and films on that
+ * first frame — a screen's film is at its own frame 0 at time 0. From there
+ * the world is stepped 1/fps at a time; each frame is read off the canvas into
+ * ffmpeg. However slow a frame is to draw, the video plays at `fps`.
+ *
+ * Only the canvas is filmed. The pointer, the E hints, the crosshair and the
+ * pause screen are page elements over it and are never in a frame.
  *
  * The sound is mixed afterwards. Held, the world logs every sound a placed
- * object starts, and every one cut short, in game time (game.clock.log); the
- * recorder lays each file at its moment, as loud as it was where the camera
- * stood and panned to its side, the way the engine would have played it, and
- * puts the mix under the pictures. A video's sound is one of those sounds.
- * The world's own voices (footsteps, the gun) are not in it: a camera has
- * neither.
+ * object starts, cuts short or turns up or down, in game time
+ * (game.clock.log); the recorder lays each file at its moment, as loud as it
+ * was where the camera stood and panned to its side, the way the engine would
+ * have played it, and puts the mix under the pictures. A video's sound is one
+ * of those sounds. The world's own voices (footsteps, the gun) are not in it:
+ * a camera has neither.
  *
  * It is not a mode. A mode is a game somebody plays; this is a director
  * standing outside the world, like the tests, and the world never imports it.
  *
- *   --view   '{"x":…,"y":…,"z":…,"yaw":…,"pitch":…}' or x,y,z,yaw,pitch — the eye.
+ * A shot file is JSON; every key is optional and a flag of the same name wins:
+ *
+ *   {
+ *     "view":  "http://localhost:5173/?mode=flyover&at=…&look=…",
+ *     "size":  "1080x1920",  "fps": 30,
+ *     "start": 0,            "stop": 102.266,
+ *     "press": [{ "at": 0, "prop": "box-9x16_01", "action": "unmute" }]
+ *   }
+ *
+ *   --shot   the shot file (shots/*.json).
+ *   --view   the eye: a Copy link from the pause screen (?at=…&look=…, walking
+ *            or fly-over — it is filmed from the fly-over at that lens), or
+ *            {"x","y","z","yaw","pitch"} / x,y,z,yaw,pitch with y at the eye.
  *            Without it the fly-over starts where the page would put the walker.
- *   --prop   a placement's name (game.scripted labels). Without it nothing is
- *            set off and the world is just filmed — `--seconds` is then needed.
- *   --action which of its actions (default: the first it offers).
- *   --seconds how long; with an action, a cap (default: until the run ends).
- *   --tail   seconds filmed after the run ends (default 0.5).
+ *   --press  prop:action@seconds, repeatable: the action pressed as the E key
+ *            would, from the camera, at that time. A press on an action that
+ *            is running asks it to stop, as E does. Without @, at 0.
+ *   --start  seconds of game time when filming starts (default 0). The world
+ *            is stepped, unfilmed, up to it.
+ *   --stop   seconds of game time when filming stops: the first moment not
+ *            filmed. Required.
  *   --fps    frames per second of game time (default 30).
- *   --size   WxH of the frame (default 1280x720).
- *   --url    the pavilion (default http://localhost:5173/, i.e. `npm start`).
- *   --gpu    render with the machine's GPU instead of SwiftShader: faster, but
- *            no longer the same pixels on every machine.
+ *   --size   WxH of the frame (default 1280x720; 1080x1920 for Instagram).
+ *   --url    the pavilion (default http://localhost:5173/, i.e. `npm start`);
+ *            its own parameters (`placements`, …) are kept.
+ *   --gpu    render with the machine's GPU instead of SwiftShader: much faster,
+ *            but no longer the same pixels on every machine.
  *   --silent no sound track.
- *   --out    the file (default recording.mp4).
+ *   --out    the file (default recording.mp4; for a shot, recordings/<its name>.mp4 —
+ *            recordings/ is not tracked).
  */
 import { chromium } from 'playwright';
 import { spawn, execFileSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 
-const { values: opt } = parseArgs({
+const { values: flags } = parseArgs({
   options: {
+    shot: { type: 'string' },
     view: { type: 'string' },
-    prop: { type: 'string' },
-    action: { type: 'string' },
-    seconds: { type: 'string' },
-    tail: { type: 'string', default: '0.5' },
-    fps: { type: 'string', default: '30' },
-    size: { type: 'string', default: '1280x720' },
-    url: { type: 'string', default: 'http://localhost:5173/' },
-    gpu: { type: 'boolean', default: false },
-    silent: { type: 'boolean', default: false },
-    out: { type: 'string', default: 'recording.mp4' },
+    press: { type: 'string', multiple: true },
+    start: { type: 'string' },
+    stop: { type: 'string' },
+    fps: { type: 'string' },
+    size: { type: 'string' },
+    url: { type: 'string' },
+    gpu: { type: 'boolean' },
+    silent: { type: 'boolean' },
+    out: { type: 'string' },
   },
 });
 
 const fail = (why) => { console.error(`record: ${why}`); process.exit(1); };
-const fps = Number(opt.fps);
-const tail = Number(opt.tail);
-const cap = opt.seconds === undefined ? Infinity : Number(opt.seconds);
-const [width, height] = opt.size.split('x').map(Number);
-if (!(fps > 0)) fail(`--fps ${opt.fps} is not a rate`);
-if (!(width > 0 && height > 0)) fail(`--size ${opt.size} is not WxH`);
-if (!(cap > 0)) fail(`--seconds ${opt.seconds} is not a length`);
-if (!opt.prop && cap === Infinity) fail('nothing is set off and no --seconds: how long?');
 
-function parseView(text) {
-  if (!text) return null;
-  try {
-    const v = JSON.parse(text);
-    if (['x', 'y', 'z', 'yaw', 'pitch'].every((k) => Number.isFinite(v[k]))) return v;
-  } catch { /* try the short form */ }
-  const n = text.split(',').map(Number);
-  if (n.length === 5 && n.every(Number.isFinite)) return { x: n[0], y: n[1], z: n[2], yaw: n[3], pitch: n[4] };
-  fail(`--view ${text} is neither {x,y,z,yaw,pitch} nor x,y,z,yaw,pitch`);
+let file = {};
+if (flags.shot) {
+  try { file = JSON.parse(readFileSync(flags.shot, 'utf8')); } catch (err) { fail(`--shot ${flags.shot}: ${err.message}`); }
 }
-const view = parseView(opt.view);
+const pick = (key, fallback) => flags[key] ?? file[key] ?? fallback;
+const fps = Number(pick('fps', 30));
+const start = Number(pick('start', 0));
+const stop = Number(pick('stop', NaN));
+const [width, height] = String(pick('size', '1280x720')).split('x').map(Number);
+const gpu = !!pick('gpu', false);
+const silent = !!pick('silent', false);
+const base = pick('url', 'http://localhost:5173/');
+const out = pick('out', flags.shot ? join('recordings', basename(flags.shot, extname(flags.shot)) + '.mp4') : 'recording.mp4');
+mkdirSync(dirname(out), { recursive: true });
+if (!(fps > 0)) fail(`fps ${fps} is not a rate`);
+if (!(width > 0 && height > 0)) fail(`size ${pick('size')} is not WxH`);
+if (!(start >= 0)) fail(`start ${start} is not a time`);
+if (!(stop > start)) fail(Number.isFinite(stop) ? `stop ${stop} is not after start ${start}` : 'no stop: say when filming stops (--stop seconds)');
 
-try { await fetch(opt.url); } catch { fail(`nothing at ${opt.url} — run \`npm start\` first`); }
+function parsePress(p) {
+  if (typeof p === 'string') {
+    const m = /^([^:@]+):([^@]+)(?:@([\d.]+))?$/.exec(p);
+    if (!m) fail(`--press ${p} is not prop:action@seconds`);
+    return { prop: m[1], action: m[2], at: m[3] === undefined ? 0 : Number(m[3]) };
+  }
+  if (!p || typeof p.prop !== 'string' || typeof p.action !== 'string') fail(`press ${JSON.stringify(p)} needs a prop and an action`);
+  return { prop: p.prop, action: p.action, at: Number(p.at ?? 0) };
+}
+const presses = (flags.press ?? file.press ?? []).map(parsePress);
+for (const p of presses) if (!(p.at >= 0)) fail(`press ${p.prop}:${p.action} at ${p.at} is not a time`);
+presses.sort((a, b) => a.at - b.at);
+
+// The eye. A link opens the page on it; a bare view is handed to switchMode.
+const page0 = new URL(base);
+let view = null;
+const asked = pick('view', null);
+if (typeof asked === 'object' && asked) view = asked;
+else if (typeof asked === 'string' && /^https?:/.test(asked)) {
+  const link = new URL(asked);
+  for (const k of ['at', 'look']) {
+    if (!link.searchParams.has(k)) fail(`--view ${asked} has no ${k}= — copy it from the pause screen`);
+    page0.searchParams.set(k, link.searchParams.get(k));
+  }
+} else if (typeof asked === 'string') {
+  try { view = JSON.parse(asked); } catch {
+    const n = asked.split(',').map(Number);
+    if (n.length === 5) view = { x: n[0], y: n[1], z: n[2], yaw: n[3], pitch: n[4] };
+  }
+}
+if (view && !['x', 'y', 'z', 'yaw', 'pitch'].every((k) => Number.isFinite(view[k]))) {
+  fail(`view ${JSON.stringify(asked)} is neither a link, {x,y,z,yaw,pitch} nor x,y,z,yaw,pitch`);
+}
+page0.searchParams.set('mode', 'flyover');
+
+try { await fetch(base); } catch { fail(`nothing at ${base} — run \`npm start\` first`); }
 
 const browser = await chromium.launch({
-  args: opt.gpu
+  args: gpu
     ? ['--use-angle=metal', '--ignore-gpu-blocklist']       // as tests/perf.mjs
     : ['--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
 });
@@ -96,38 +153,39 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
-const url = new URL(opt.url);
-url.searchParams.set('mode', 'flyover');
-await page.goto(url.href, { waitUntil: 'load' });
-await page.waitForFunction(() => window.game?.clock && window.game.mode === 'flyover', null, { timeout: 120000 });
-if (opt.prop) {
-  await page.waitForFunction((name) => window.game.scripted.some((s) => s.label === name), opt.prop, { timeout: 120000 })
-    .catch(async () => fail(`no prop "${opt.prop}" with a script — there are: `
+// Held the moment the world exists, before a single prop is placed: whatever
+// lands, lands on a stopped clock and starts on frame 0.
+await page.addInitScript(() => {
+  const wait = setInterval(() => {
+    if (!window.game?.clock) return;
+    clearInterval(wait);
+    window.game.clock.hold();
+  }, 0);
+});
+await page.goto(page0.href, { waitUntil: 'load' });
+await page.waitForFunction(() => window.game?.clock?.held && window.game.mode === 'flyover', null, { timeout: 120000 });
+for (const name of new Set(presses.map((p) => p.prop))) {
+  await page.waitForFunction((name) => window.game.scripted.some((s) => s.label === name), name, { timeout: 120000 })
+    .catch(async () => fail(`no prop "${name}" with a script — there are: `
       + (await page.evaluate(() => window.game.scripted.map((s) => s.label).join(', ')))));
 }
 // Every layout prop, texture and sound requested at boot has landed.
 await page.waitForLoadState('networkidle');
 
-const setup = await page.evaluate(async ({ view, prop, action }) => {
+const setup = await page.evaluate(async ({ view, presses }) => {
   const g = window.game;
   if (view) await g.switchMode('flyover', view);
-  g.clock.hold();
   // Each leveled prop at the drawing this view wants before anything is drawn
   // (src/levels.mjs). step() waits for it too; this is a cheap guard.
   await g.levels?.settle();
-  await g.clock.step(0);         // the game puts the camera at the view on its first frame
-  g.clock.log.length = 0;        // film time 0 is now, whatever that frame set off
-  const t0 = g.clock.time;
-  const levels = g.levels?.stats() ?? null;
-  if (!prop) return { action: null, t0, levels };
-  const s = g.scripted.find((x) => x.label === prop);
-  const offered = action ? s.actions.find((a) => a.name === action) : s.actions[0];
-  if (!offered) return { error: `"${prop}" offers ${s.actions.map((a) => a.name).join(', ') || 'no actions'}${action ? `, not "${action}"` : ''}` };
-  // As the E key does it: the press carries the line of sight (src/actions.mjs).
-  const cam = g.camera;
-  s.trigger(offered.name, { ray: { origin: cam.getPosition().clone(), direction: cam.forward.clone() } });
-  return { action: offered.name, t0, levels };
-}, { view, prop: opt.prop, action: opt.action });
+  for (const p of presses) {
+    const s = g.scripted.find((x) => x.label === p.prop);
+    if (!s.actions.some((a) => a.name === p.action)) {
+      return { error: `"${p.prop}" offers ${s.actions.map((a) => a.name).join(', ') || 'no actions'}, not "${p.action}"` };
+    }
+  }
+  return { t0: g.clock.time, levels: g.levels?.stats() ?? null };
+}, { view, presses });
 if (setup.error) fail(setup.error);
 
 const work = mkdtempSync(join(tmpdir(), 'record-'));
@@ -135,45 +193,66 @@ const pictures = join(work, 'pictures.mp4');
 const ffmpeg = spawn('ffmpeg', [
   '-hide_banner', '-loglevel', 'error', '-y',
   '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-',
-  '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '18', '-movflags', '+faststart',
+  '-c:v', 'libx264', '-profile:v', 'high', '-pix_fmt', 'yuv420p', '-crf', '18', '-r', String(fps), '-movflags', '+faststart',
   pictures,
 ], { stdio: ['pipe', 'inherit', 'inherit'] });
 const encoded = new Promise((res, rej) => ffmpeg.on('close', (code) => (code === 0 ? res() : rej(new Error(`ffmpeg exited ${code}`)))));
 
-// One frame: step (the first draws where it stands), read the canvas in the
-// same task as the draw, and say whether the run is still going.
-const frame = (dt) => page.evaluate(async ({ dt, prop, action }) => {
+// One frame: the presses due by now, as the E key makes them (the press
+// carries the camera's line of sight — src/actions.mjs), then the step (the
+// first draws where the world stands), and the canvas read in the same task
+// as the draw when the frame is filmed.
+const frame = (dt, due, film) => page.evaluate(async ({ dt, due, film }) => {
   const g = window.game;
+  const said = [];
+  for (const p of due) {
+    const s = g.scripted.find((x) => x.label === p.prop);
+    const cam = g.camera;
+    const was = !!s.actions.find((a) => a.name === p.action).run;
+    s.trigger(p.action, { ray: { origin: cam.getPosition().clone(), direction: cam.forward.clone() } });
+    const now = !!s.actions.find((a) => a.name === p.action).run;
+    said.push(`${p.prop} ${p.action} ${was ? (now ? 'asked to stop' : 'stopped') : (now ? 'started' : 'started and done')}`);
+  }
   await g.clock.step(dt);
-  const png = g.app.graphicsDevice.canvas.toDataURL('image/png');
-  const s = prop && g.scripted.find((x) => x.label === prop);
-  const running = !!s?.actions.find((a) => a.name === action)?.run;
-  return { png, running, time: g.clock.time };
-}, { dt, prop: opt.prop, action: setup.action });
+  return { png: film ? g.app.graphicsDevice.canvas.toDataURL('image/png') : null, said, time: g.clock.time };
+}, { dt, due, film });
 
 const dt = 1 / fps;
+const eps = 1e-6;
+// Frame n is the world at n/fps; filmed from the first at or after `start`,
+// up to the last before `stop`.
+const first = Math.ceil(start * fps - eps);
+const last = Math.ceil(stop * fps - 1e-3) - 1;
 const started = Date.now();
-let n = 0;
-let endedAt = null;
-for (;;) {
-  const f = await frame(n === 0 ? 0 : dt);
+let pending = [...presses];
+let filmT0 = null;
+const pressed = [];
+for (let n = 0; n <= last; n++) {
   const t = n * dt;
-  if (!ffmpeg.stdin.write(Buffer.from(f.png.slice(f.png.indexOf(',') + 1), 'base64'))) {
+  const due = pending.filter((p) => p.at <= t + eps);
+  pending = pending.slice(due.length);
+  const film = n >= first;
+  const f = await frame(n === 0 ? 0 : dt, due, film);
+  for (const s of f.said) pressed.push(`${s} at ${t.toFixed(2)} s`);
+  if (n === first) filmT0 = f.time;
+  if (film && !ffmpeg.stdin.write(Buffer.from(f.png.slice(f.png.indexOf(',') + 1), 'base64'))) {
     await new Promise((res) => ffmpeg.stdin.once('drain', res));
   }
-  n++;
-  if (setup.action && !f.running && endedAt === null) endedAt = t;
-  if (t + dt > cap - 1e-9) break;
-  if (endedAt !== null && t + dt > endedAt + tail - 1e-9) break;
-  if (n % fps === 0) process.stdout.write(`\r  ${t.toFixed(1)} s of game time, ${((Date.now() - started) / n).toFixed(0)} ms a frame`);
+  if ((n + 1) % fps === 0) {
+    const ms = (Date.now() - started) / (n + 1);
+    process.stdout.write(`\r  ${t.toFixed(1)} / ${stop.toFixed(1)} s of game time, ${ms.toFixed(0)} ms a frame, `
+      + `${Math.max(0, ((last - n) * ms) / 60000).toFixed(1)} min to go   `);
+  }
 }
 ffmpeg.stdin.end();
 await encoded;
+const frames = last - first + 1;
+const length = frames / fps;
 
 // ---- The sound track ----------------------------------------------------------
 // What was heard, and from where: the log, the camera (it stands still for the
 // whole film), and each object's falloff as its sound component has it.
-const heard = opt.silent ? null : await page.evaluate(() => {
+const heard = silent ? null : await page.evaluate(() => {
   const g = window.game;
   const cam = g.camera;
   const p = cam.getPosition();
@@ -187,83 +266,111 @@ const heard = opt.silent ? null : await page.evaluate(() => {
 });
 await browser.close();
 
-const length = n / fps;
 // Each file fetched once, into the work folder: ffmpeg cannot loop, or even
 // always read to the end, a file from a server that answers no ranges.
 const local = new Map();
 if (heard) {
   for (const url of new Set(heard.log.filter((e) => e.kind === 'sound').map((e) => e.url))) {
     const res = await fetch(url);
-    if (!res.ok) { console.warn(`  sound ${url}: HTTP ${res.status} — left out`); continue; }
-    const file = join(work, `${local.size}-${url.split('/').pop()}`);
-    writeFileSync(file, Buffer.from(await res.arrayBuffer()));
-    local.set(url, file);
+    if (!res.ok) { console.warn(`\n  sound ${url}: HTTP ${res.status} — left out`); continue; }
+    const f = join(work, `${local.size}-${url.split('/').pop()}`);
+    writeFileSync(f, Buffer.from(await res.arrayBuffer()));
+    local.set(url, f);
   }
   heard.log = heard.log.filter((e) => e.kind !== 'sound' || local.has(e.url)).map((e) => (e.url ? { ...e, url: local.get(e.url) } : e));
 }
-const sounds = soundTrack(heard, setup.t0, length);
+const sounds = soundTrack(heard, filmT0, length);
 if (sounds.length) {
   const inputs = sounds.flatMap((v) => [...(v.loop ? ['-stream_loop', '-1'] : []), '-i', v.url]);
   const chains = sounds.map((v, i) => `[${i + 1}:a]aformat=sample_rates=48000:channel_layouts=stereo,`
-    + `atrim=0:${v.length.toFixed(4)},asetpts=PTS-STARTPTS,`
+    + `atrim=${v.skip.toFixed(4)}:${(v.skip + v.length).toFixed(4)},asetpts=PTS-STARTPTS,`
+    + `volume=volume='${v.volume}':eval=frame,`
     + `pan=stereo|c0=${v.left.toFixed(4)}*c0|c1=${v.right.toFixed(4)}*c1,`
     + `adelay=${Math.round(v.at * 1000)}:all=1[s${i}]`);
   const mix = `${sounds.map((_, i) => `[s${i}]`).join('')}amix=inputs=${sounds.length}:normalize=0:duration=longest,`
     + `apad,atrim=0:${length.toFixed(4)}[mix]`;
   execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', pictures, ...inputs,
     '-filter_complex', [...chains, mix].join(';'), '-map', '0:v', '-map', '[mix]',
-    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', opt.out], { stdio: 'inherit' });
+    '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-movflags', '+faststart', out], { stdio: 'inherit' });
 } else {
-  copyFileSync(pictures, opt.out);
+  copyFileSync(pictures, out);
 }
 rmSync(work, { recursive: true, force: true });
 
 process.stdout.write('\n');
-console.log(`${opt.out}: ${n} frames, ${(n / fps).toFixed(2)} s at ${fps} fps, ${width}x${height}`
-  + (setup.action ? ` — ${opt.prop} ${setup.action}${endedAt === null ? ' (still running at the cap)' : ` ended at ${endedAt.toFixed(2)} s`}` : '')
-  + `, in ${((Date.now() - started) / 1000).toFixed(0)} s`);
+console.log(`${out}: ${frames} frames, ${length.toFixed(2)} s at ${fps} fps, ${width}x${height} — game time `
+  + `${(first / fps).toFixed(2)} to ${((last + 1) / fps).toFixed(2)} s, in ${((Date.now() - started) / 1000).toFixed(0)} s`);
+for (const p of pressed) console.log(`  press: ${p}`);
+for (const p of pending) console.warn(`  press: ${p.prop} ${p.action} at ${p.at} s never came — after the stop`);
 if (sounds.length) {
-  console.log(`  sound: ${sounds.map((v) => `${v.file} at ${v.at.toFixed(2)} s, ${v.length.toFixed(2)} s${v.loop ? ' looped' : ''}, `
-    + `gain ${Math.max(v.left, v.right).toFixed(2)}`).join('; ')}`);
-} else if (!opt.silent) console.log('  sound: nothing was heard');
+  console.log(`  sound: ${sounds.map((v) => `${v.file} at ${v.at.toFixed(2)} s${v.skip ? ` from ${v.skip.toFixed(2)} s in` : ''}, `
+    + `${v.length.toFixed(2)} s${v.loop ? ' looped' : ''}, gain ${Math.max(v.left, v.right).toFixed(2)}`
+    + `${v.changes ? `, volume changed ${v.changes}×` : ''}`).join('; ')}`);
+} else if (!silent) console.log('  sound: nothing was heard');
 if (setup.levels?.props) {
   const l = setup.levels;
-  console.log(`  levels: ${l.props} prop${l.props === 1 ? '' : 's'}, ${l.at.map((n, i) => `${i ? `L${i}` : 'base'} ${n}`).join(' · ')}`
+  console.log(`  levels: ${l.props} prop${l.props === 1 ? '' : 's'}, ${l.at.map((k, i) => `${i ? `L${i}` : 'base'} ${k}`).join(' · ')}`
     + `, ${l.fetchedMB.toFixed(1)} MB fetched, ${l.pending} pending at the first frame`);
 }
 if (errors.length) console.warn(`page errors:\n  ${errors.slice(0, 5).join('\n  ')}`);
 
 /**
  * The log as the mixer needs it: each sound's file, when in the film it
- * starts, how long it sounds (to its end, its cut, or the film's end), and
- * its left and right gains where the camera stood — the engine's own
- * inverse falloff and an equal-power pan, the same model the positional
- * sound component plays through. A sound with a `reach` says its own falloff
- * in the log: linear, silent past `max`.
+ * starts, how far into the file (when it began before filming did), how long
+ * it sounds (to its end, its cut, or the film's end), its volume over that
+ * time as the log has it, and its left and right gains where the camera
+ * stood — the engine's own inverse falloff and an equal-power pan, the same
+ * model the positional sound component plays through. A sound with a `reach`
+ * says its own falloff in the log: linear, silent past `max`.
  */
 function soundTrack(heard, t0, length) {
   if (!heard) return [];
   const cut = new Map(heard.log.filter((e) => e.kind === 'stop').map((e) => [e.id, e.t - t0]));
+  const turned = new Map();
+  for (const e of heard.log) {
+    if (e.kind !== 'volume') continue;
+    if (!turned.has(e.id)) turned.set(e.id, []);
+    turned.get(e.id).push({ t: e.t - t0, volume: e.volume });
+  }
   const out = [];
   for (const e of heard.log) {
     if (e.kind !== 'sound') continue;
-    const at = Math.max(0, e.t - t0);
+    const began = e.t - t0;                 // in film time; negative: before filming
+    const at = Math.max(0, began);
     if (at >= length) continue;
-    const full = e.loop ? Infinity : probeLength(e.url);
-    const until = Math.min(length, cut.get(e.id) ?? Infinity, at + full);
+    const full = probeLength(e.url);
+    let skip = at - began;
+    if (!e.loop && skip >= full) continue;  // over before filming started
+    if (e.loop && full > 0 && Number.isFinite(full)) skip %= full;
+    const until = Math.min(length, cut.get(e.id) ?? Infinity, e.loop ? Infinity : began + full);
     if (!(until > at)) continue;
+    // Its volume from `at` on: what it was then, and each change after, on
+    // the trimmed stream's own clock (0 at `at`).
+    let now = e.volume;
+    const later = [];
+    for (const c of turned.get(e.id) ?? []) {
+      if (c.t <= at) now = c.volume;
+      else if (c.t < until) later.push({ t: c.t - at, volume: c.volume });
+    }
+    // if(lt(t,t1), v0, if(lt(t,t2), v1, … vk)), built from the last change back.
+    let volume = String(later.length ? later[later.length - 1].volume : now);
+    for (let i = later.length - 1; i >= 0; i--) {
+      volume = `if(lt(t,${later[i].t.toFixed(4)}),${i === 0 ? now : later[i - 1].volume},${volume})`;
+    }
+    if (now === 0 && later.every((c) => c.volume === 0)) continue;   // never heard
     const d = Math.hypot(e.pos[0] - heard.cam[0], e.pos[1] - heard.cam[1], e.pos[2] - heard.cam[2]);
     const { model = 'inverse', ref = 2, max = 40, rolloff = 1 } = e.falloff ?? heard.falloff[e.object] ?? {};
     const clamped = Math.min(Math.max(d, ref), max);
-    const gain = e.volume * (model === 'linear'
+    const gain = model === 'linear'
       ? 1 - rolloff * (clamped - ref) / (max - ref)
-      : ref / (ref + rolloff * (clamped - ref)));
+      : ref / (ref + rolloff * (clamped - ref));
     // Equal power across the camera's right: dead ahead is 0.707 a side.
     const side = d > 1e-6
       ? ((e.pos[0] - heard.cam[0]) * heard.right[0] + (e.pos[1] - heard.cam[1]) * heard.right[1] + (e.pos[2] - heard.cam[2]) * heard.right[2]) / d
       : 0;
     const angle = (side + 1) * Math.PI / 4;
-    out.push({ file: e.file, url: e.url, loop: e.loop, at, length: until - at, left: gain * Math.cos(angle), right: gain * Math.sin(angle) });
+    out.push({ file: e.file, url: e.url, loop: e.loop, at, skip, length: until - at, volume, changes: later.length,
+      left: gain * Math.cos(angle), right: gain * Math.sin(angle) });
   }
   return out;
 }

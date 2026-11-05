@@ -1,5 +1,15 @@
 # Recording gameplay to video — the plan
 
+Status (2026-11-05): **a shot is a timeline.** `tools/record.mjs` takes a
+shot (`shots/*.json`, or flags): the view as a pause-screen Copy link, the
+size, fps, `start` and `stop` in game time, and presses (`prop`, `action`,
+`at`). It follows nothing in the world — not a run's end, not a film's — so a
+film's length is measured beforehand and written as `stop`. The clock is held
+from page load, before any prop lands, so a screen's film is at its frame 0
+at time 0 (`--prop/--action/--seconds/--tail` are gone). The mix follows a
+sound's volume over time (a muted film unmuted mid-shot). Camera moves are
+the next thing a shot will say.
+
 Status (2026-09-29): **steps 1–3 built.** The clock, the view and the
 recorder with its sound mix here (`tools/record.mjs`, `tests/record.mjs`);
 videos prepared, indexed and played in game time in the kit (`npm run video`,
@@ -14,8 +24,8 @@ afterwards.
 
 ```
 1. In the fly-over:  copy(game.session.view())          → {x,y,z,yaw,pitch}
-2. In the terminal:  node tools/record.mjs --view '{…}' --prop g-man-dance \
-                       --action dance --fps 30 --out gman.mp4
+2. In the terminal:  node tools/record.mjs --view '{…}' --press g-man-dance_01:dance@0 \
+                       --stop 6 --fps 30 --out gman.mp4
 3. The recorder:     headless Chromium → ?mode=flyover → switchMode('flyover', view) → s.trigger('dance')
                      → step 1/30 s, capture, repeat until the run ends
                      → frames + event log → ffmpeg → gman.mp4

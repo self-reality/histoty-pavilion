@@ -1,0 +1,9 @@
+{
+  "about": "The 9:16 box's Izhevsk bridge film, once through, unmuted from its first frame. stop is the film's length (ffprobe: 102.266667 s; the manifest's 102.266) - 3068 frames at 30 fps.",
+  "view": "http://localhost:5173/?mode=flyover&at=-42.24,0.00,0.75&look=154.4,7.1",
+  "size": "1080x1920",
+  "fps": 30,
+  "start": 0,
+  "stop": 102.266,
+  "press": [{ "at": 0, "prop": "box-9x16_01", "action": "unmute" }]
+}

@@ -23,3 +23,6 @@ assets/.assets.cache.json
 
 # The lighting test's fixture bake, made by tests/fixtures/lighting/make.mjs.
 tests/fixtures/lighting/out/
+
+# Films made by tools/record.mjs (npm run record -- --shot shots/<name>.json)
+recordings/
