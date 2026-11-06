@@ -247,6 +247,64 @@
       opacity: 0.85; text-shadow: 0 2px 6px rgba(0,0,0,0.9);
     }
 
+    /* Touch controls (see src/touch.mjs), up only while playing by touch:
+       the D-pad bottom left, the game's buttons bottom right, pause at the
+       top, and the rest of the screen a surface to look with. */
+    #touch {
+      position: fixed; inset: 0; z-index: 14; display: none;
+      touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+      --pad: min(56px, 13vmin);
+    }
+    body.touching #touch { display: block; }
+    #touchPause {
+      position: absolute; top: max(10px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+      width: 44px; height: 36px; border-radius: 8px;
+      border: 1.5px solid rgba(255,255,255,0.35);
+      /* Two bars, drawn: the pause glyph is missing from some phone fonts. */
+      background:
+        linear-gradient(#fff, #fff) calc(50% - 5px) 50% / 4px 14px no-repeat,
+        linear-gradient(#fff, #fff) calc(50% + 5px) 50% / 4px 14px no-repeat,
+        rgba(12,14,18,0.45);
+    }
+    #touchPad {
+      position: absolute; left: max(18px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom));
+      display: grid; gap: 4px;
+      grid-template-columns: repeat(3, var(--pad)); grid-template-rows: repeat(3, var(--pad));
+      grid-template-areas: "fl f fr" "l . r" ". b .";
+    }
+    #touchPad .cell, #touch .tbtn {
+      display: grid; place-items: center; border-radius: 10px;
+      font-size: calc(var(--pad) * 0.38); color: rgba(255,255,255,0.9);
+      background: rgba(12,14,18,0.4); border: 1.5px solid rgba(255,255,255,0.32);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    }
+    #touchPad [data-cell="fl"] { grid-area: fl; } #touchPad [data-cell="f"] { grid-area: f; }
+    #touchPad [data-cell="fr"] { grid-area: fr; } #touchPad [data-cell="l"] { grid-area: l; }
+    #touchPad [data-cell="r"] { grid-area: r; } #touchPad [data-cell="b"] { grid-area: b; }
+    /* The diagonals are there only while forward is held. */
+    #touchPad .diag { visibility: hidden; opacity: 0.6; }
+    #touchPad.forward .diag { visibility: visible; }
+    #touchPad .cell.on, #touch .tbtn.on { background: rgba(255,207,90,0.35); border-color: var(--accent); }
+    #touchPad.running [data-cell="f"] { background: var(--accent); color: #1a140a; }
+    #touchButtons {
+      position: absolute; right: max(22px, env(safe-area-inset-right)); bottom: max(22px, env(safe-area-inset-bottom));
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    #touch .tbtn { width: calc(var(--pad) * 1.25); height: calc(var(--pad) * 1.25); border-radius: 50%; font-size: calc(var(--pad) * 0.48); }
+    /* The HUD's corners are the controls' on a phone: score and ammo go up top. */
+    body.touching #score { top: 14px; bottom: auto; left: 18px; }
+    body.touching #ammo { top: 8px; bottom: auto; right: 18px; }
+    body.touching #ammo .count { font-size: 30px; }
+    /* A phone's pause screen, often on its side: smaller, and scrolls. */
+    @media (max-height: 560px), (max-width: 560px) {
+      #overlay { justify-content: flex-start; justify-content: safe center; overflow-y: auto; padding: 18px 16px; }
+      #overlay h1 { font-size: 30px; }
+      #overlay .sub { font-size: 12px; margin-bottom: 14px; }
+      #overlay .controls { margin-top: 16px; font-size: 12px; }
+      #prefs { margin-top: 14px; }
+    }
+    body.touch #igFrame, body.touch #prefs label:has(#igToggle) { display: none; }
+
     /* The debug tweak panel brings its own CSS and its own markup (see
        src/debug.mjs); this page is the production one and carries neither. */
   </style>

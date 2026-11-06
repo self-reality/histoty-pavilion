@@ -26,6 +26,11 @@ export default {
     ['R', 'Reload'],
     ['T', 'Teleport to new spawn'],
   ],
+  // On a phone (src/touch.mjs): its keys as buttons, and what a held finger does.
+  touch: {
+    hold: 'Fire',
+    buttons: [{ key: pc.KEY_R, label: '↻', what: 'Reload' }, { key: pc.KEY_SPACE, label: '⤒', what: 'Jump' }],
+  },
   enter,
 };
 
@@ -99,7 +104,7 @@ function enter(world, from) {
   let prevJump = false;
 
   function pollKeyboard() {
-    const k = app.keyboard;
+    const k = { isPressed: world.held };
     let f = 0, s = 0;
     if (k.isPressed(pc.KEY_W) || k.isPressed(pc.KEY_UP)) f += 1;
     if (k.isPressed(pc.KEY_S) || k.isPressed(pc.KEY_DOWN)) f -= 1;

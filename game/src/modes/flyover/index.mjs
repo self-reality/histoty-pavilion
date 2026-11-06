@@ -23,6 +23,10 @@ export default {
     ['Space / C', 'Up / down'],
     ['Shift', 'Fast'],
   ],
+  // On a phone (src/touch.mjs): up and down as buttons, as a flying player has them.
+  touch: {
+    buttons: [{ key: pc.KEY_SPACE, label: '▲', what: 'Up' }, { key: pc.KEY_C, label: '▼', what: 'Down' }],
+  },
   enter,
 };
 
@@ -147,7 +151,7 @@ function enter(world, from) {
   const input = { forward: 0, strafe: 0, rise: 0, fast: false };
 
   function pollKeyboard() {
-    const k = app.keyboard;
+    const k = { isPressed: world.held };
     input.forward = (k.isPressed(pc.KEY_W) || k.isPressed(pc.KEY_UP) ? 1 : 0) - (k.isPressed(pc.KEY_S) || k.isPressed(pc.KEY_DOWN) ? 1 : 0);
     input.strafe = (k.isPressed(pc.KEY_D) || k.isPressed(pc.KEY_RIGHT) ? 1 : 0) - (k.isPressed(pc.KEY_A) || k.isPressed(pc.KEY_LEFT) ? 1 : 0);
     input.rise = (k.isPressed(pc.KEY_SPACE) ? 1 : 0) - (k.isPressed(pc.KEY_C) ? 1 : 0);

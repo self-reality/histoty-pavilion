@@ -219,9 +219,21 @@ export class Actions {
     this.draw(showing);
   }
 
+  /**
+   * The offer whose hint is under a screen point (CSS px), with a finger's
+   * width to spare; else the one E would take. A tap (./touch.mjs) is E on
+   * the hint tapped, or E anywhere else.
+   */
+  offerAt(x, y, spare = 18) {
+    for (const o of this.offers) {
+      const r = o.item.shown?.on && o.item.hint?.getBoundingClientRect();
+      if (r && x >= r.left - spare && x <= r.right + spare && y >= r.top - spare && y <= r.bottom + spare) return o;
+    }
+    return this.active;
+  }
+
   /** E. Returns what it reached — `{ name, action, running }` — or null. */
-  trigger() {
-    const offer = this.active;
+  trigger(offer = this.active) {
     if (!offer) return null;
     const { item, action } = offer;
     const was = !!action.run;

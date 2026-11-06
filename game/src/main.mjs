@@ -28,6 +28,7 @@ import { Presence } from './presence.mjs';
 import { Lighting, lightingMode } from './lighting.mjs';
 import { Icing } from './icing.mjs';
 import { Net, roomsUrl } from './net.mjs';
+import { Touch, touchFirst } from './touch.mjs';
 
 const { Color, Entity, Asset, Quat } = pc;
 
@@ -305,6 +306,9 @@ async function boot() {
       // The walking body — standing, stepping, falling, put back when it falls
       // out. Any game on foot drives this one; the others leave it parked.
       walker: player, rescue,
+      // Is a key down — on the keyboard, or under a finger (./touch.mjs)?
+      // A game polls its keys through this, so touch plays it unchanged.
+      held: (key) => app.keyboard.isPressed(key) || !!touch?.held(key),
     };
 
     // Lightweight debug handle (handy for tweaking / automated checks). What
@@ -347,7 +351,7 @@ async function boot() {
 
     ui.loading.textContent = `Ready — ${tris.length.toLocaleString()} tris, ${floors.length} floor samples`;
     ui.playBtn.disabled = false;
-    ui.playBtn.textContent = 'Click to Play';
+    ui.playBtn.textContent = touch ? 'Tap to Play' : 'Click to Play';
 
     // Authored props (tent, etc.) are cosmetic, so load them after the map is
     // playable rather than gating "Ready" on a 10 MB GLB.
@@ -764,7 +768,13 @@ function showMode() {
   ui.title.textContent = mode.title;
   ui.sub.textContent = mode.sub;
   ui.controls.replaceChildren();
-  for (const [k, d] of [...mode.controls, ['E', 'Use what the E is on'], ['Esc', 'Release mouse']]) {
+  const rows = touch
+    ? [['◀ ▲ ▶', 'Move — ▲ twice to run'], ['Drag', 'Look'], ['Tap', 'Use what the E is on'],
+       ...(mode.touch?.hold ? [['Hold', mode.touch.hold]] : []),
+       ...(mode.touch?.buttons ?? []).map((b) => [b.label, b.what]), ['II', 'Pause (top)']]
+    : [...mode.controls, ['E', 'Use what the E is on'], ['Esc', 'Release mouse']];
+  touch?.setButtons(mode.touch?.buttons ?? []);
+  for (const [k, d] of rows) {
     const key = document.createElement('span'); key.className = 'k'; key.textContent = k;
     const what = document.createElement('span'); what.className = 'd'; what.textContent = d;
     ui.controls.append(key, what);
@@ -923,7 +933,53 @@ function until(test, ms) {
 // ---- Input ----
 // The world's keys are E (and V / backtick on the debug URL); everything else
 // is handed to the game being played.
-function isLocked() { return pc.Mouse.isPointerLocked(); }
+//
+// Playing is the mouse taken (pointer lock) or, on a phone, the touch
+// controls up (./touch.mjs): the same game either way, told of looks, presses
+// and the button as a mouse and keyboard would tell it. `touch` is made on a
+// device whose pointer is a finger, or the first time Play is touched.
+let touch = null;
+function isLocked() { return pc.Mouse.isPointerLocked() || !!touch?.playing; }
+
+function makeTouch() {
+  if (touch) return touch;
+  touch = new Touch({
+    look: (dx, dy) => { if (started && session) session.look?.(dx, dy); },
+    tap: (x, y) => { if (started && actions) actions.trigger(actions.offerAt(x, y)); },
+    down: () => session?.down?.(pc.MOUSEBUTTON_LEFT),
+    up: () => session?.up?.(pc.MOUSEBUTTON_LEFT),
+    press: (key) => { if (started) session?.press?.(key); },
+    pause: () => releaseControl(),
+  });
+  document.body.classList.add('touch');
+  if (mode) showMode();
+  return touch;
+}
+if (touchFirst()) makeTouch();
+
+// Into the game: the mouse taken, or the touch controls put up. A phone goes
+// full screen and on its side where the browser lets it (none of it is
+// needed: the controls work in a portrait browser tab too).
+function takeControl(byTouch = !!touch) {
+  if (!byTouch) { Promise.resolve(document.body.requestPointerLock?.()).catch(() => {}); return; }
+  makeTouch().start();
+  const el = document.documentElement;
+  if (!document.fullscreenElement && el.requestFullscreen) {
+    el.requestFullscreen({ navigationUI: 'hide' })
+      .then(() => screen.orientation?.lock?.('landscape'))
+      .catch(() => {});
+  }
+  setPlaying(true);
+}
+// Out of it: the mouse given back, or the touch controls let go.
+function releaseControl() {
+  if (touch?.playing) { touch.stop(); setPlaying(false); }
+  document.exitPointerLock?.();
+}
+// A phone put away, or another app over it: paused, as Esc would.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && touch?.playing) releaseControl();
+});
 
 app.mouse.on(pc.EVENT_MOUSEMOVE, (e) => {
   if (!started || !isLocked() || !session) return;
@@ -946,9 +1002,10 @@ app.keyboard.on(pc.EVENT_KEYDOWN, (e) => {
   session?.press?.(e.key);
 });
 
-ui.playBtn.addEventListener('click', () => {
+ui.playBtn.addEventListener('click', (e) => {
   if (ui.playBtn.disabled) return;
-  app.mouse.enablePointerLock();
+  if (touch || e.pointerType === 'touch') takeControl(true);
+  else app.mouse.enablePointerLock();
 });
 
 // ---- A script's menu ----
@@ -975,14 +1032,14 @@ page.menu = ({ text, buttons }, answer) => {
       // click is what lets the mouse be taken again. A browser that refuses
       // says so in pointerlockerror, below.
       ui.overlay.classList.add('hidden');
-      Promise.resolve(document.body.requestPointerLock?.()).catch(() => {});
+      takeControl();
       answer(word);
     });
     return b;
   }));
   ui.overlay.classList.add('asking');
   ui.overlay.classList.remove('hidden');
-  document.exitPointerLock?.();
+  releaseControl();
   // The script took it down, or its run ended: the question goes, and what is
   // left is the pause screen if the mouse is still off the game.
   return () => { if (asking === answer) closeMenu(); };
@@ -1005,8 +1062,8 @@ if (togglePanel) {
   });
 }
 
-document.addEventListener('pointerlockchange', () => {
-  const locked = isLocked();
+document.addEventListener('pointerlockchange', () => setPlaying(pc.Mouse.isPointerLocked()));
+function setPlaying(locked) {
   // What shows while playing is CSS, keyed on these and on data-mode (see
   // index.html): the dot, the crosshair and the HUD, for the shooter only.
   document.body.classList.toggle('playing', locked);
@@ -1018,9 +1075,9 @@ document.addEventListener('pointerlockchange', () => {
     // Paused — show overlay again.
     session?.pause?.();
     ui.overlay.classList.remove('hidden');
-    ui.playBtn.textContent = 'Click to Resume';
+    ui.playBtn.textContent = touch ? 'Tap to Resume' : 'Click to Resume';
   }
-});
+}
 
 // ---- Clock ----
 // Time is a value the world is given, not something the frame timer decides.

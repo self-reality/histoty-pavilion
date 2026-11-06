@@ -43,6 +43,10 @@ export default {
   sub: 'Free camera',
   body: 'flyer',                 // how its ghost is drawn to others: 'walker' | 'flyer'
   controls: [['Space / C', 'Up / down'], …],   // its keys; E and Esc are the world's
+  touch: {                       // on a phone (src/touch.mjs); optional
+    hold: 'Fire',                // what a finger held still does (the left button), if anything
+    buttons: [{ key: pc.KEY_SPACE, label: '▲', what: 'Up' }, …],   // keys as buttons, top to bottom
+  },
   enter(world, from) { return session; },
 };
 ```
@@ -58,6 +62,7 @@ entry. `world` holds:
 | `camera`, `rig` | the one view: the camera entity and the root it hangs from |
 | `walker`, `rescue` | the walking body and its fall rescue, for any game on foot |
 | `audio`, `actions`, `presence` | the sound bank, the E key, everyone else |
+| `held(key)` | is a key down, on the keyboard or under a finger: poll keys with this, not `app.keyboard`, and touch plays the game unchanged |
 
 The session it returns:
 
@@ -69,5 +74,11 @@ The session it returns:
 | `look(dx, dy)`, `down(b)`, `up(b)`, `press(key)` | mouse and keys, only while playing (all optional) |
 | `pause()` | the pointer was released (optional) |
 | `exit()` | take everything of its own off stage |
+
+On a phone the world puts up touch controls (`src/touch.mjs`): a D-pad
+for W A S D (forward twice holds Shift), a drag that is `look()`, a tap that is
+E, a held finger that is `down`/`up` of the left button, and the mode's
+`touch.buttons`, each a key held through `held()` and given to `press()`.
+A mode has nothing else to do for touch.
 
 A new mode is a folder here and an entry in `MODE_NAMES` in `src/main.mjs`.
