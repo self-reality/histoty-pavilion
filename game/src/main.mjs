@@ -539,6 +539,8 @@ let layoutPending = 0;
 // once it is walkable the bar turns from a sweep into the objects placed out
 // of those asked for, and the line under it says what is left — objects,
 // failures, then finer drawings (./levels.mjs) — until nothing is.
+// The objects' GLB files, url -> { loaded, total } bytes, as they download.
+const objFiles = new Map();
 const load = { downloading: false, mapReady: false, asked: 0, landed: 0, failed: 0 };
 
 // The map's own files — the GLB, and with a bake its lightmap and probes —
@@ -564,8 +566,16 @@ function showLoad() {
   ui.loadBar.classList.remove('sweep');
   ui.loadBar.classList.toggle('done', !placing);
   ui.loadBar.firstElementChild.style.width = `${asked ? (100 * landed) / asked : 100}%`;
+  // Their GLBs in megabytes. The whole is only known once every file has
+  // started and said its size — the browser fetches a few at a time — so until
+  // then it is what has come so far.
+  let got = 0, all = 0, unknown = false;
+  for (const f of objFiles.values()) { got += f.loaded; all += f.total; if (!f.total) unknown = true; }
+  const mb = (n) => (n / 1e6).toFixed(1);
+  const bytes = !objFiles.size ? '' : !placing ? ` · ${mb(all || got)} MB`
+    : unknown ? ` · ${mb(got)} MB` : ` · ${mb(got)} / ${mb(all)} MB`;
   const parts = [];
-  if (asked) parts.push(placing ? `Objects ${landed} / ${asked}` : `${asked - failed} object${asked - failed === 1 ? '' : 's'} placed`);
+  if (asked) parts.push((placing ? `Objects ${landed} / ${asked}` : `${asked - failed} object${asked - failed === 1 ? '' : 's'} placed`) + bytes);
   if (failed) parts.push(`${failed} failed`);
   if (!placing && fetching) parts.push(`finer detail: ${fetching} downloading`);
   ui.loadDetail.textContent = parts.join(' · ');
@@ -586,6 +596,11 @@ setInterval(() => { if (load.mapReady && !document.body.classList.contains('play
 // is reported and the object still lands, as a statue.
 function loadProp(prop) {
   const asset = loadContainer(prop.glb);
+  if (!objFiles.has(prop.glb) && !asset.loaded) {
+    const f = { loaded: 0, total: 0 };
+    objFiles.set(prop.glb, f);
+    asset.on('progress', (loaded, total) => { f.loaded = loaded; f.total = total; showLoad(); });
+  }
   layoutPending++;
   load.asked++;
   let waiting = true;
