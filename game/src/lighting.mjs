@@ -99,7 +99,7 @@ export class Lighting {
    * (A lightmap that fails after the lit GLB was named leaves the lit GLB in
    * use: it is the original map plus a UV set nothing reads.)
    */
-  static async open({ app, cfg = {}, mode = 'baked', base = location.href, fill = null }) {
+  static async open({ app, cfg = {}, mode = 'baked', base = location.href, fill = null, progress = null }) {
     const flat = (why) => {
       if (why) console.warn(`[lighting] ${why} — flat`);
       else console.log('[lighting] flat');
@@ -120,10 +120,10 @@ export class Lighting {
     }
     const file = (name) => new URL(name, at).href;
     const lighting = Promise.all([
-      loadLightmap(app, file(desc.lightmap)),
+      loadLightmap(app, file(desc.lightmap), progress),
       fetch(file(desc.probes)).then((r) => {
         if (!r.ok) throw new Error(`${desc.probes}: HTTP ${r.status}`);
-        return r.arrayBuffer();
+        return progress ? readCounting(r, (loaded, total) => progress('probes', loaded, total)) : r.arrayBuffer();
       }).then(parseProbes),
     ]).then(([texture, probes]) => {
       const lit = new Lighting({ app, cfg, fill, texture, probes, desc });
@@ -369,7 +369,30 @@ export class Lighting {
   }
 }
 
-function loadLightmap(app, url) {
+// A response's body read to the end, telling `progress` the bytes so far and
+// the Content-Length (0 when the server does not say).
+async function readCounting(res, progress) {
+  const total = Number(res.headers.get('content-length')) || 0;
+  if (!res.body) return res.arrayBuffer();
+  const reader = res.body.getReader();
+  const chunks = [];
+  let loaded = 0;
+  progress(0, total);
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.length;
+    progress(loaded, total);
+  }
+  const out = new Uint8Array(loaded);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  return out.buffer;
+}
+
+// `progress(name, loaded, total)`, if given, hears the PNG's download.
+function loadLightmap(app, url, progress = null) {
   return new Promise((resolve, reject) => {
     // No mipmaps. A mip of RGBM averages the encoded bytes, which is not the
     // average of the light, and past the first levels it reaches across the
@@ -380,6 +403,7 @@ function loadLightmap(app, url) {
       minfilter: 'linear', magfilter: 'linear', addressu: 'clamp', addressv: 'clamp',
     });
     asset.once('error', (err) => reject(new Error(`lightmap: ${err}`)));
+    if (progress) asset.on('progress', (loaded, total) => progress('lightmap', loaded, total));
     asset.ready(() => {
       const t = asset.resource;
       if (t?.encoding !== 'rgbm') reject(new Error(`lightmap decoded as ${t?.encoding}, not rgbm`));

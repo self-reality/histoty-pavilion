@@ -189,18 +189,22 @@ async function boot() {
   // then download alongside the map, and are in memory before anything is
   // built, so a filmed frame never waits on them. Never fails: whatever does,
   // the game is lit flat.
-  const lit = await Lighting.open({ app, cfg: manifest.lighting, mode: lightMode, fill });
+  const lit = await Lighting.open({ app, cfg: manifest.lighting, mode: lightMode, fill, progress: mapBytes });
 
   const asset = new Asset('de_dust2', 'container', { url: lit.mapGlb ?? MAP.glb });
   ui.loading.textContent = 'Downloading map…';
-  asset.on('error', (err) => { ui.loading.textContent = 'Failed to load map: ' + err; ui.loadBar.classList.add('done'); });
+  load.downloading = true;
+  asset.on('progress', (loaded, total) => mapBytes('map', loaded, total));
+  asset.on('error', (err) => { load.downloading = false; ui.loading.textContent = 'Failed to load map: ' + err; ui.loadBar.classList.add('done'); });
   app.assets.add(asset);
   app.assets.load(asset);
 
   asset.ready(() => Promise.all([layout, lit.lighting]).then(async ([scene, light]) => {
     lighting = light;
     presence.lighting = lighting;
+    load.downloading = false;
     ui.loading.textContent = 'Building collision…';
+    ui.loadBar.classList.add('sweep');
 
     const renderRoot = asset.resource.instantiateRenderEntity();
     const map = new Entity('map');
@@ -363,6 +367,7 @@ async function boot() {
     // Boot used to run straight inside asset.ready(), where a throw was an
     // uncaught error the console and tests/smoke.mjs both see. Inside a promise
     // chain the same throw is a silent rejection, so put it back on the stack.
+    load.downloading = false;
     ui.loading.textContent = 'Failed to build the scene: ' + err.message;
     ui.loadBar.classList.add('done');
     setTimeout(() => { throw err; });
@@ -534,7 +539,23 @@ let layoutPending = 0;
 // once it is walkable the bar turns from a sweep into the objects placed out
 // of those asked for, and the line under it says what is left — objects,
 // failures, then finer drawings (./levels.mjs) — until nothing is.
-const load = { mapReady: false, asked: 0, landed: 0, failed: 0 };
+const load = { downloading: false, mapReady: false, asked: 0, landed: 0, failed: 0 };
+
+// The map's own files — the GLB, and with a bake its lightmap and probes —
+// counted in bytes as they download, all on the one bar. A file whose size the
+// server does not send leaves the bar sweeping, as there is no whole to fill.
+const mapFiles = new Map();   // name -> { loaded, total }
+function mapBytes(name, loaded, total) {
+  mapFiles.set(name, { loaded, total });
+  if (!load.downloading) return;
+  let got = 0, all = 0, unknown = false;
+  for (const f of mapFiles.values()) { got += f.loaded; all += f.total; if (!f.total) unknown = true; }
+  if (unknown || !all) return;
+  const mb = (n) => (n / 1e6).toFixed(1);
+  ui.loading.textContent = `Downloading map — ${mb(got)} / ${mb(all)} MB`;
+  ui.loadBar.classList.remove('sweep');
+  ui.loadBar.firstElementChild.style.width = `${(100 * got) / all}%`;
+}
 function showLoad() {
   if (!load.mapReady) return;
   const { asked, landed, failed } = load;
