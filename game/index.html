@@ -353,6 +353,36 @@
     </div>
   </div>
 
+  <script>
+    // The load status before the game's code runs (src/main.mjs takes over the
+    // moment it does, by marking #loading): the engine and the modules, which no
+    // script can watch while they download. Each file is counted once it has
+    // come — the engine is one file, so most of it lands at once — against a
+    // whole that is only an estimate: lib/playcanvas.mjs (3.6 MB) and what
+    // src/main.mjs imports (0.4 MB). Off by a little as the code grows; it
+    // only has to say how far there is to go.
+    (() => {
+      const APPROX_MB = 4.0;
+      const el = document.getElementById('loading');
+      const bar = document.getElementById('loadBar');
+      let got = 0;
+      const show = () => {
+        if (el.dataset.game) return;
+        el.textContent = `Loading engine — ${(got / 1e6).toFixed(1)} / ~${APPROX_MB.toFixed(1)} MB`;
+        bar.classList.remove('sweep');
+        bar.firstElementChild.style.width = `${Math.min(100, got / 1e4 / APPROX_MB)}%`;
+      };
+      try {
+        new PerformanceObserver((list) => {
+          for (const e of list.getEntries()) {
+            if (/\.m?js(\?|$)/.test(new URL(e.name).pathname)) got += e.encodedBodySize || e.transferSize || 0;
+          }
+          show();
+        }).observe({ type: 'resource', buffered: true });
+      } catch { /* no observer: the line stays as written */ }
+      show();
+    })();
+  </script>
   <script type="importmap">
     { "imports": { "playcanvas": "./lib/playcanvas.mjs" } }
   </script>

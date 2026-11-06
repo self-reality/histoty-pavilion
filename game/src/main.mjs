@@ -178,11 +178,19 @@ const scripted = [];
 
 // ---- Boot ----
 async function boot() {
+  // The code is in: the page's own counter (index.html) stops, this one starts.
+  ui.loading.dataset.game = 'running';
+  ui.loading.textContent = 'Preparing map…';
+  ui.loadBar.classList.add('sweep');
+
   // The layout fetch is started here rather than after the map lands, because
   // the negatives in it have to be applied before the collider is built. Kicked
   // off alongside the GLB download it costs nothing; awaited afterwards it
   // would put a round trip on the critical path.
   const layout = loadLayout();
+  // The objects' sizes, asked of the server while the map downloads, so the
+  // load status has their whole before their own downloads start.
+  layout.then((scene) => sizeObjects(scene.props)).catch(() => {});
 
   // The bake's descriptor, before the map: it says which file the map is read
   // from (the lit copy carries the lightmap's uvs). The lightmap and probes
@@ -541,6 +549,19 @@ let layoutPending = 0;
 // failures, then finer drawings (./levels.mjs) — until nothing is.
 // The objects' GLB files, url -> { loaded, total } bytes, as they download.
 const objFiles = new Map();
+// Their sizes as the server gives them to a HEAD request, url -> bytes.
+const objSizes = new Map();
+function sizeObjects(props) {
+  for (const url of new Set(props.map((p) => p.glb))) {
+    // The (empty) body is read to its end, or the browser counts the request
+    // as cut off rather than finished.
+    fetch(url, { method: 'HEAD' }).then(async (res) => {
+      await res.arrayBuffer();
+      const n = Number(res.headers.get('content-length'));
+      if (res.ok && n) { objSizes.set(url, n); showLoad(); }
+    }).catch(() => { /* its size comes with its download */ });
+  }
+}
 const load = { downloading: false, mapReady: false, asked: 0, landed: 0, failed: 0 };
 
 // The map's own files — the GLB, and with a bake its lightmap and probes —
@@ -566,19 +587,43 @@ function showLoad() {
   ui.loadBar.classList.remove('sweep');
   ui.loadBar.classList.toggle('done', !placing);
   ui.loadBar.firstElementChild.style.width = `${asked ? (100 * landed) / asked : 100}%`;
-  // Their GLBs in megabytes. The whole is only known once every file has
-  // started and said its size — the browser fetches a few at a time — so until
-  // then it is what has come so far.
-  let got = 0, all = 0, unknown = false;
-  for (const f of objFiles.values()) { got += f.loaded; all += f.total; if (!f.total) unknown = true; }
+  // Their GLBs in megabytes: each file's size from its download once it has
+  // started, from the server's answer to sizeObjects() before. A file neither
+  // has spoken for is guessed as the average of the rest, and the whole is
+  // then marked as approximate.
+  let got = 0, all = 0, sized = 0, unsized = 0;
+  for (const [url, f] of objFiles) {
+    got += f.loaded;
+    const size = f.total || objSizes.get(url) || 0;
+    if (size) { all += size; sized++; } else unsized++;
+  }
+  if (unsized && sized) all += (all / sized) * unsized;
   const mb = (n) => (n / 1e6).toFixed(1);
-  const bytes = !objFiles.size ? '' : !placing ? ` · ${mb(all || got)} MB`
-    : unknown ? ` · ${mb(got)} MB` : ` · ${mb(got)} / ${mb(all)} MB`;
+  const bytes = !objFiles.size ? '' : !placing ? ` · ${mb(got)} MB`
+    : !all ? ` · ${mb(got)} MB`
+    : ` · ${mb(got)} / ${unsized ? '~' : ''}${mb(all)} MB`;
   const parts = [];
   if (asked) parts.push((placing ? `Objects ${landed} / ${asked}` : `${asked - failed} object${asked - failed === 1 ? '' : 's'} placed`) + bytes);
   if (failed) parts.push(`${failed} failed`);
-  if (!placing && fetching) parts.push(`finer detail: ${fetching} downloading`);
+  if (!placing && fetching) parts.push(`finer detail: ${fetching} downloading · ${levelBytes()}`);
   ui.loadDetail.textContent = parts.join(' · ');
+}
+// The level files downloading now, in megabytes: each one's size is in its
+// prop's manifest, and what has come of it is heard from its asset.
+const levelGot = new WeakMap();   // asset -> bytes loaded
+function levelBytes() {
+  let got = 0, all = 0;
+  for (const f of levels.files.values()) {
+    if (f.state !== 'loading') continue;
+    if (!levelGot.has(f.asset)) {
+      levelGot.set(f.asset, 0);
+      f.asset.on('progress', (loaded) => levelGot.set(f.asset, loaded));
+    }
+    got += levelGot.get(f.asset);
+    all += f.bytes ?? 0;
+  }
+  const mb = (n) => (n / 1e6).toFixed(1);
+  return all ? `${mb(got)} / ${mb(all)} MB` : `${mb(got)} MB`;
 }
 // Levels fetch on their own as the view asks, so they are looked at rather
 // than told of — and only while the screen is up to be read.
