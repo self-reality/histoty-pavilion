@@ -59,6 +59,8 @@ const ui = {
   overlay: document.getElementById('overlay'),
   playBtn: document.getElementById('playBtn'),
   loading: document.getElementById('loading'),
+  loadBar: document.getElementById('loadBar'),
+  loadDetail: document.getElementById('loadDetail'),
   actions: document.getElementById('actions'),
   title: document.getElementById('title'),
   sub: document.getElementById('sub'),
@@ -189,7 +191,8 @@ async function boot() {
   const lit = await Lighting.open({ app, cfg: manifest.lighting, mode: lightMode, fill });
 
   const asset = new Asset('de_dust2', 'container', { url: lit.mapGlb ?? MAP.glb });
-  asset.on('error', (err) => { ui.loading.textContent = 'Failed to load map: ' + err; });
+  ui.loading.textContent = 'Downloading map…';
+  asset.on('error', (err) => { ui.loading.textContent = 'Failed to load map: ' + err; ui.loadBar.classList.add('done'); });
   app.assets.add(asset);
   app.assets.load(asset);
 
@@ -349,12 +352,15 @@ async function boot() {
     // Authored props (tent, etc.) are cosmetic, so load them after the map is
     // playable rather than gating "Ready" on a 10 MB GLB.
     scene.props.forEach(loadProp);
+    load.mapReady = true;
+    showLoad();
     if (SHOT) playShot(SHOT).catch((err) => { ui.shotText.textContent = `Shot ${SHOT}: ${err.message}`; console.error('[shot]', err); });
   }).catch((err) => {
     // Boot used to run straight inside asset.ready(), where a throw was an
     // uncaught error the console and tests/smoke.mjs both see. Inside a promise
     // chain the same throw is a silent rejection, so put it back on the stack.
     ui.loading.textContent = 'Failed to build the scene: ' + err.message;
+    ui.loadBar.classList.add('done');
     setTimeout(() => { throw err; });
   }));
 }
@@ -519,6 +525,30 @@ const propTurn = () => (clock.held ? Promise.resolve() : new Promise((resolve) =
 // of one would only make the room take longer to fill.
 let layoutPending = 0;
 
+// What the start / pause screen says is still coming (#loadStatus in
+// index.html). The map's phases are written straight to ui.loading by boot();
+// once it is walkable the bar turns from a sweep into the objects placed out
+// of those asked for, and the line under it says what is left — objects,
+// failures, then finer drawings (./levels.mjs) — until nothing is.
+const load = { mapReady: false, asked: 0, landed: 0, failed: 0 };
+function showLoad() {
+  if (!load.mapReady) return;
+  const { asked, landed, failed } = load;
+  const placing = landed < asked;
+  const fetching = levels?.loading ?? 0;
+  ui.loadBar.classList.remove('sweep');
+  ui.loadBar.classList.toggle('done', !placing);
+  ui.loadBar.firstElementChild.style.width = `${asked ? (100 * landed) / asked : 100}%`;
+  const parts = [];
+  if (asked) parts.push(placing ? `Objects ${landed} / ${asked}` : `${asked - failed} object${asked - failed === 1 ? '' : 's'} placed`);
+  if (failed) parts.push(`${failed} failed`);
+  if (!placing && fetching) parts.push(`finer detail: ${fetching} downloading`);
+  ui.loadDetail.textContent = parts.join(' · ');
+}
+// Levels fetch on their own as the view asks, so they are looked at rather
+// than told of — and only while the screen is up to be read.
+setInterval(() => { if (load.mapReady && !document.body.classList.contains('playing')) showLoad(); }, 250);
+
 // Place one authored prop. Kept in world space (child of root) so its numbers
 // match what the exporter wrote.
 //
@@ -532,11 +562,19 @@ let layoutPending = 0;
 function loadProp(prop) {
   const asset = loadContainer(prop.glb);
   layoutPending++;
+  load.asked++;
   let waiting = true;
-  const landed = () => { if (waiting) { waiting = false; layoutPending--; } };
+  const landed = (failed) => {
+    if (!waiting) return;
+    waiting = false; layoutPending--;
+    load.landed++;
+    if (failed) load.failed++;
+    showLoad();
+  };
+  const failed = () => landed(true);
   // A GLB that fails is never placed: it is not waited on either.
-  if (failedContainers.has(asset)) landed();
-  else asset.once('error', landed);
+  if (failedContainers.has(asset)) failed();
+  else asset.once('error', failed);
   if (prop.script && !prop.manifest) {
     console.warn(`[prop ${prop.name}] names a script (${prop.script}) and no manifest — a layout from before `
       + 'scripts were code; run `npm run scene:export` again');
@@ -552,7 +590,8 @@ function loadProp(prop) {
     // rejection, and a prop that failed to place should fail the smoke test.
     console.error(`[prop ${prop.name}] failed to place:`, err);
     setTimeout(() => { throw err; });
-  }).finally(landed));
+    failed();
+  }).finally(() => landed()));
   return asset;
 }
 
